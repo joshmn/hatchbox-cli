@@ -79,10 +79,15 @@ follow_log() {
     done
 
     case "$state" in
-      completed|failed|aborted)
+      completed)
+        echo
+        echo "completed"
+        return 0
+        ;;
+      failed|aborted)
         echo
         echo "$state"
-        return 0
+        return 1
         ;;
     esac
 
