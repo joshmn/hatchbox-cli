@@ -57,7 +57,7 @@ load_config() {
   [ -n "$CONFIG" ] || die "no .hatchbox found here or above $PWD. see hatchbox --help for the format"
 
   APP_ID="$(config_get "$CONFIG" app_id)"
-  [ -n "$APP_ID" ] || die "$CONFIG names no app, so there is nothign to talk to. see hatchbox --help"
+  [ -n "$APP_ID" ] || die "$CONFIG names no app, so there is nothing to talk to. see hatchbox --help"
 
   TOKEN="${HATCHBOX_API_TOKEN:-}"
   [ -n "$TOKEN" ] || TOKEN="$(config_get "$GLOBAL_CONFIG" token)"
