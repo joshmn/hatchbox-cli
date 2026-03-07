@@ -2,8 +2,10 @@
 set -euo pipefail
 
 BASE="https://hatchbox.io/api/v1"
-APP_ID="${HATCHBOX_APP_ID:-}"
-TOKEN="${HATCHBOX_API_TOKEN:-}"
+GLOBAL_CONFIG="$HOME/.hatchbox"
+CONFIG=""
+APP_ID=""
+TOKEN=""
 POLL_SECONDS=3
 
 RESP_CODE=""
@@ -16,6 +18,50 @@ die() {
 
 need() {
   command -v "$1" >/dev/null 2>&1 || die "$1 is required and is not installed"
+}
+
+# config files are "key = value", one per line, # starts a full line comment.
+config_get() {
+  local file="$1" key="$2"
+  [ -f "$file" ] || return 0
+  awk -v want="$key" '
+    /^[ \t]*#/ { next }
+    /=/ {
+      k = $0
+      sub(/=.*/, "", k)
+      gsub(/^[ \t]+|[ \t]+$/, "", k)
+      if (k != want) next
+      v = $0
+      sub(/^[^=]*=/, "", v)
+      gsub(/^[ \t]+|[ \t]+$/, "", v)
+      print v
+    }
+  ' "$file" | tail -1
+}
+
+find_config() {
+  local dir="$PWD"
+  while :; do
+    # ~/.hatchbox is the token file, never an app's config
+    if [ -f "$dir/.hatchbox" ] && [ "$dir/.hatchbox" != "$GLOBAL_CONFIG" ]; then
+      printf '%s' "$dir/.hatchbox"
+      return 0
+    fi
+    [ "$dir" = "/" ] && return 1
+    dir="$(dirname "$dir")"
+  done
+}
+
+load_config() {
+  CONFIG="$(find_config || true)"
+  [ -n "$CONFIG" ] || die "no .hatchbox found here or above $PWD. see hatchbox --help for the format"
+
+  APP_ID="$(config_get "$CONFIG" app_id)"
+  [ -n "$APP_ID" ] || die "$CONFIG names no app, so there is nothign to talk to. see hatchbox --help"
+
+  TOKEN="${HATCHBOX_API_TOKEN:-}"
+  [ -n "$TOKEN" ] || TOKEN="$(config_get "$GLOBAL_CONFIG" token)"
+  [ -n "$TOKEN" ] || die "no api token. put 'token = ...' in $GLOBAL_CONFIG or set HATCHBOX_API_TOKEN"
 }
 
 api() {
@@ -174,7 +220,7 @@ cmd_restart() {
 
 usage() {
   cat <<'USAGE'
-hatchbox, talks to the hatchbox api
+hatchbox, talks to the hatchbox api for the app you are standing in
 
   deploy                 queue a deploy and stream it until it lands
   deploy --sha SHA       deploy one commit instead of the tip of the branch
@@ -182,9 +228,16 @@ hatchbox, talks to the hatchbox api
   status                 the last deployed sha
   restart                restart every process and stream it
 
+the app comes from the nearest .hatchbox, here or upward:
+
+  app_id = 13673
+
+the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
+
+  token = your-api-token
+
 env
-  HATCHBOX_API_TOKEN     your api token
-  HATCHBOX_APP_ID        the app to act on, 13673
+  HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
 USAGE
 }
 
@@ -195,8 +248,7 @@ case "${1:-}" in
   ""|-h|--help|help) usage; exit 0 ;;
 esac
 
-[ -n "$TOKEN" ] || die "no api token. set HATCHBOX_API_TOKEN"
-[ -n "$APP_ID" ] || die "no app. set HATCHBOX_APP_ID"
+load_config
 
 case "$1" in
   deploy) shift; cmd_deploy "$@" ;;
