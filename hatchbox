@@ -4,6 +4,7 @@ set -euo pipefail
 BASE="https://hatchbox.io/api/v1"
 APP_ID="${HATCHBOX_APP_ID:-}"
 TOKEN="${HATCHBOX_API_TOKEN:-}"
+POLL_SECONDS=3
 
 RESP_CODE=""
 RESP_BODY=""
@@ -40,13 +41,63 @@ api_ok() {
   die "hatchbox said: $message"
 }
 
+emit_new() {
+  local key="$1" new="$2" dir="$3"
+  local old="$dir/$key" oldlen newlen
+  [ -f "$old" ] || : > "$old"
+  oldlen="$(wc -c < "$old" | tr -d ' ')"
+  newlen="$(wc -c < "$new" | tr -d ' ')"
+  if [ "$oldlen" -eq 0 ]; then
+    [ "$newlen" -gt 0 ] && cat "$new"
+  elif [ "$newlen" -gt "$oldlen" ] && head -c "$oldlen" "$new" | cmp -s - "$old"; then
+    tail -c "+$((oldlen + 1))" "$new"
+  elif ! cmp -s "$old" "$new"; then
+    cat "$new"
+  fi
+  cp "$new" "$old"
+}
+
+follow_log() {
+  local log_id="$1" dir tmp state
+  dir="$(mktemp -d)"
+  tmp="$dir/fetch"
+  trap "rm -rf '$dir'" RETURN
+
+  while :; do
+    api_ok GET "/logs/$log_id"
+    state="$(printf '%s' "$RESP_BODY" | jq -r '.state // "unknown"')"
+
+    printf '%s' "$RESP_BODY" | jq -j '.body // ""' > "$tmp"
+    emit_new parent "$tmp" "$dir"
+
+    local child_ids child_id
+    child_ids="$(printf '%s' "$RESP_BODY" | jq -r '.child_logs[]?.id')"
+    for child_id in $child_ids; do
+      printf '%s' "$RESP_BODY" | jq -j --argjson cid "$child_id" \
+        '.child_logs[] | select(.id == $cid) | .body // ""' > "$tmp"
+      emit_new "child-$child_id" "$tmp" "$dir"
+    done
+
+    case "$state" in
+      completed|failed|aborted)
+        echo
+        echo "$state"
+        return 0
+        ;;
+    esac
+
+    sleep "$POLL_SECONDS"
+  done
+}
+
 cmd_deploy() {
-  local sha=""
+  local sha="" follow=1
 
   while [ $# -gt 0 ]; do
     case "$1" in
       --sha) shift; [ $# -gt 0 ] || die "--sha needs a commit"; sha="$1" ;;
       --sha=*) sha="${1#--sha=}" ;;
+      --no-follow) follow=0 ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown option for deploy: $1" ;;
     esac
@@ -63,14 +114,22 @@ cmd_deploy() {
   [ -n "$log_id" ] || die "hatchbox accepted the deploy but returned no log id: $RESP_BODY"
 
   echo "queued deploy, log $log_id"
+
+  if [ "$follow" -eq 0 ]; then
+    return 0
+  fi
+
+  echo
+  follow_log "$log_id"
 }
 
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api
 
-  deploy                 queue a deploy
+  deploy                 queue a deploy and stream it until it lands
   deploy --sha SHA       deploy one commit instead of the tip of the branch
+  deploy --no-follow     queue it and get out of the way
 
 env
   HATCHBOX_API_TOKEN     your api token
