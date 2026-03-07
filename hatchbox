@@ -4,6 +4,7 @@ set -euo pipefail
 BASE="https://hatchbox.io/api/v1"
 GLOBAL_CONFIG="$HOME/.hatchbox"
 CONFIG=""
+ENV_NAME=""
 APP_ID=""
 TOKEN=""
 POLL_SECONDS=3
@@ -21,6 +22,7 @@ need() {
 }
 
 # config files are "key = value", one per line, # starts a full line comment.
+# keys that vary by environment carry it after a colon, app_id:production.
 config_get() {
   local file="$1" key="$2"
   [ -f "$file" ] || return 0
@@ -37,6 +39,37 @@ config_get() {
       print v
     }
   ' "$file" | tail -1
+}
+
+# an app is a bare line, the app as the dashboard url spells it, then its
+# environment: 13673-fpd:production. prints "env<tab>app" for each one.
+config_apps() {
+  [ -n "$CONFIG" ] || return 0
+  awk '
+    /^[ \t]*#/ { next }
+    /=/ { next }
+    {
+      line = $0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line == "") next
+      cut = 0
+      for (i = 1; i <= length(line); i++) if (substr(line, i, 1) == ":") cut = i
+      if (cut == 0) next
+      app = substr(line, 1, cut - 1)
+      env = substr(line, cut + 1)
+      gsub(/^[ \t]+|[ \t]+$/, "", app)
+      gsub(/^[ \t]+|[ \t]+$/, "", env)
+      if (app != "" && env != "") print env "\t" app
+    }
+  ' "$CONFIG"
+}
+
+config_envs() {
+  config_apps | cut -f1
+}
+
+config_app_for() {
+  config_apps | awk -F'\t' -v want="$1" '$1 == want { print $2 }' | tail -1
 }
 
 find_config() {
@@ -56,10 +89,38 @@ load_config() {
   CONFIG="$(find_config || true)"
   [ -n "$CONFIG" ] || die "no .hatchbox found here or above $PWD. see hatchbox --help for the format"
 
-  APP_ID="$(config_get "$CONFIG" app_id)"
-  [ -n "$APP_ID" ] || die "$CONFIG names no app, so there is nothing to talk to. see hatchbox --help"
+  local envs count
+  envs="$(config_envs)"
+  count="$(printf '%s' "$envs" | grep -c . || true)"
+  [ "$count" -gt 0 ] || die "$CONFIG names no app, so there is nothing to talk to. see hatchbox --help"
+
+  if [ -z "$ENV_NAME" ]; then
+    ENV_NAME="${HATCHBOX_ENV:-}"
+  fi
+  if [ -z "$ENV_NAME" ]; then
+    ENV_NAME="$(config_get "$CONFIG" default)"
+  fi
+  if [ -z "$ENV_NAME" ] && [ "$count" -eq 1 ]; then
+    ENV_NAME="$envs"
+  fi
+  if [ -z "$ENV_NAME" ]; then
+    echo "$CONFIG has more than one environment and no default line, so pick one with -e" >&2
+    echo >&2
+    printf '  %s\n' $envs >&2
+    exit 1
+  fi
+
+  APP_ID="$(config_app_for "$ENV_NAME")"
+  if [ -z "$APP_ID" ]; then
+    echo "no app is listed for $ENV_NAME in $CONFIG" >&2
+    echo >&2
+    echo "environments it does know about:" >&2
+    printf '  %s\n' $envs >&2
+    exit 1
+  fi
 
   TOKEN="${HATCHBOX_API_TOKEN:-}"
+  [ -n "$TOKEN" ] || TOKEN="$(config_get "$GLOBAL_CONFIG" "token:$ENV_NAME")"
   [ -n "$TOKEN" ] || TOKEN="$(config_get "$GLOBAL_CONFIG" token)"
   [ -n "$TOKEN" ] || die "no api token. put 'token = ...' in $GLOBAL_CONFIG or set HATCHBOX_API_TOKEN"
 }
@@ -183,7 +244,7 @@ cmd_deploy() {
   log_id="$(printf '%s' "$RESP_BODY" | jq -r '.id // empty')"
   [ -n "$log_id" ] || die "hatchbox accepted the deploy but returned no log id: $RESP_BODY"
 
-  echo "queued deploy, log $log_id"
+  echo "queued deploy to $ENV_NAME, log $log_id"
 
   if [ "$follow" -eq 0 ]; then
     return 0
@@ -200,7 +261,7 @@ cmd_status() {
   sha="$(printf '%s' "$RESP_BODY" | jq -r '.last_deploy_sha // empty')"
   at="$(printf '%s' "$RESP_BODY" | jq -r '.last_deploy_at // empty')"
 
-  echo "app $APP_ID"
+  echo "$ENV_NAME, app $APP_ID"
   if [ -n "$sha" ]; then
     echo "last deploy ${sha:0:7}${at:+ at $at}"
   else
@@ -213,7 +274,7 @@ cmd_restart() {
   local log_id
   log_id="$(printf '%s' "$RESP_BODY" | jq -r '.id // empty')"
   [ -n "$log_id" ] || die "hatchbox accepted the restart but returned no log id: $RESP_BODY"
-  echo "queued restart, log $log_id"
+  echo "queued restart of $ENV_NAME, log $log_id"
   echo
   follow_log "$log_id"
 }
@@ -228,9 +289,17 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   status                 the last deployed sha
   restart                restart every process and stream it
 
-the app comes from the nearest .hatchbox, here or upward:
+  -e ENV, --env ENV      which environment to act on, anywhere in the command
 
-  app_id = 13673
+the app comes from the nearest .hatchbox, here or upward. one line per app,
+the way the dashboard url spells it, then its environment:
+
+  13673-fpd:production
+  20001-fpd-qa:qa
+  default = production
+
+with one environment it is used automatically, otherwise default decides and -e
+beats it.
 
 the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
 
@@ -238,11 +307,23 @@ the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
 
 env
   HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
+  HATCHBOX_ENV           default environment, still beaten by -e
 USAGE
 }
 
 need curl
 need jq
+
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -e|--env) shift; [ $# -gt 0 ] || die "--env needs an environment"; ENV_NAME="$1" ;;
+    --env=*) ENV_NAME="${1#--env=}" ;;
+    *) ARGS+=("$1") ;;
+  esac
+  shift
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 case "${1:-}" in
   ""|-h|--help|help) usage; exit 0 ;;
