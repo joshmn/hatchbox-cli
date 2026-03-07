@@ -279,6 +279,17 @@ cmd_restart() {
   follow_log "$log_id"
 }
 
+cmd_envs() {
+  local env app current
+  echo "environments in $CONFIG"
+  while IFS=$'\t' read -r env app; do
+    [ -n "$env" ] || continue
+    current=""
+    [ "$env" = "$ENV_NAME" ] && current=" (in use)"
+    echo "  $env, app $app$current"
+  done < <(config_apps)
+}
+
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api for the app you are standing in
@@ -288,6 +299,7 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   deploy --no-follow     queue it and get out of the way
   status                 the last deployed sha
   restart                restart every process and stream it
+  envs                   the environments this app is configured for
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -335,5 +347,6 @@ case "$1" in
   deploy) shift; cmd_deploy "$@" ;;
   status) shift; cmd_status "$@" ;;
   restart) shift; cmd_restart "$@" ;;
+  envs) shift; cmd_envs "$@" ;;
   *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
 esac
