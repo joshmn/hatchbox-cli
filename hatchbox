@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="https://hatchbox.io/api/v1"
+APP_ID="${HATCHBOX_APP_ID:-}"
+TOKEN="${HATCHBOX_API_TOKEN:-}"
+
+RESP_CODE=""
+RESP_BODY=""
+
+die() {
+  echo "$1" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required and is not installed"
+}
+
+api() {
+  local method="$1" path="$2"
+  shift 2
+  local raw
+  raw="$(curl -sS -X "$method" "$BASE$path" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Accept: application/json" \
+    "$@" -w $'\n%{http_code}')" || die "request to $path failed"
+  RESP_CODE="${raw##*$'\n'}"
+  RESP_BODY="${raw%$'\n'*}"
+}
+
+api_ok() {
+  api "$@"
+  case "$RESP_CODE" in
+    2*) return 0 ;;
+  esac
+  local message
+  message="$(printf '%s' "$RESP_BODY" | jq -r '.error // (.errors | if type == "array" then join(", ") else . end) // empty' 2>/dev/null || true)"
+  [ -n "$message" ] || message="http $RESP_CODE"
+  die "hatchbox said: $message"
+}
+
+cmd_deploy() {
+  local sha=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --sha) shift; [ $# -gt 0 ] || die "--sha needs a commit"; sha="$1" ;;
+      --sha=*) sha="${1#--sha=}" ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown option for deploy: $1" ;;
+    esac
+    shift
+  done
+
+  local args=()
+  [ -n "$sha" ] && args=(-H "Content-Type: application/json" -d "{\"sha\":\"$sha\"}")
+
+  api_ok POST "/apps/$APP_ID/deploy" "${args[@]+"${args[@]}"}"
+
+  local log_id
+  log_id="$(printf '%s' "$RESP_BODY" | jq -r '.id // empty')"
+  [ -n "$log_id" ] || die "hatchbox accepted the deploy but returned no log id: $RESP_BODY"
+
+  echo "queued deploy, log $log_id"
+}
+
+usage() {
+  cat <<'USAGE'
+hatchbox, talks to the hatchbox api
+
+  deploy                 queue a deploy
+  deploy --sha SHA       deploy one commit instead of the tip of the branch
+
+env
+  HATCHBOX_API_TOKEN     your api token
+  HATCHBOX_APP_ID        the app to act on, 13673
+USAGE
+}
+
+need curl
+need jq
+
+case "${1:-}" in
+  ""|-h|--help|help) usage; exit 0 ;;
+esac
+
+[ -n "$TOKEN" ] || die "no api token. set HATCHBOX_API_TOKEN"
+[ -n "$APP_ID" ] || die "no app. set HATCHBOX_APP_ID"
+
+case "$1" in
+  deploy) shift; cmd_deploy "$@" ;;
+  *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
+esac
