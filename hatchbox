@@ -41,6 +41,18 @@ api_ok() {
   die "hatchbox said: $message"
 }
 
+server_name() {
+  local id="$1" cluster names name
+  api GET "/apps/$APP_ID"
+  cluster="$(printf '%s' "$RESP_BODY" | jq -r '.cluster_id // empty' 2>/dev/null || true)"
+  if [ -n "$cluster" ]; then
+    api GET "/clusters/$cluster"
+    names="$(printf '%s' "$RESP_BODY" | jq -r '.servers[]? | "\(.id)\t\(.name)"' 2>/dev/null || true)"
+    name="$(printf '%s\n' "$names" | awk -F'\t' -v id="$id" '$1 == id { print $2 }')"
+  fi
+  [ -n "${name:-}" ] && printf '%s' "$name" || printf 'server %s' "$id"
+}
+
 emit_new() {
   local key="$1" new="$2" dir="$3"
   local old="$dir/$key" oldlen newlen
@@ -58,7 +70,7 @@ emit_new() {
 }
 
 follow_log() {
-  local log_id="$1" dir tmp state
+  local log_id="$1" dir tmp state owner
   dir="$(mktemp -d)"
   tmp="$dir/fetch"
   trap "rm -rf '$dir'" RETURN
@@ -75,6 +87,13 @@ follow_log() {
     for child_id in $child_ids; do
       printf '%s' "$RESP_BODY" | jq -j --argjson cid "$child_id" \
         '.child_logs[] | select(.id == $cid) | .body // ""' > "$tmp"
+      if [ -s "$tmp" ] && [ ! -f "$dir/header-$child_id" ]; then
+        owner="$(printf '%s' "$RESP_BODY" | jq -r --argjson cid "$child_id" \
+          '.child_logs[] | select(.id == $cid) | .loggable_id // empty')"
+        echo
+        echo "output from $(server_name "$owner")"
+        : > "$dir/header-$child_id"
+      fi
       emit_new "child-$child_id" "$tmp" "$dir"
     done
 
