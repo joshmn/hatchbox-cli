@@ -162,6 +162,16 @@ cmd_status() {
   fi
 }
 
+cmd_restart() {
+  api_ok POST "/apps/$APP_ID/restart"
+  local log_id
+  log_id="$(printf '%s' "$RESP_BODY" | jq -r '.id // empty')"
+  [ -n "$log_id" ] || die "hatchbox accepted the restart but returned no log id: $RESP_BODY"
+  echo "queued restart, log $log_id"
+  echo
+  follow_log "$log_id"
+}
+
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api
@@ -170,6 +180,7 @@ hatchbox, talks to the hatchbox api
   deploy --sha SHA       deploy one commit instead of the tip of the branch
   deploy --no-follow     queue it and get out of the way
   status                 the last deployed sha
+  restart                restart every process and stream it
 
 env
   HATCHBOX_API_TOKEN     your api token
@@ -190,5 +201,6 @@ esac
 case "$1" in
   deploy) shift; cmd_deploy "$@" ;;
   status) shift; cmd_status "$@" ;;
+  restart) shift; cmd_restart "$@" ;;
   *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
 esac
