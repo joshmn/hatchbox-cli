@@ -147,6 +147,21 @@ cmd_deploy() {
   follow_log "$log_id"
 }
 
+cmd_status() {
+  local sha at
+
+  api_ok GET "/apps/$APP_ID"
+  sha="$(printf '%s' "$RESP_BODY" | jq -r '.last_deploy_sha // empty')"
+  at="$(printf '%s' "$RESP_BODY" | jq -r '.last_deploy_at // empty')"
+
+  echo "app $APP_ID"
+  if [ -n "$sha" ]; then
+    echo "last deploy ${sha:0:7}${at:+ at $at}"
+  else
+    echo "no deploy recorded on this app yet"
+  fi
+}
+
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api
@@ -154,6 +169,7 @@ hatchbox, talks to the hatchbox api
   deploy                 queue a deploy and stream it until it lands
   deploy --sha SHA       deploy one commit instead of the tip of the branch
   deploy --no-follow     queue it and get out of the way
+  status                 the last deployed sha
 
 env
   HATCHBOX_API_TOKEN     your api token
@@ -173,5 +189,6 @@ esac
 
 case "$1" in
   deploy) shift; cmd_deploy "$@" ;;
+  status) shift; cmd_status "$@" ;;
   *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
 esac
