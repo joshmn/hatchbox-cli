@@ -266,10 +266,11 @@ show_log() {
 }
 
 cmd_deploy() {
-  local sha="" follow=1
+  local sha="" follow=1 want_status=0
 
   while [ $# -gt 0 ]; do
     case "$1" in
+      status|--status) want_status=1 ;;
       --sha) shift; [ $# -gt 0 ] || die "--sha needs a commit"; sha="$1" ;;
       --sha=*) sha="${1#--sha=}" ;;
       --no-follow) follow=0 ;;
@@ -278,6 +279,8 @@ cmd_deploy() {
     esac
     shift
   done
+
+  [ "$want_status" -eq 1 ] && { cmd_status; return; }
 
   local args=()
   [ -n "$sha" ] && args=(-H "Content-Type: application/json" -d "{\"sha\":\"$sha\"}")
@@ -414,7 +417,8 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   deploy                 queue a deploy and stream it until it lands
   deploy --sha SHA       deploy one commit instead of the tip of the branch
   deploy --no-follow     queue it and get out of the way
-  status                 last deployed sha, then stream the most recent deploy log
+  deploy status          last deployed sha, then stream the most recent deploy log
+  deploy --status        same thing
   restart                restart every process and stream it
   logs                   the log types on record for this environment
   logs deploy            the most recent deploy log
