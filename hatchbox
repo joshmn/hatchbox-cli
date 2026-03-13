@@ -248,6 +248,23 @@ follow_log() {
   done
 }
 
+show_log() {
+  local log_id="$1" state name sha description username
+  api_ok GET "/logs/$log_id"
+  state="$(printf '%s' "$RESP_BODY" | jq -r '.state // "unknown"')"
+  name="$(printf '%s' "$RESP_BODY" | jq -r '.name // "unknown"')"
+  sha="$(printf '%s' "$RESP_BODY" | jq -r '.commit_sha // empty')"
+  description="$(printf '%s' "$RESP_BODY" | jq -r '.description // empty')"
+  username="$(printf '%s' "$RESP_BODY" | jq -r '.username // empty')"
+
+  echo "log $log_id, $name, $state"
+  [ -n "$sha" ] && echo "commit ${sha:0:7}${description:+ $description}"
+  [ -n "$username" ] && echo "started by $username"
+  echo
+
+  follow_log "$log_id"
+}
+
 cmd_deploy() {
   local sha="" follow=1
 
@@ -275,6 +292,7 @@ cmd_deploy() {
   echo "queued deploy to $ENV_NAME, log $log_id"
 
   if [ "$follow" -eq 0 ]; then
+    echo "follow it with: hatchbox -e $ENV_NAME logs $log_id"
     return 0
   fi
 
@@ -319,6 +337,63 @@ cmd_envs() {
   done < <(config_apps)
 }
 
+list_types() {
+  local deploy_id restart_id
+  deploy_id="$(config_get "$CONFIG" "last_deploy:$ENV_NAME")"
+  restart_id="$(config_get "$CONFIG" "last_restart:$ENV_NAME")"
+
+  echo "log types for $ENV_NAME"
+  if [ -n "$deploy_id" ]; then
+    echo "  deploy    log $deploy_id"
+  else
+    echo "  deploy    nothing recorded yet"
+  fi
+  if [ -n "$restart_id" ]; then
+    echo "  restart   log $restart_id"
+  else
+    echo "  restart   nothing recorded yet"
+  fi
+  echo
+  echo "or pass a log id straight through: hatchbox logs 4212"
+
+  if [ -z "$deploy_id$restart_id" ]; then
+    echo
+    echo "hatchbox serves a log by id only, with no endpoint to list them, so the only"
+    echo "record of which ids belong to this app is"
+    echo "  $CONFIG"
+    echo "which fills in as you deploy."
+  fi
+}
+
+cmd_logs() {
+  local arg="${1:-}"
+
+  case "$arg" in
+    "") list_types; return 0 ;;
+    -h|--help) usage; return 0 ;;
+  esac
+
+  local log_id
+  if [[ "$arg" =~ ^[0-9]+$ ]]; then
+    log_id="$arg"
+  else
+    case "$arg" in
+      deploy|deploys) arg=deploy ;;
+      restart|restarts) arg=restart ;;
+      *)
+        echo "no log type called $arg" >&2
+        echo >&2
+        list_types >&2
+        return 1
+        ;;
+    esac
+    log_id="$(config_get "$CONFIG" "last_${arg}:$ENV_NAME")"
+    [ -n "$log_id" ] || die "no $arg has been started from here for $ENV_NAME, so there is no log id to fetch"
+  fi
+
+  show_log "$arg"
+}
+
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api for the app you are standing in
@@ -328,6 +403,10 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   deploy --no-follow     queue it and get out of the way
   status                 the last deployed sha
   restart                restart every process and stream it
+  logs                   the log types on record for this environment
+  logs deploy            the most recent deploy log
+  logs restart           the most recent restart log
+  logs 4212              a log by id, from anywhere
   envs                   the environments this app is configured for
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
@@ -376,6 +455,7 @@ case "$1" in
   deploy) shift; cmd_deploy "$@" ;;
   status) shift; cmd_status "$@" ;;
   restart) shift; cmd_restart "$@" ;;
+  logs) shift; cmd_logs "$@" ;;
   envs) shift; cmd_envs "$@" ;;
   *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
 esac
