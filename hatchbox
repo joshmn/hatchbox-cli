@@ -301,7 +301,7 @@ cmd_deploy() {
 }
 
 cmd_status() {
-  local sha at
+  local sha at log_id
 
   api_ok GET "/apps/$APP_ID"
   sha="$(printf '%s' "$RESP_BODY" | jq -r '.last_deploy_sha // empty')"
@@ -312,6 +312,19 @@ cmd_status() {
     echo "last deploy ${sha:0:7}${at:+ at $at}"
   else
     echo "no deploy recorded on this app yet"
+  fi
+  echo
+
+  log_id="$(config_get "$CONFIG" "last_deploy:$ENV_NAME")"
+  if [ -n "$log_id" ]; then
+    show_log "$log_id"
+  else
+    echo "no deploy log to stream"
+    echo "hatchbox only serves a log by its id and has no endpoint that lists them, so the"
+    echo "only ids around are the ones written back to"
+    echo "  $CONFIG"
+    echo "deploy from here and the next one is streamable, or pass an id off the dashboard"
+    echo "url to hatchbox logs"
   fi
 }
 
@@ -401,7 +414,7 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   deploy                 queue a deploy and stream it until it lands
   deploy --sha SHA       deploy one commit instead of the tip of the branch
   deploy --no-follow     queue it and get out of the way
-  status                 the last deployed sha
+  status                 last deployed sha, then stream the most recent deploy log
   restart                restart every process and stream it
   logs                   the log types on record for this environment
   logs deploy            the most recent deploy log
