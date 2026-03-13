@@ -407,7 +407,7 @@ cmd_logs() {
     [ -n "$log_id" ] || die "no $arg has been started from here for $ENV_NAME, so there is no log id to fetch"
   fi
 
-  show_log "$arg"
+  show_log "$log_id"
 }
 
 usage() {
