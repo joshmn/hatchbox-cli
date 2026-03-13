@@ -41,6 +41,33 @@ config_get() {
   ' "$file" | tail -1
 }
 
+config_set() {
+  local key="$1" value="$2" tmp
+  [ -n "$CONFIG" ] || return 0
+  if [ ! -w "$CONFIG" ]; then
+    echo "could not write $key to $CONFIG, it is not writable" >&2
+    return 0
+  fi
+  tmp="$(mktemp)"
+  awk -v want="$key" -v value="$value" '
+    BEGIN { written = 0 }
+    /^[ \t]*#/ { print; next }
+    {
+      k = $0
+      if (k ~ /=/) {
+        sub(/=.*/, "", k)
+        gsub(/^[ \t]+|[ \t]+$/, "", k)
+        if (k == want) {
+          if (!written) { print want " = " value; written = 1 }
+          next
+        }
+      }
+      print
+    }
+    END { if (!written) print want " = " value }
+  ' "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
+}
+
 # an app is a bare line, the app as the dashboard url spells it, then its
 # environment: 13673-fpd:production. prints "env<tab>app" for each one.
 config_apps() {
@@ -244,6 +271,7 @@ cmd_deploy() {
   log_id="$(printf '%s' "$RESP_BODY" | jq -r '.id // empty')"
   [ -n "$log_id" ] || die "hatchbox accepted the deploy but returned no log id: $RESP_BODY"
 
+  config_set "last_deploy:$ENV_NAME" "$log_id"
   echo "queued deploy to $ENV_NAME, log $log_id"
 
   if [ "$follow" -eq 0 ]; then
@@ -274,6 +302,7 @@ cmd_restart() {
   local log_id
   log_id="$(printf '%s' "$RESP_BODY" | jq -r '.id // empty')"
   [ -n "$log_id" ] || die "hatchbox accepted the restart but returned no log id: $RESP_BODY"
+  config_set "last_restart:$ENV_NAME" "$log_id"
   echo "queued restart of $ENV_NAME, log $log_id"
   echo
   follow_log "$log_id"
@@ -311,7 +340,7 @@ the way the dashboard url spells it, then its environment:
   default = production
 
 with one environment it is used automatically, otherwise default decides and -e
-beats it.
+beats it. deploy and restart write their log ids back to the same file.
 
 the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
 
