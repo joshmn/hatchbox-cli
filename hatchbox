@@ -510,6 +510,70 @@ app_dir_for() {
   printf '%s' "$dir"
 }
 
+# the directory name the app is deployed under, which is what the motd lists
+app_name_hint() {
+  local dir
+  dir="$(config_get "$CONFIG" "app_dir:$ENV_NAME")"
+  if [ -n "$dir" ]; then
+    dir="${dir%/}"
+    dir="${dir%/current}"
+    printf '%s' "${dir##*/}"
+    return 0
+  fi
+  load_app
+  printf '%s' "$APP_JSON" | jq -r '.name // empty'
+}
+
+# the motd hatchbox writes names every app on the box and the rails console line
+# for each, so this reads the release directory back out of it and lands there
+rails_remote() {
+  local app="$1" rest="$2"
+  printf 'app=%s\n' "$(sq "$app")"
+  cat <<'REMOTE'
+motd=$( { cat /run/motd.dynamic /etc/motd ; } 2>/dev/null || true )
+case "$motd" in
+  *"bin/rails console"*) ;;
+  *)
+    if [ -d /etc/update-motd.d ]; then
+      motd="$motd
+$(run-parts /etc/update-motd.d 2>/dev/null || true)"
+    fi
+    ;;
+esac
+dirs=$(printf '%s\n' "$motd" \
+  | sed -n 's|.*cd  *\([^ ][^ ]*/current\)  *&&  *bin/rails console.*|\1|p' \
+  | sed "s|^~|$HOME|" \
+  | sort -u)
+if [ -z "$dirs" ]; then
+  dirs=$(for d in "$HOME"/*/current; do [ -x "$d/bin/rails" ] && printf '%s\n' "$d"; done)
+fi
+if [ -z "$dirs" ]; then
+  echo "no rails app here. the motd lists none and nothing under $HOME/*/current has bin/rails" >&2
+  exit 1
+fi
+pick=
+for d in $dirs; do
+  case "$d" in
+    */"$app"/current) pick=$d ;;
+  esac
+done
+if [ -z "$pick" ]; then
+  n=$(printf '%s\n' "$dirs" | grep -c .)
+  if [ "$n" = 1 ]; then
+    pick=$dirs
+  else
+    echo "this server holds more than one rails app and none of them is $app:" >&2
+    printf '  %s\n' $dirs >&2
+    echo "say which with app_dir in .hatchbox" >&2
+    exit 1
+  fi
+fi
+[ -d "$pick" ] || { echo "$pick is not there, so nothing is deployed yet" >&2; exit 1; }
+cd "$pick" || exit 1
+REMOTE
+  printf 'exec bin/rails %s\n' "$rest"
+}
+
 cmd_run() {
   local parts=() passthru=()
 
@@ -528,12 +592,28 @@ cmd_run() {
 
   resolve_ssh || return 1
 
-  local script app_dir
-  app_dir="$(app_dir_for)"
-  script=""
-  [ -n "$app_dir" ] && script="cd $(sq "$app_dir") 2>/dev/null
+  local script rest app_dir
+  case "$command" in
+    rails|rails\ *|bin/rails|bin/rails\ *)
+      rest="${command#bin/}"
+      rest="${rest#rails}"
+      rest="${rest# }"
+      app_dir="$(config_get "$CONFIG" "app_dir:$ENV_NAME")"
+      if [ -n "$app_dir" ]; then
+        script="cd $(sq "$app_dir") || exit 1
+exec bin/rails $rest"
+      else
+        script="$(rails_remote "$(app_name_hint)" "$rest")"
+      fi
+      ;;
+    *)
+      app_dir="$(app_dir_for)"
+      script=""
+      [ -n "$app_dir" ] && script="cd $(sq "$app_dir") 2>/dev/null
 "
-  script="$script$command"
+      script="$script$command"
+      ;;
+  esac
 
   local args=()
   [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
@@ -598,7 +678,8 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   logs 4212              a log by id, from anywhere
   ssh                    a shell on the server, in the app's current release
   ssh "df -h"            run one command there and come back
-  run "bundle exec rake" run a command on the server, in the app's release
+  run "rails db:migrate" run a command on the server, in the app's release
+  run "bundle exec rake" anything that is not rails runs from the same place
   envs                   the environments this app is configured for
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
