@@ -410,6 +410,82 @@ cmd_logs() {
   show_log "$log_id"
 }
 
+APP_JSON=""
+SERVERS_JSON=""
+
+load_app() {
+  [ -n "$APP_JSON" ] && return 0
+  api_ok GET "/apps/$APP_ID"
+  APP_JSON="$RESP_BODY"
+}
+
+load_servers() {
+  [ -n "$SERVERS_JSON" ] && return 0
+  load_app
+  local cluster
+  cluster="$(printf '%s' "$APP_JSON" | jq -r '.cluster_id // empty')"
+  [ -n "$cluster" ] || die "app $APP_ID is on no cluster, so there is no server to reach"
+  api_ok GET "/clusters/$cluster"
+  SERVERS_JSON="$(printf '%s' "$RESP_BODY" | jq -c '.servers // []')"
+}
+
+# single quotes the argument for a remote shell
+sq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+SSH_HOST=""
+SSH_USER=""
+SSH_SERVER=""
+
+# fills the SSH_ globals from the config, falling back to the cluster
+resolve_ssh() {
+  SSH_SERVER=""
+  SSH_HOST="$(config_get "$CONFIG" "ssh_host:$ENV_NAME")"
+  SSH_USER="$(config_get "$CONFIG" "ssh_user:$ENV_NAME")"
+
+  if [ -z "$SSH_HOST" ]; then
+    load_servers
+    SSH_SERVER="$(printf '%s' "$SERVERS_JSON" | jq -c '.[0] // empty')"
+    [ -n "$SSH_SERVER" ] || die "that cluster has no servers"
+    SSH_HOST="$(printf '%s' "$SSH_SERVER" | jq -r '.public_ip // empty')"
+    [ -n "$SSH_HOST" ] || die "$(printf '%s' "$SSH_SERVER" | jq -r '.name // "that server"') has no public ip. set ssh_host:$ENV_NAME in $CONFIG"
+  fi
+  [ -n "$SSH_USER" ] || SSH_USER=deploy
+}
+
+cmd_ssh() {
+  local command="" passthru=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) usage; return 0 ;;
+      --) shift; passthru=("$@"); break ;;
+      -*) die "unknown option for ssh: $1. put ssh's own flags after a --" ;;
+      *)
+        [ -z "$command" ] || die "only one command at a time, quote it as one argument"
+        command="$1"
+        ;;
+    esac
+    shift
+  done
+
+  resolve_ssh
+
+  local ssh_host="$SSH_HOST" ssh_user="$SSH_USER" server="$SSH_SERVER"
+  local target="$ssh_user@$ssh_host"
+
+  local args=()
+  [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
+
+  if [ -n "$command" ]; then
+    ssh "${args[@]+"${args[@]}"}" "$target" "$command"
+  else
+    [ -z "$server" ] || echo "$(printf '%s' "$server" | jq -r '.name // "server"'), $ssh_host" >&2
+    ssh -t "${args[@]+"${args[@]}"}" "$target"
+  fi
+}
+
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api for the app you are standing in
@@ -424,6 +500,8 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   logs deploy            the most recent deploy log
   logs restart           the most recent restart log
   logs 4212              a log by id, from anywhere
+  ssh                    a shell on the server
+  ssh "df -h"            run one command there and come back
   envs                   the environments this app is configured for
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
@@ -441,6 +519,11 @@ beats it. deploy and restart write their log ids back to the same file.
 the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
 
   token = your-api-token
+
+ssh finds the server through the app's cluster. these override it:
+
+  ssh_user:production = deploy
+  ssh_host:production = 203.0.113.10
 
 env
   HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
@@ -473,6 +556,7 @@ case "$1" in
   status) shift; cmd_status "$@" ;;
   restart) shift; cmd_restart "$@" ;;
   logs) shift; cmd_logs "$@" ;;
+  ssh) shift; cmd_ssh "$@" ;;
   envs) shift; cmd_envs "$@" ;;
   *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
 esac
