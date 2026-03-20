@@ -434,6 +434,51 @@ sq() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
+server_line() {
+  printf '%s' "$1" | jq -r '"\(.name // "unnamed")  \(.public_ip // "no public ip")  \((.roles // []) | join(", "))"'
+}
+
+# echoes one server object, asking when there is more than one
+pick_server() {
+  local count choice
+  load_servers
+  count="$(printf '%s' "$SERVERS_JSON" | jq 'length')"
+
+  if [ "$count" -eq 0 ]; then
+    echo "that cluster has no servers" >&2
+    return 1
+  fi
+
+  if [ "$count" -eq 1 ]; then
+    printf '%s' "$SERVERS_JSON" | jq -c '.[0]'
+    return 0
+  fi
+
+  if ! have_tty; then
+    echo "that cluster has more than one server, so set ssh_host:$ENV_NAME in $CONFIG" >&2
+    return 1
+  fi
+
+  echo "servers on this cluster" >&2
+  local i=0 server
+  while [ "$i" -lt "$count" ]; do
+    server="$(printf '%s' "$SERVERS_JSON" | jq -c --argjson i "$i" '.[$i]')"
+    echo "  $((i + 1))  $(server_line "$server")" >&2
+    i=$((i + 1))
+  done
+  echo >&2
+  printf 'which one? ' >&2
+  read -r choice < /dev/tty
+  case "$choice" in
+    ''|*[!0-9]*) echo "that is not a number" >&2; return 1 ;;
+  esac
+  if [ "$choice" -lt 1 ] || [ "$choice" -gt "$count" ]; then
+    echo "there is no $choice on that list" >&2
+    return 1
+  fi
+  printf '%s' "$SERVERS_JSON" | jq -c --argjson i "$((choice - 1))" '.[$i]'
+}
+
 SSH_HOST=""
 SSH_USER=""
 SSH_SERVER=""
@@ -445,9 +490,7 @@ resolve_ssh() {
   SSH_USER="$(config_get "$CONFIG" "ssh_user:$ENV_NAME")"
 
   if [ -z "$SSH_HOST" ]; then
-    load_servers
-    SSH_SERVER="$(printf '%s' "$SERVERS_JSON" | jq -c '.[0] // empty')"
-    [ -n "$SSH_SERVER" ] || die "that cluster has no servers"
+    SSH_SERVER="$(pick_server)" || return 1
     SSH_HOST="$(printf '%s' "$SSH_SERVER" | jq -r '.public_ip // empty')"
     [ -n "$SSH_HOST" ] || die "$(printf '%s' "$SSH_SERVER" | jq -r '.name // "that server"') has no public ip. set ssh_host:$ENV_NAME in $CONFIG"
   fi
@@ -470,7 +513,7 @@ cmd_ssh() {
     shift
   done
 
-  resolve_ssh
+  resolve_ssh || return 1
 
   local ssh_host="$SSH_HOST" ssh_user="$SSH_USER" server="$SSH_SERVER"
   local target="$ssh_user@$ssh_host"
@@ -484,6 +527,10 @@ cmd_ssh() {
     [ -z "$server" ] || echo "$(printf '%s' "$server" | jq -r '.name // "server"'), $ssh_host" >&2
     ssh -t "${args[@]+"${args[@]}"}" "$target"
   fi
+}
+
+have_tty() {
+  : < /dev/tty 2>/dev/null
 }
 
 usage() {
