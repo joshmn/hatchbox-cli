@@ -313,6 +313,7 @@ cmd_status() {
   echo "$ENV_NAME, app $APP_ID"
   if [ -n "$sha" ]; then
     echo "last deploy ${sha:0:7}${at:+ at $at}"
+    echo "full sha $sha"
   else
     echo "no deploy recorded on this app yet"
   fi
