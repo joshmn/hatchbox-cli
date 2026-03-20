@@ -497,6 +497,19 @@ resolve_ssh() {
   [ -n "$SSH_USER" ] || SSH_USER=deploy
 }
 
+# where the live release sits, resolve_ssh first
+app_dir_for() {
+  local dir
+  dir="$(config_get "$CONFIG" "app_dir:$ENV_NAME")"
+  if [ -z "$dir" ]; then
+    load_app
+    local name
+    name="$(printf '%s' "$APP_JSON" | jq -r '.name // empty')"
+    [ -n "$name" ] && dir="/home/$SSH_USER/$name/current"
+  fi
+  printf '%s' "$dir"
+}
+
 cmd_ssh() {
   local command="" passthru=()
 
@@ -516,16 +529,20 @@ cmd_ssh() {
   resolve_ssh || return 1
 
   local ssh_host="$SSH_HOST" ssh_user="$SSH_USER" server="$SSH_SERVER"
-  local target="$ssh_user@$ssh_host"
+  local app_dir
+  app_dir="$(app_dir_for)"
+
+  local target="$ssh_user@$ssh_host" remote=""
+  [ -n "$app_dir" ] && remote="cd $(sq "$app_dir") 2>/dev/null; "
 
   local args=()
   [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
 
   if [ -n "$command" ]; then
-    ssh "${args[@]+"${args[@]}"}" "$target" "$command"
+    ssh "${args[@]+"${args[@]}"}" "$target" "${remote}${command}"
   else
     [ -z "$server" ] || echo "$(printf '%s' "$server" | jq -r '.name // "server"'), $ssh_host" >&2
-    ssh -t "${args[@]+"${args[@]}"}" "$target"
+    ssh -t "${args[@]+"${args[@]}"}" "$target" "${remote}exec \${SHELL:-/bin/bash} -l"
   fi
 }
 
@@ -547,7 +564,7 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   logs deploy            the most recent deploy log
   logs restart           the most recent restart log
   logs 4212              a log by id, from anywhere
-  ssh                    a shell on the server
+  ssh                    a shell on the server, in the app's current release
   ssh "df -h"            run one command there and come back
   envs                   the environments this app is configured for
 
@@ -571,6 +588,7 @@ ssh finds the server through the app's cluster. these override it:
 
   ssh_user:production = deploy
   ssh_host:production = 203.0.113.10
+  app_dir:production = /home/deploy/fpd/current
 
 env
   HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
