@@ -510,6 +510,38 @@ app_dir_for() {
   printf '%s' "$dir"
 }
 
+cmd_run() {
+  local parts=() passthru=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) usage; return 0 ;;
+      --) shift; passthru=("$@"); break ;;
+      -*) die "unknown option for run: $1. quote the command, and put ssh's own flags after a --" ;;
+      *) parts+=("$1") ;;
+    esac
+    shift
+  done
+
+  [ ${#parts[@]} -gt 0 ] || die "run needs a command, quoted as one argument"
+  local command="${parts[*]}"
+
+  resolve_ssh || return 1
+
+  local script app_dir
+  app_dir="$(app_dir_for)"
+  script=""
+  [ -n "$app_dir" ] && script="cd $(sq "$app_dir") 2>/dev/null
+"
+  script="$script$command"
+
+  local args=()
+  [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
+  [ -t 1 ] && args+=(-t)
+
+  ssh "${args[@]+"${args[@]}"}" "$SSH_USER@$SSH_HOST" "bash -lc $(sq "$script")"
+}
+
 cmd_ssh() {
   local command="" passthru=()
 
@@ -566,6 +598,7 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   logs 4212              a log by id, from anywhere
   ssh                    a shell on the server, in the app's current release
   ssh "df -h"            run one command there and come back
+  run "bundle exec rake" run a command on the server, in the app's release
   envs                   the environments this app is configured for
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
@@ -584,7 +617,7 @@ the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
 
   token = your-api-token
 
-ssh finds the server through the app's cluster. these override it:
+ssh and run find the server through the app's cluster. these override it:
 
   ssh_user:production = deploy
   ssh_host:production = 203.0.113.10
@@ -622,6 +655,7 @@ case "$1" in
   restart) shift; cmd_restart "$@" ;;
   logs) shift; cmd_logs "$@" ;;
   ssh) shift; cmd_ssh "$@" ;;
+  run) shift; cmd_run "$@" ;;
   envs) shift; cmd_envs "$@" ;;
   *) echo "no command called $1" >&2; echo >&2; usage >&2; exit 1 ;;
 esac
