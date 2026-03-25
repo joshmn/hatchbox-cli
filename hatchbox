@@ -482,6 +482,7 @@ pick_server() {
 
 SSH_HOST=""
 SSH_USER=""
+SSH_PORT=""
 SSH_SERVER=""
 
 # fills the SSH_ globals from the config, falling back to the cluster
@@ -489,13 +490,16 @@ resolve_ssh() {
   SSH_SERVER=""
   SSH_HOST="$(config_get "$CONFIG" "ssh_host:$ENV_NAME")"
   SSH_USER="$(config_get "$CONFIG" "ssh_user:$ENV_NAME")"
+  SSH_PORT="$(config_get "$CONFIG" "ssh_port:$ENV_NAME")"
 
   if [ -z "$SSH_HOST" ]; then
     SSH_SERVER="$(pick_server)" || return 1
     SSH_HOST="$(printf '%s' "$SSH_SERVER" | jq -r '.public_ip // empty')"
+    [ -n "$SSH_PORT" ] || SSH_PORT="$(printf '%s' "$SSH_SERVER" | jq -r '.ssh_port // empty')"
     [ -n "$SSH_HOST" ] || die "$(printf '%s' "$SSH_SERVER" | jq -r '.name // "that server"') has no public ip. set ssh_host:$ENV_NAME in $CONFIG"
   fi
   [ -n "$SSH_USER" ] || SSH_USER=deploy
+  [ -n "$SSH_PORT" ] || SSH_PORT=22
 }
 
 # where the live release sits, resolve_ssh first
@@ -616,11 +620,11 @@ exec bin/rails $rest"
       ;;
   esac
 
-  local args=()
+  local args=(-p "$SSH_PORT")
   [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
   [ -t 1 ] && args+=(-t)
 
-  ssh "${args[@]+"${args[@]}"}" "$SSH_USER@$SSH_HOST" "bash -lc $(sq "$script")"
+  ssh "${args[@]}" "$SSH_USER@$SSH_HOST" "bash -lc $(sq "$script")"
 }
 
 cmd_ssh() {
@@ -641,21 +645,21 @@ cmd_ssh() {
 
   resolve_ssh || return 1
 
-  local ssh_host="$SSH_HOST" ssh_user="$SSH_USER" server="$SSH_SERVER"
+  local ssh_host="$SSH_HOST" ssh_user="$SSH_USER" ssh_port="$SSH_PORT" server="$SSH_SERVER"
   local app_dir
   app_dir="$(app_dir_for)"
 
   local target="$ssh_user@$ssh_host" remote=""
   [ -n "$app_dir" ] && remote="cd $(sq "$app_dir") 2>/dev/null; "
 
-  local args=()
+  local args=(-p "$ssh_port")
   [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
 
   if [ -n "$command" ]; then
-    ssh "${args[@]+"${args[@]}"}" "$target" "${remote}${command}"
+    ssh "${args[@]}" "$target" "${remote}${command}"
   else
     [ -z "$server" ] || echo "$(printf '%s' "$server" | jq -r '.name // "server"'), $ssh_host" >&2
-    ssh -t "${args[@]+"${args[@]}"}" "$target" "${remote}exec \${SHELL:-/bin/bash} -l"
+    ssh -t "${args[@]}" "$target" "${remote}exec \${SHELL:-/bin/bash} -l"
   fi
 }
 
@@ -703,6 +707,7 @@ ssh and run find the server through the app's cluster. these override it:
 
   ssh_user:production = deploy
   ssh_host:production = 203.0.113.10
+  ssh_port:production = 22
   app_dir:production = /home/deploy/fpd/current
 
 env
