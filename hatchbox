@@ -825,6 +825,7 @@ cmd_psql() {
       echo "check that ssh $ssh_target works, or set ssh_user:$ENV_NAME in $CONFIG" >&2
       return 1
     fi
+    trap "ssh -S '$ctl' -O exit '$ssh_target' >/dev/null 2>&1 || true" EXIT
 
     URI_HOST=127.0.0.1
     URI_PORT="$local_port"
@@ -839,6 +840,7 @@ cmd_psql() {
 
   if [ -n "$ctl" ]; then
     ssh -S "$ctl" -O exit "$ssh_target" >/dev/null 2>&1 || true
+    trap - EXIT
   fi
   return "$status"
 }
