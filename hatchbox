@@ -867,6 +867,208 @@ have_tty() {
   : < /dev/tty 2>/dev/null
 }
 
+config_set_app() {
+  local file="$1" env="$2" app="$3" tmp
+  if [ ! -f "$file" ]; then
+    cat > "$file" <<'HEAD'
+# the apps this repo deploys to, written the way the dashboard url spells them,
+# then the environment each one is. run hatchbox setup to add another.
+HEAD
+  fi
+  [ -w "$file" ] || die "$file is not writable"
+  tmp="$(mktemp)"
+  awk -v env="$env" -v app="$app" '
+    BEGIN { replaced = 0 }
+    /^[ \t]*#/ { print; next }
+    /=/ { print; next }
+    {
+      line = $0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line == "") { print; next }
+      cut = 0
+      for (i = 1; i <= length(line); i++) if (substr(line, i, 1) == ":") cut = i
+      if (cut > 0) {
+        e = substr(line, cut + 1)
+        gsub(/^[ \t]+|[ \t]+$/, "", e)
+        if (e == env) { print app ":" env; replaced = 1; next }
+      }
+      print
+    }
+    END { if (!replaced) print app ":" env }
+  ' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+setup_target() {
+  local found dir
+  found="$(find_config || true)"
+  if [ -n "$found" ]; then
+    printf '%s' "$found"
+    return
+  fi
+  dir="$PWD"
+  while :; do
+    if [ -d "$dir/.git" ] && [ "$dir/.hatchbox" != "$GLOBAL_CONFIG" ]; then
+      printf '%s/.hatchbox' "$dir"
+      return
+    fi
+    [ "$dir" = "/" ] && break
+    dir="$(dirname "$dir")"
+  done
+  printf '%s/.hatchbox' "$PWD"
+}
+
+setup_token() {
+  TOKEN="${HATCHBOX_API_TOKEN:-}"
+  [ -n "$TOKEN" ] || TOKEN="$(config_get "$GLOBAL_CONFIG" token)"
+  [ -n "$TOKEN" ] && return 0
+
+  have_tty || die "no api token, and no terminal to ask for one. set HATCHBOX_API_TOKEN"
+  echo "no api token yet. hatchbox has them under api tokens in your account settings."
+  printf 'token: '
+  read -r TOKEN < /dev/tty
+  [ -n "$TOKEN" ] || die "nothing entered"
+  touch "$GLOBAL_CONFIG"
+  chmod 600 "$GLOBAL_CONFIG"
+  printf 'token = %s\n' "$TOKEN" >> "$GLOBAL_CONFIG"
+  echo "saved it to $GLOBAL_CONFIG"
+  echo
+}
+
+# prints "slug<tab>app name<tab>account" for every app the token can see
+setup_apps() {
+  local accounts
+  api_ok GET "/accounts"
+  accounts="$RESP_BODY"
+  printf '%s' "$accounts" | jq -r '.[] | "\(.id)\t\(.name)"' | while IFS=$'\t' read -r id name; do
+    [ -n "$id" ] || continue
+    api GET "/accounts/$id/apps"
+    case "$RESP_CODE" in
+      2*)
+        printf '%s' "$RESP_BODY" | jq -r --arg acct "$name" '.[] | "\(.id)-\(.name)\t\(.name)\t\($acct)"'
+        ;;
+      *)
+        local why
+        why="$(printf '%s' "$RESP_BODY" | jq -r '.error // empty' 2>/dev/null || true)"
+        echo "skipping ${name}${why:+, $why}" >&2
+        ;;
+    esac
+  done
+}
+
+cmd_setup() {
+  local filter=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) usage; return 0 ;;
+      -*) die "unknown option for setup: $1" ;;
+      *) filter="$1" ;;
+    esac
+    shift
+  done
+
+  setup_token
+
+  local target
+  target="$(setup_target)"
+  CONFIG="$target"
+
+  local list count
+  list="$(mktemp)"
+  setup_apps > "$list"
+  if [ -n "$filter" ]; then
+    awk -F'\t' -v f="$(printf '%s' "$filter" | tr 'A-Z' 'a-z')" \
+      'tolower($1) ~ f || tolower($2) ~ f' "$list" > "$list.f" && mv "$list.f" "$list"
+  fi
+  count="$(wc -l < "$list" | tr -d ' ')"
+
+  if [ "$count" -eq 0 ]; then
+    rm -f "$list"
+    if [ -n "$filter" ]; then
+      die "no app matches $filter"
+    fi
+    die "the token can see no apps at all"
+  fi
+
+  echo
+  echo "apps this token can see"
+  awk -F'\t' '{ printf "  %2d  %-34s %s\n", NR, $1, $3 }' "$list"
+  echo
+  printf 'which one? '
+  local choice
+  read -r choice < /dev/tty
+  case "$choice" in
+    ''|*[!0-9]*) rm -f "$list"; die "that is not a number" ;;
+  esac
+  if [ "$choice" -lt 1 ] || [ "$choice" -gt "$count" ]; then
+    rm -f "$list"
+    die "there is no $choice on that list"
+  fi
+  local want_app
+  want_app="$(awk -F'\t' -v n="$choice" 'NR == n { print $1 }' "$list")"
+  rm -f "$list"
+
+  local want_env
+  printf 'call it what, here? [production] '
+  read -r want_env < /dev/tty
+  [ -n "$want_env" ] || want_env=production
+
+  case "$want_env" in
+    *[:=]*|*[[:space:]]*|"") die "an environment name cannot hold a colon, an equals or a space" ;;
+  esac
+
+  local existing=""
+  if [ -f "$target" ]; then
+    existing="$(config_app_for "$want_env")"
+  fi
+  if [ -n "$existing" ] && [ "$existing" != "$want_app" ]; then
+    echo
+    echo "$want_env is already $existing in $target"
+    if [ -z "${HATCHBOX_ASSUME_YES:-}" ]; then
+      printf 'point it at %s instead? [y/N] ' "$want_app"
+      local answer
+      read -r answer < /dev/tty
+      case "$answer" in
+        y|Y|yes|YES) ;;
+        *) echo "left alone"; return 1 ;;
+      esac
+    fi
+  fi
+
+  config_set_app "$target" "$want_env" "$want_app"
+  echo
+  echo "$want_app is $want_env in $target"
+
+  local envs env_count
+  CONFIG="$target"
+  envs="$(config_envs)"
+  env_count="$(printf '%s' "$envs" | grep -c . || true)"
+  if [ "$env_count" -gt 1 ] && [ -z "$(config_get "$target" default)" ]; then
+    echo
+    echo "there is more than one environment here now, so every command wants -e"
+    echo "unless one of them is the default"
+    printf 'which should it be? (blank to always pass -e) '
+    local pick
+    read -r pick < /dev/tty
+    if [ -n "$pick" ]; then
+      if printf '%s\n' "$envs" | grep -qxF -- "$pick"; then
+        config_set default "$pick"
+        echo "default is $pick"
+      else
+        echo "no environment called $pick, leaving the default unset"
+      fi
+    fi
+  fi
+
+  echo
+  echo "environments in $target"
+  local env app
+  while IFS=$'\t' read -r env app; do
+    [ -n "$env" ] || continue
+    echo "  $env, app $app"
+  done < <(config_apps)
+}
+
 usage() {
   cat <<'USAGE'
 hatchbox, talks to the hatchbox api for the app you are standing in
@@ -890,6 +1092,8 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   run "rails db:migrate" run a command on the server, in the app's release
   run "bundle exec rake" anything that is not rails runs from the same place
   envs                   the environments this app is configured for
+  setup                  pick an app off your account and write it to .hatchbox
+  setup fpd              same, narrowed to apps matching fpd
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -936,6 +1140,7 @@ set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 case "${1:-}" in
   ""|-h|--help|help) usage; exit 0 ;;
+  setup) shift; cmd_setup "$@"; exit $? ;;
 esac
 
 load_config
