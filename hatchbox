@@ -478,34 +478,47 @@ server_line() {
   printf '%s' "$1" | jq -r '"\(.name // "unnamed")  \(.public_ip // "no public ip")  \((.roles // []) | join(", "))"'
 }
 
-# echoes one server object, asking when there is more than one
+# echoes one server object, asking when the filter leaves more than one
 pick_server() {
-  local count choice
+  local filter="${1:-}" pool count choice
   load_servers
-  count="$(printf '%s' "$SERVERS_JSON" | jq 'length')"
+  pool="$SERVERS_JSON"
+
+  if [ -n "$filter" ]; then
+    pool="$(printf '%s' "$pool" | jq -c --arg f "$filter" '
+      [ .[] | select(
+          ((.name // "") | ascii_downcase | contains($f | ascii_downcase))
+          or (((.roles // []) | map(ascii_downcase)) | index($f | ascii_downcase) != null)
+        ) ]')"
+  fi
+
+  count="$(printf '%s' "$pool" | jq 'length')"
 
   if [ "$count" -eq 0 ]; then
-    echo "that cluster has no servers" >&2
+    if [ -n "$filter" ]; then
+      echo "no server called $filter, and none with that role" >&2
+    else
+      echo "that cluster has no servers" >&2
+    fi
+    echo >&2
+    printf '%s' "$SERVERS_JSON" | jq -r '.[] | "  \(.name // "unnamed")  \((.roles // []) | join(", "))"' >&2
     return 1
   fi
 
   if [ "$count" -eq 1 ]; then
-    printf '%s' "$SERVERS_JSON" | jq -c '.[0]'
+    printf '%s' "$pool" | jq -c '.[0]'
     return 0
   fi
 
   if ! have_tty; then
-    echo "that cluster has more than one server, so set ssh_host:$ENV_NAME in $CONFIG" >&2
+    echo "that cluster has more than one server, so name one with --server" >&2
+    echo >&2
+    printf '%s' "$pool" | jq -r '.[] | "  \(.name // "unnamed")  \((.roles // []) | join(", "))"' >&2
     return 1
   fi
 
   echo "servers on this cluster" >&2
-  local i=0 server
-  while [ "$i" -lt "$count" ]; do
-    server="$(printf '%s' "$SERVERS_JSON" | jq -c --argjson i "$i" '.[$i]')"
-    echo "  $((i + 1))  $(server_line "$server")" >&2
-    i=$((i + 1))
-  done
+  printf '%s' "$pool" | jq -r 'to_entries[] | "  \(.key + 1)  \(.value.name // "unnamed")  \((.value.roles // []) | join(", "))"' >&2
   echo >&2
   printf 'which one? ' >&2
   read -r choice < /dev/tty
@@ -516,7 +529,7 @@ pick_server() {
     echo "there is no $choice on that list" >&2
     return 1
   fi
-  printf '%s' "$SERVERS_JSON" | jq -c --argjson i "$((choice - 1))" '.[$i]'
+  printf '%s' "$pool" | jq -c --argjson i "$((choice - 1))" '.[$i]'
 }
 
 SSH_HOST=""
@@ -526,13 +539,14 @@ SSH_SERVER=""
 
 # fills the SSH_ globals from the config, falling back to the cluster
 resolve_ssh() {
+  local want_server="${1:-}"
   SSH_SERVER=""
   SSH_HOST="$(config_get "$CONFIG" "ssh_host:$ENV_NAME")"
   SSH_USER="$(config_get "$CONFIG" "ssh_user:$ENV_NAME")"
   SSH_PORT="$(config_get "$CONFIG" "ssh_port:$ENV_NAME")"
 
   if [ -z "$SSH_HOST" ]; then
-    SSH_SERVER="$(pick_server)" || return 1
+    SSH_SERVER="$(pick_server "$want_server")" || return 1
     SSH_HOST="$(printf '%s' "$SSH_SERVER" | jq -r '.public_ip // empty')"
     [ -n "$SSH_PORT" ] || SSH_PORT="$(printf '%s' "$SSH_SERVER" | jq -r '.ssh_port // empty')"
     [ -n "$SSH_HOST" ] || die "$(printf '%s' "$SSH_SERVER" | jq -r '.name // "that server"') has no public ip. set ssh_host:$ENV_NAME in $CONFIG"
@@ -619,10 +633,12 @@ REMOTE
 }
 
 cmd_run() {
-  local parts=() passthru=()
+  local want_server="" parts=() passthru=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
+      -s|--server) shift; [ $# -gt 0 ] || die "--server needs a name or a role"; want_server="$1" ;;
+      --server=*) want_server="${1#--server=}" ;;
       -h|--help) usage; return 0 ;;
       --) shift; passthru=("$@"); break ;;
       -*) die "unknown option for run: $1. quote the command, and put ssh's own flags after a --" ;;
@@ -634,7 +650,7 @@ cmd_run() {
   [ ${#parts[@]} -gt 0 ] || die "run needs a command, quoted as one argument"
   local command="${parts[*]}"
 
-  resolve_ssh || return 1
+  resolve_ssh "$want_server" || return 1
 
   local script rest app_dir
   case "$command" in
@@ -667,10 +683,12 @@ exec bin/rails $rest"
 }
 
 cmd_ssh() {
-  local command="" passthru=()
+  local command="" want_server="" passthru=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
+      -s|--server) shift; [ $# -gt 0 ] || die "--server needs a name or a role"; want_server="$1" ;;
+      --server=*) want_server="${1#--server=}" ;;
       -h|--help) usage; return 0 ;;
       --) shift; passthru=("$@"); break ;;
       -*) die "unknown option for ssh: $1. put ssh's own flags after a --" ;;
@@ -682,7 +700,7 @@ cmd_ssh() {
     shift
   done
 
-  resolve_ssh || return 1
+  resolve_ssh "$want_server" || return 1
 
   local ssh_host="$SSH_HOST" ssh_user="$SSH_USER" ssh_port="$SSH_PORT" server="$SSH_SERVER"
   local app_dir
@@ -868,6 +886,7 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   psql --url             print the connection uri instead of connecting
   ssh                    a shell on the server, in the app's current release
   ssh "df -h"            run one command there and come back
+  ssh --server worker    name a server, by name or by role, when there are several
   run "rails db:migrate" run a command on the server, in the app's release
   run "bundle exec rake" anything that is not rails runs from the same place
   envs                   the environments this app is configured for
