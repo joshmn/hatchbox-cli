@@ -1110,21 +1110,49 @@ hatchbox, talks to the hatchbox api for the app you are standing in
 
   -e ENV, --env ENV      which environment to act on, anywhere in the command
 
-the app comes from the nearest .hatchbox, here or upward. one line per app,
-the way the dashboard url spells it, then its environment:
+the app comes from the nearest .hatchbox, looked for in the working directory and
+then upward. an app is a bare line, written the way the dashboard url spells it,
+followed by the environment it is:
 
   13673-fpd:production
   20001-fpd-qa:qa
   default = production
 
-with one environment it is used automatically, otherwise default decides and -e
-beats it. deploy and restart write their log ids back to the same file.
+only the leading number is read by hatchbox, so the rest is there to tell you
+which app you are looking at. hatchbox setup writes those lines for you, into the
+nearest .hatchbox or, failing that, one at the root of the repo you are in.
 
-the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
+with one environment it is used automatically, otherwise default decides and -e
+beats it. a log is only reachable by id and hatchbox publishes no way to list
+them, so the id of every deploy and restart started from here is written back to
+the same file:
+
+  last_deploy:production = 4212
+  last_restart:production = 4213
+
+anything deployed from the dashboard is invisible to logs and deploy status until
+you hand over its id.
+
+the api token is a secret and stays out of the repo. it is read from
+HATCHBOX_API_TOKEN, then from ~/.hatchbox, which is the token file and is never
+read as an app config. it takes token:ENV or a plain token:
 
   token = your-api-token
 
-ssh, run and psql find the server through the app's cluster. these override it:
+the database psql connects to is whichever postgresql one is attached to the app.
+unmanaged clusters listen on their own machine's loopback, so psql goes through an
+ssh tunnel to the server holding the database, as the deploy user hatchbox sets up.
+ssh lands in /home/deploy/<app>/current, the release that is live, and falls back
+to the home directory when that is not there yet. run does the same, through a
+login shell so the app's environment is loaded, and it returns whatever the
+command returned. a command starting with rails is special: the release directory
+is read out of the motd hatchbox writes, which names every app on the box and the
+rails console line for each, and the command runs there as bin/rails. when the
+motd says nothing the fallback is whatever under ~/*/current has a bin/rails. if
+more than one app is on the server and none of them matches this one, run says so
+and stops, and app_dir settles it. quote the whole command as one argument, or
+-e in it is read as hatchbox's own environment flag and taken away. both it and psql take the same
+per environment overrides in the same file:
 
   ssh_user:production = deploy
   ssh_host:production = 203.0.113.10
