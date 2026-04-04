@@ -411,6 +411,40 @@ cmd_logs() {
   show_log "$log_id"
 }
 
+# splits postgresql://user:pass@host:port/name?sslmode=... into the URI_ globals,
+# because handing psql a uri would put the password in ps output
+parse_pg_uri() {
+  local uri="$1" rest creds hostport dbpart query
+  URI_USER=""; URI_PASS=""; URI_HOST=""; URI_PORT="5432"; URI_NAME=""; URI_SSLMODE=""
+
+  rest="${uri#*://}"
+  case "$rest" in
+    *@*)
+      creds="${rest%%@*}"
+      rest="${rest#*@}"
+      URI_USER="${creds%%:*}"
+      case "$creds" in
+        *:*) URI_PASS="${creds#*:}" ;;
+      esac
+      ;;
+  esac
+
+  hostport="${rest%%/*}"
+  case "$hostport" in
+    *:*) URI_HOST="${hostport%:*}"; URI_PORT="${hostport##*:}" ;;
+    *)   URI_HOST="$hostport" ;;
+  esac
+
+  dbpart="${rest#*/}"
+  URI_NAME="${dbpart%%\?*}"
+  case "$dbpart" in
+    *\?*)
+      query="${dbpart#*\?}"
+      URI_SSLMODE="$(printf '%s' "$query" | tr '&' '\n' | awk -F= '$1 == "sslmode" { print $2 }' | tail -1)"
+      ;;
+  esac
+}
+
 APP_JSON=""
 SERVERS_JSON=""
 
@@ -663,6 +697,147 @@ cmd_ssh() {
   fi
 }
 
+db_server() {
+  load_servers
+  local picked
+  picked="$(printf '%s' "$SERVERS_JSON" | jq -c '[.[] | select((.roles // []) | index("postgresql"))] | first // empty')"
+  if [ -z "$picked" ]; then
+    picked="$(printf '%s' "$SERVERS_JSON" | jq -c 'if length == 1 then .[0] else empty end')"
+  fi
+  [ -n "$picked" ] || die "could not tell which server holds the database. set ssh_host:$ENV_NAME in $CONFIG"
+  printf '%s' "$picked"
+}
+
+free_local_port() {
+  local port=15432
+  if command -v nc >/dev/null 2>&1; then
+    while nc -z 127.0.0.1 "$port" >/dev/null 2>&1; do
+      port=$((port + 1))
+      [ "$port" -lt 15500 ] || die "no free local port between 15432 and 15500"
+    done
+  fi
+  printf '%s' "$port"
+}
+
+cmd_psql() {
+  local sql="" want_url=0 direct=0 wanted_name="" passthru=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -c|--command) shift; [ $# -gt 0 ] || die "-c needs some sql"; sql="$1" ;;
+      -c=*|--command=*) sql="${1#*=}" ;;
+      -d|--database) shift; [ $# -gt 0 ] || die "--database needs a name"; wanted_name="$1" ;;
+      --database=*) wanted_name="${1#--database=}" ;;
+      --url) want_url=1 ;;
+      --direct) direct=1 ;;
+      -h|--help) usage; return 0 ;;
+      --) shift; passthru=("$@"); break ;;
+      -*) die "unknown option for psql: $1. put psql's own flags after a --" ;;
+      *)
+        [ -z "$sql" ] || die "only one statement at a time, quote it as one argument"
+        sql="$1"
+        ;;
+    esac
+    shift
+  done
+
+  api_ok GET "/apps/$APP_ID/databases"
+  local all="$RESP_BODY" candidates count
+
+  candidates="$(printf '%s' "$all" | jq -c '[.[] | select(.engine == "postgresql")]')"
+  if [ -n "$wanted_name" ]; then
+    candidates="$(printf '%s' "$candidates" | jq -c --arg n "$wanted_name" '[.[] | select(.name == $n)]')"
+  fi
+  count="$(printf '%s' "$candidates" | jq 'length')"
+
+  if [ "$count" -eq 0 ]; then
+    if [ -n "$wanted_name" ]; then
+      echo "no postgresql database called $wanted_name is attached to $ENV_NAME" >&2
+    else
+      echo "no postgresql database is attached to $ENV_NAME" >&2
+    fi
+    local attached
+    attached="$(printf '%s' "$all" | jq -r '.[] | "  \(.name), \(.engine), reachable as \(.app_attachments[0].env_var // "nothing")"')"
+    if [ -n "$attached" ]; then
+      echo >&2
+      echo "what is attached:" >&2
+      printf '%s\n' "$attached" >&2
+    fi
+    return 1
+  fi
+
+  if [ "$count" -gt 1 ]; then
+    echo "$ENV_NAME has more than one postgresql database, so pick one with --database" >&2
+    echo >&2
+    printf '%s' "$candidates" | jq -r '.[] | "  \(.name)"' >&2
+    return 1
+  fi
+
+  local db uri public
+  db="$(printf '%s' "$candidates" | jq -c '.[0]')"
+  public="$(printf '%s' "$db" | jq -r '.public_connection_uri // empty')"
+  uri="$public"
+  [ -n "$uri" ] || uri="$(printf '%s' "$db" | jq -r '.private_connection_uri // empty')"
+  [ -n "$uri" ] || die "that database has no connection uri, which happens on sqlite"
+
+  if [ "$want_url" -eq 1 ]; then
+    printf '%s\n' "$uri"
+    if [ -z "$public" ]; then
+      echo "that host is the database's own machine, so the uri only works from the server" >&2
+    fi
+    return 0
+  fi
+
+  need psql
+  parse_pg_uri "$uri"
+
+  local ctl="" ssh_target=""
+  if [ -z "$public" ] && [ "$direct" -eq 0 ]; then
+    local server ssh_host ssh_user ssh_port local_port
+    ssh_host="$(config_get "$CONFIG" "ssh_host:$ENV_NAME")"
+    ssh_user="$(config_get "$CONFIG" "ssh_user:$ENV_NAME")"
+    ssh_port="$(config_get "$CONFIG" "ssh_port:$ENV_NAME")"
+
+    if [ -z "$ssh_host" ]; then
+      server="$(db_server)"
+      ssh_host="$(printf '%s' "$server" | jq -r '.public_ip // empty')"
+      [ -n "$ssh_port" ] || ssh_port="$(printf '%s' "$server" | jq -r '.ssh_port // empty')"
+      [ -n "$ssh_host" ] || die "that server has no public ip. set ssh_host:$ENV_NAME in $CONFIG"
+    fi
+    [ -n "$ssh_user" ] || ssh_user=deploy
+    [ -n "$ssh_port" ] || ssh_port=22
+
+    local_port="$(free_local_port)"
+    ctl="$(mktemp -u /tmp/hatchbox-psql-XXXXXX)"
+    ssh_target="$ssh_user@$ssh_host"
+
+    echo "tunnelling to $URI_HOST:$URI_PORT through $ssh_target" >&2
+    if ! ssh -f -N -M -S "$ctl" \
+      -o ExitOnForwardFailure=yes -o ConnectTimeout=10 \
+      -p "$ssh_port" -L "127.0.0.1:$local_port:$URI_HOST:$URI_PORT" "$ssh_target"; then
+      echo >&2
+      echo "could not open an ssh tunnel. hatchbox puts your key on the deploy user, so" >&2
+      echo "check that ssh $ssh_target works, or set ssh_user:$ENV_NAME in $CONFIG" >&2
+      return 1
+    fi
+
+    URI_HOST=127.0.0.1
+    URI_PORT="$local_port"
+  fi
+
+  local args=(-h "$URI_HOST" -p "$URI_PORT" -U "$URI_USER" -d "$URI_NAME")
+  [ -n "$sql" ] && args+=(-c "$sql")
+  [ ${#passthru[@]} -gt 0 ] && args+=("${passthru[@]}")
+
+  local status=0
+  PGPASSWORD="$URI_PASS" PGSSLMODE="${URI_SSLMODE:-prefer}" psql "${args[@]}" || status=$?
+
+  if [ -n "$ctl" ]; then
+    ssh -S "$ctl" -O exit "$ssh_target" >/dev/null 2>&1 || true
+  fi
+  return "$status"
+}
+
 have_tty() {
   : < /dev/tty 2>/dev/null
 }
@@ -681,6 +856,9 @@ hatchbox, talks to the hatchbox api for the app you are standing in
   logs deploy            the most recent deploy log
   logs restart           the most recent restart log
   logs 4212              a log by id, from anywhere
+  psql                   open a psql on the app's database, over an ssh tunnel
+  psql "select 1"        run one statement and print the result
+  psql --url             print the connection uri instead of connecting
   ssh                    a shell on the server, in the app's current release
   ssh "df -h"            run one command there and come back
   run "rails db:migrate" run a command on the server, in the app's release
@@ -703,7 +881,7 @@ the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
 
   token = your-api-token
 
-ssh and run find the server through the app's cluster. these override it:
+ssh, run and psql find the server through the app's cluster. these override it:
 
   ssh_user:production = deploy
   ssh_host:production = 203.0.113.10
@@ -741,6 +919,7 @@ case "$1" in
   status) shift; cmd_status "$@" ;;
   restart) shift; cmd_restart "$@" ;;
   logs) shift; cmd_logs "$@" ;;
+  psql) shift; cmd_psql "$@" ;;
   ssh) shift; cmd_ssh "$@" ;;
   run) shift; cmd_run "$@" ;;
   envs) shift; cmd_envs "$@" ;;
