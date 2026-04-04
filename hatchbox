@@ -411,6 +411,11 @@ cmd_logs() {
   show_log "$log_id"
 }
 
+urldecode() {
+  local s="${1//+/ }"
+  printf '%b' "${s//%/\\x}"
+}
+
 # splits postgresql://user:pass@host:port/name?sslmode=... into the URI_ globals,
 # because handing psql a uri would put the password in ps output
 parse_pg_uri() {
@@ -422,9 +427,9 @@ parse_pg_uri() {
     *@*)
       creds="${rest%%@*}"
       rest="${rest#*@}"
-      URI_USER="${creds%%:*}"
+      URI_USER="$(urldecode "${creds%%:*}")"
       case "$creds" in
-        *:*) URI_PASS="${creds#*:}" ;;
+        *:*) URI_PASS="$(urldecode "${creds#*:}")" ;;
       esac
       ;;
   esac
@@ -436,7 +441,7 @@ parse_pg_uri() {
   esac
 
   dbpart="${rest#*/}"
-  URI_NAME="${dbpart%%\?*}"
+  URI_NAME="$(urldecode "${dbpart%%\?*}")"
   case "$dbpart" in
     *\?*)
       query="${dbpart#*\?}"
