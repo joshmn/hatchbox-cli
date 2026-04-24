@@ -8,6 +8,7 @@ ENV_NAME=""
 APP_ID=""
 TOKEN=""
 POLL_SECONDS=3
+MAX_WAIT_SECONDS=3600
 
 RESP_CODE=""
 RESP_BODY=""
@@ -204,7 +205,7 @@ emit_new() {
 }
 
 follow_log() {
-  local log_id="$1" dir tmp state owner
+  local log_id="$1" dir tmp state waited=0 owner
   dir="$(mktemp -d)"
   tmp="$dir/fetch"
   trap "rm -rf '$dir'" RETURN
@@ -244,7 +245,15 @@ follow_log() {
         ;;
     esac
 
+    if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+      echo
+      echo "gave up watching after $((MAX_WAIT_SECONDS / 60)) minutes, still $state"
+      echo "pick it back up with: hatchbox -e $ENV_NAME logs $log_id"
+      return 1
+    fi
+
     sleep "$POLL_SECONDS"
+    waited=$((waited + POLL_SECONDS))
   done
 }
 
