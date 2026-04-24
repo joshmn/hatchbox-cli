@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="https://hatchbox.io/api/v1"
+BASE="${HATCHBOX_API_BASE:-https://hatchbox.io/api/v1}"
 GLOBAL_CONFIG="$HOME/.hatchbox"
 CONFIG=""
 ENV_NAME=""
@@ -1171,6 +1171,7 @@ per environment overrides in the same file:
 env
   HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
   HATCHBOX_ENV           default environment, still beaten by -e
+  HATCHBOX_API_BASE      defaults to https://hatchbox.io/api/v1
 USAGE
 }
 
