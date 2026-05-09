@@ -169,6 +169,14 @@ class Hatchbox::App
     details["name"].to_s
   end
 
+  def last_deploy_sha
+    details["last_deploy_sha"].to_s
+  end
+
+  def last_deploy_at
+    details["last_deploy_at"].to_s
+  end
+
   def servers
     @servers ||= load_servers
   end
@@ -382,6 +390,16 @@ class Hatchbox::LogStream
     @headers = {}
   end
 
+  def show
+    data = fetch
+    puts("log #{log_id.to_s.cyan}, #{data["name"] || "unknown"}, #{data["state"] || "unknown"}")
+    puts(commit_line(data)) if commit_line(data)
+    puts("started by #{data["username"]}".dim) unless Hatchbox.blank?(data["username"])
+    puts
+
+    follow
+  end
+
   def follow
     waited = 0
     loop do
@@ -403,6 +421,15 @@ class Hatchbox::LogStream
 
   def fetch
     client.get("/logs/#{log_id}").json || {}
+  end
+
+  def commit_line(data)
+    sha = data["commit_sha"].to_s
+    return nil if sha.empty?
+
+    description = data["description"].to_s
+    line = "commit #{sha[0, 7].cyan}"
+    description.empty? ? line : "#{line} #{description}"
   end
 
   def emit(key:, text:)
@@ -516,6 +543,10 @@ class Hatchbox::Command
     stream(log_id).follow ? 0 : 1
   end
 
+  def show(log_id)
+    stream(log_id).show ? 0 : 1
+  end
+
   def stream(log_id)
     Hatchbox::LogStream.new(client: client, app: app, env: env, log_id: log_id)
   end
@@ -546,8 +577,15 @@ class Hatchbox::Deploy < Hatchbox::Command
     options = { follow: true }
     rest = parse(name: "deploy") do |parser|
       parser.on("--no-follow") { options[:follow] = false }
+      parser.on("--status") { options[:status] = true }
     end
-    reject_extra(rest, name: "deploy")
+    rest.each do |arg|
+      raise Hatchbox::Error, "unknown option for deploy: #{arg}" unless arg == "status"
+
+      options[:status] = true
+    end
+    return Hatchbox::Status.call(context: context, args: []) if options[:status]
+
     start(options)
   end
 
@@ -564,11 +602,55 @@ class Hatchbox::Deploy < Hatchbox::Command
   end
 end
 
+class Hatchbox::Status < Hatchbox::Command
+
+  def call
+    parse(name: "status")
+    puts("#{env.cyan}, app #{app_id}")
+    report_deploy
+    puts
+
+    log_id = config.get("last_deploy:#{env}")
+    return show(log_id) unless Hatchbox.blank?(log_id)
+
+    puts(no_log_help.dim)
+    0
+  end
+
+  private
+
+  def report_deploy
+    sha = app.last_deploy_sha
+    if sha.empty?
+      puts("no deploy recorded on this app yet")
+      return
+    end
+
+    line = "last deploy #{sha[0, 7].cyan}"
+    line = "#{line} at #{app.last_deploy_at}" unless app.last_deploy_at.empty?
+    puts(line)
+    puts("full sha #{sha}".dim)
+  end
+
+  def no_log_help
+    [
+      "no deploy log to stream",
+      "hatchbox only serves a log by its id and has no endpoint that lists them, so the",
+      "only ids around are the ones written back to",
+      "  #{config.path}",
+      "deploy from here and the next one is streamable, or pass an id off the dashboard",
+      "url to hatchbox logs"
+    ].join("\n")
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
     deploy                 queue a deploy and stream it until it lands
     deploy --no-follow     queue it and print the json hatchbox hands back
+    deploy status          last deployed sha, then stream the most recent deploy log
+    status                 the same thing
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -606,7 +688,8 @@ USAGE
 class Hatchbox::Cli
 
   COMMANDS = {
-    "deploy" => Hatchbox::Deploy
+    "deploy" => Hatchbox::Deploy,
+    "status" => Hatchbox::Status
   }.freeze
 
   class << self
