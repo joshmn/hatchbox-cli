@@ -58,6 +58,7 @@ class Hatchbox::Http
   METHODS = {
     "GET" => Net::HTTP::Get,
     "POST" => Net::HTTP::Post,
+    "PUT" => Net::HTTP::Put,
     "DELETE" => Net::HTTP::Delete
   }.freeze
 
@@ -135,8 +136,12 @@ class Hatchbox::Client
     ensure_ok(http.request(method: "POST", path: path, body: body))
   end
 
-  def delete(path)
-    ensure_ok(http.request(method: "DELETE", path: path))
+  def put(path, body: nil)
+    ensure_ok(http.request(method: "PUT", path: path, body: body))
+  end
+
+  def delete(path, body: nil)
+    ensure_ok(http.request(method: "DELETE", path: path, body: body))
   end
 
   private
@@ -832,6 +837,73 @@ class Hatchbox::Envs < Hatchbox::Command
   end
 end
 
+class Hatchbox::Vars < Hatchbox::Command
+
+  USABLE = /\A[A-Za-z0-9_]+\z/.freeze
+  HINT = "vars set NAME=VALUE, or vars unset NAME"
+
+  def call
+    rest = parse(name: "vars", hint: HINT)
+    action = rest.first
+    return explain if Hatchbox.blank?(action)
+    return set(rest.drop(1)) if action == "set"
+    return unset(rest.drop(1)) if ["unset", "rm"].include?(action)
+
+    raise Hatchbox::Error, "no vars command called #{action}. #{HINT}"
+  end
+
+  private
+
+  def set(pairs)
+    raise Hatchbox::Error, "vars set takes one NAME=VALUE" unless pairs.length == 1
+
+    vars = [pair_for(pairs.first)]
+    client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars })
+    report(verb: "set", names: vars.map { |var| var["name"] })
+  end
+
+  def unset(names)
+    raise Hatchbox::Error, "vars unset takes a name" if names.empty?
+
+    wanted = names.map { |name| usable(name) }
+    client.delete("/apps/#{app_id}/env_vars", body: { "env_vars" => wanted })
+    report(verb: "unset", names: wanted)
+  end
+
+  def report(verb:, names:)
+    puts("#{verb} #{names.join(", ").cyan} on #{env}")
+    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
+    0
+  end
+
+  def pair_for(text)
+    name, separator, value = text.partition("=")
+    raise Hatchbox::Error, "#{text} is not NAME=VALUE" if separator.empty?
+
+    { "name" => usable(name), "value" => value }
+  end
+
+  def usable(name)
+    cleaned = name.strip
+    raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers and underscores" unless cleaned =~ USABLE
+
+    cleaned
+  end
+
+  def explain
+    puts([
+      "hatchbox has no endpoint that reads env vars back, and it never returns a value,",
+      "so there is nothing to list here. what is set is on the app's dashboard page.",
+      "",
+      "  hatchbox vars set FOO=bar",
+      "  hatchbox vars unset FOO",
+      "",
+      "a value you type here lands in your shell history."
+    ].join("\n"))
+    0
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
@@ -845,6 +917,10 @@ Hatchbox::USAGE = <<~USAGE
     ps:restart sidekiq     restart one of them
     ps:stop sidekiq        turn a process off, leaving it defined
     ps:start sidekiq       turn it back on
+
+    vars set FOO=bar       set an env var on the app, then hatchbox pushes it to
+                           the servers
+    vars unset FOO         take env vars off the app
 
     envs                   the environments this app is configured for
 
@@ -877,6 +953,12 @@ Hatchbox::USAGE = <<~USAGE
     last_deploy:production = 4212
     last_restart:production = 4213
 
+  env vars are write only here. hatchbox publishes no endpoint that lists them and
+  never returns a value, so vars can set and unset but not read, and what is on the
+  app is on its dashboard page. hatchbox pushes the change to the servers itself
+  without handing back a log id to follow. a value typed into vars set lands in your
+  shell history like anything else on the command line.
+
   env
     HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
     HATCHBOX_ENV           default environment, still beaten by -e
@@ -893,6 +975,7 @@ class Hatchbox::Cli
     "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
     "restart" => Hatchbox::PsRestart,
+    "vars" => Hatchbox::Vars,
     "envs" => Hatchbox::Envs
   }.freeze
 
