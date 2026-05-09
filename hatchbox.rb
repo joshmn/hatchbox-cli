@@ -501,12 +501,28 @@ class Hatchbox::ProcessCatalog
     @all ||= client.get("/apps/#{app_id}/processes").json || []
   end
 
+  def find(wanted)
+    raise Hatchbox::Error, "which process?\n\n#{listing}" if Hatchbox.blank?(wanted)
+    raise Hatchbox::Error, "this app has no processes yet" if all.empty?
+
+    found = all.find { |row| self.class.label(row).downcase == wanted.to_s.downcase || row["id"].to_s == wanted.to_s }
+    raise Hatchbox::Error, "no process called #{wanted}\n\n#{listing}" if found.nil?
+
+    found
+  end
+
   def table
     return "  none" if all.empty?
 
     width = all.map { |row| self.class.label(row).length }.max
     place = all.map { |row| self.class.where(row).length }.max
     all.map { |row| line(row: row, width: width, place: place) }.join("\n")
+  end
+
+  def listing
+    return "this app has no processes yet" if all.empty?
+
+    "processes on this app\n#{table}"
   end
 
   private
@@ -699,6 +715,44 @@ class Hatchbox::PsCommand < Hatchbox::Command
   def catalog
     @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
   end
+
+  def one(rest, name:)
+    raise Hatchbox::Error, "#{name} needs a process name\n\n#{catalog.listing}" if rest.empty?
+    raise Hatchbox::Error, "one process at a time, #{name} got #{rest.join(" ")}" if rest.length > 1
+
+    catalog.find(rest.first)
+  end
+
+  def path_for(process, suffix = nil)
+    base = "/apps/#{app_id}/processes/#{process["id"]}"
+    suffix ? "#{base}/#{suffix}" : base
+  end
+
+  def label(process)
+    Hatchbox::ProcessCatalog.label(process)
+  end
+
+  def settle(response, note, kind: nil)
+    data = response.json
+    id = log_id_in(data)
+    unless id
+      puts(note)
+      return 0
+    end
+
+    config.set(key: "last_#{kind}:#{env}", value: id) if kind
+    puts("#{note}, log #{id.to_s.cyan}")
+    puts
+    follow(id)
+  end
+
+  def log_id_in(data)
+    return nil unless data.is_a?(Hash)
+    return nil unless data.key?("state") || data.key?("child_logs") || data.key?("loggable_type")
+
+    id = data["id"]
+    Hatchbox.blank?(id) ? nil : id
+  end
 end
 
 class Hatchbox::Ps < Hatchbox::PsCommand
@@ -715,6 +769,27 @@ class Hatchbox::Ps < Hatchbox::PsCommand
     puts
     puts(catalog.table)
     0
+  end
+end
+
+class Hatchbox::PsRestart < Hatchbox::PsCommand
+
+  def call
+    rest = parse(name: "ps:restart")
+    return whole_app if rest.empty?
+
+    process = one(rest, name: "ps:restart")
+    settle(client.post(path_for(process, "restart")), "queued restart of #{label(process).cyan} on #{env}", kind: "restart")
+  end
+
+  private
+
+  def whole_app
+    log_id = queue(path: "/apps/#{app_id}/restart", kind: "restart")["id"]
+    puts("queued restart of every process on #{env.cyan}, log #{log_id.to_s.cyan}")
+    puts
+
+    follow(log_id)
   end
 end
 
@@ -740,6 +815,8 @@ Hatchbox::USAGE = <<~USAGE
     status                 the same thing
 
     ps                     the processes on the app, what they run, where they run
+    ps:restart             restart every process and stream it
+    ps:restart sidekiq     restart one of them
 
     envs                   the environments this app is configured for
 
@@ -766,9 +843,11 @@ Hatchbox::USAGE = <<~USAGE
     token = your-api-token
 
   a log is only reachable by its id and hatchbox publishes no way to list them, so
-  the id of every deploy started from here is written back to .hatchbox:
+  the id of every deploy and restart started from here is written back to
+  .hatchbox:
 
     last_deploy:production = 4212
+    last_restart:production = 4213
 
   env
     HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
@@ -782,6 +861,7 @@ class Hatchbox::Cli
     "deploy" => Hatchbox::Deploy,
     "status" => Hatchbox::Status,
     "ps" => Hatchbox::Ps,
+    "ps:restart" => Hatchbox::PsRestart,
     "envs" => Hatchbox::Envs
   }.freeze
 
