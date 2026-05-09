@@ -887,6 +887,7 @@ class Hatchbox::Cli
     "ps:restart" => Hatchbox::PsRestart,
     "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
+    "restart" => Hatchbox::PsRestart,
     "envs" => Hatchbox::Envs
   }.freeze
 
