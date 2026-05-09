@@ -839,7 +839,7 @@ end
 
 class Hatchbox::Vars < Hatchbox::Command
 
-  USABLE = /\A[A-Za-z0-9_]+\z/.freeze
+  USABLE = /\A[A-Z0-9_]+\z/.freeze
   HINT = "vars set NAME=VALUE, or vars unset NAME"
 
   def call
@@ -884,7 +884,7 @@ class Hatchbox::Vars < Hatchbox::Command
   end
 
   def usable(name)
-    cleaned = name.strip
+    cleaned = name.strip.upcase
     raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers and underscores" unless cleaned =~ USABLE
 
     cleaned
@@ -898,7 +898,7 @@ class Hatchbox::Vars < Hatchbox::Command
       "  hatchbox vars set FOO=bar",
       "  hatchbox vars unset FOO",
       "",
-      "a value you type here lands in your shell history."
+      "hatchbox uppercases the names, and a value you type here lands in your shell history."
     ].join("\n"))
     0
   end
@@ -955,9 +955,9 @@ Hatchbox::USAGE = <<~USAGE
 
   env vars are write only here. hatchbox publishes no endpoint that lists them and
   never returns a value, so vars can set and unset but not read, and what is on the
-  app is on its dashboard page. hatchbox pushes the change to the servers itself
-  without handing back a log id to follow. a value typed into vars set lands in your
-  shell history like anything else on the command line.
+  app is on its dashboard page. names are uppercased for you, and hatchbox pushes the
+  change to the servers itself without handing back a log id to follow. a value typed
+  into vars set lands in your shell history like anything else on the command line.
 
   env
     HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
