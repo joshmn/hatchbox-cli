@@ -472,6 +472,54 @@ class Hatchbox::LogStream
   end
 end
 
+class Hatchbox::ProcessCatalog
+
+  class << self
+
+    def label(row)
+      row["name"].to_s
+    end
+
+    def state(row)
+      row["active"] ? "on" : "off"
+    end
+
+    def where(row)
+      return "server #{row["server_id"]}" unless Hatchbox.blank?(row["server_id"])
+
+      roles = (row["roles"] || []).map { |role| role.to_s }
+      roles.empty? ? "nowhere" : roles.join(", ")
+    end
+  end
+
+  def initialize(client:, app_id:)
+    @client = client
+    @app_id = app_id
+  end
+
+  def all
+    @all ||= client.get("/apps/#{app_id}/processes").json || []
+  end
+
+  def table
+    return "  none" if all.empty?
+
+    width = all.map { |row| self.class.label(row).length }.max
+    place = all.map { |row| self.class.where(row).length }.max
+    all.map { |row| line(row: row, width: width, place: place) }.join("\n")
+  end
+
+  private
+
+  attr_reader :client, :app_id
+
+  def line(row:, width:, place:)
+    state = row["active"] ? "on ".green : "off".yellow
+    id = row["id"].to_s.rjust(6)
+    "  #{self.class.label(row).ljust(width)}  #{id}  #{state}  #{self.class.where(row).ljust(place)}  #{row["start_command"]}"
+  end
+end
+
 module Hatchbox::Options
 
   def parse_args(list:, name:, hint: nil)
@@ -644,6 +692,32 @@ class Hatchbox::Status < Hatchbox::Command
   end
 end
 
+class Hatchbox::PsCommand < Hatchbox::Command
+
+  private
+
+  def catalog
+    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
+  end
+end
+
+class Hatchbox::Ps < Hatchbox::PsCommand
+
+  def call
+    parse(name: "ps")
+    rows = catalog.all
+    if rows.empty?
+      puts("no processes on #{env}")
+      return 0
+    end
+
+    puts("processes on #{env.cyan}, app #{app_id}")
+    puts
+    puts(catalog.table)
+    0
+  end
+end
+
 class Hatchbox::Envs < Hatchbox::Command
 
   def call
@@ -664,6 +738,8 @@ Hatchbox::USAGE = <<~USAGE
     deploy --no-follow     queue it and print the json hatchbox hands back
     deploy status          last deployed sha, then stream the most recent deploy log
     status                 the same thing
+
+    ps                     the processes on the app, what they run, where they run
 
     envs                   the environments this app is configured for
 
@@ -705,6 +781,7 @@ class Hatchbox::Cli
   COMMANDS = {
     "deploy" => Hatchbox::Deploy,
     "status" => Hatchbox::Status,
+    "ps" => Hatchbox::Ps,
     "envs" => Hatchbox::Envs
   }.freeze
 
