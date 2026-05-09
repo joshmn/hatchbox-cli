@@ -644,6 +644,19 @@ class Hatchbox::Status < Hatchbox::Command
   end
 end
 
+class Hatchbox::Envs < Hatchbox::Command
+
+  def call
+    parse(name: "envs")
+    puts("environments in #{config.path}")
+    config.apps.each do |name, slug|
+      current = name == env ? " (in use)".green : ""
+      puts("  #{name}, app #{slug}#{current}")
+    end
+    0
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
@@ -651,6 +664,8 @@ Hatchbox::USAGE = <<~USAGE
     deploy --no-follow     queue it and print the json hatchbox hands back
     deploy status          last deployed sha, then stream the most recent deploy log
     status                 the same thing
+
+    envs                   the environments this app is configured for
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -689,7 +704,8 @@ class Hatchbox::Cli
 
   COMMANDS = {
     "deploy" => Hatchbox::Deploy,
-    "status" => Hatchbox::Status
+    "status" => Hatchbox::Status,
+    "envs" => Hatchbox::Envs
   }.freeze
 
   class << self
