@@ -798,6 +798,14 @@ class Hatchbox::PsRestart < Hatchbox::PsCommand
   end
 end
 
+class Hatchbox::PsStart < Hatchbox::PsCommand
+
+  def call
+    process = one(parse(name: "ps:start"), name: "ps:start")
+    settle(client.post(path_for(process, "activation")), "enabled #{label(process).cyan} on #{env}")
+  end
+end
+
 class Hatchbox::PsStop < Hatchbox::PsCommand
 
   def call
@@ -831,6 +839,7 @@ Hatchbox::USAGE = <<~USAGE
     ps:restart             restart every process and stream it
     ps:restart sidekiq     restart one of them
     ps:stop sidekiq        turn a process off, leaving it defined
+    ps:start sidekiq       turn it back on
 
     envs                   the environments this app is configured for
 
@@ -876,6 +885,7 @@ class Hatchbox::Cli
     "status" => Hatchbox::Status,
     "ps" => Hatchbox::Ps,
     "ps:restart" => Hatchbox::PsRestart,
+    "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
     "envs" => Hatchbox::Envs
   }.freeze
