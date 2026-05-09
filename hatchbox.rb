@@ -39,6 +39,8 @@ module Hatchbox
 
   API_BASE = ENV["HATCHBOX_API_BASE"] || "https://hatchbox.io/api/v1"
   GLOBAL_CONFIG = File.join(Dir.home, ".hatchbox")
+  POLL_SECONDS = 3
+  MAX_WAIT_SECONDS = 3600
 
   class Error < StandardError; end
 
@@ -151,6 +153,46 @@ class Hatchbox::Client
   end
 end
 
+class Hatchbox::App
+
+  def initialize(client:, app_id:)
+    @client = client
+    @app_id = app_id
+  end
+
+  def details
+    @details ||= client.get("/apps/#{app_id}").json || {}
+  end
+
+  def name
+    details["name"].to_s
+  end
+
+  def servers
+    @servers ||= load_servers
+  end
+
+  def server_name(id)
+    match = servers.find { |server| server["id"].to_s == id.to_s }
+    return "server #{id}" if match.nil? || Hatchbox.blank?(match["name"])
+
+    match["name"]
+  rescue Hatchbox::Error
+    "server #{id}"
+  end
+
+  private
+
+  attr_reader :client, :app_id
+
+  def load_servers
+    cluster = details["cluster_id"]
+    raise Hatchbox::Error, "app #{app_id} is on no cluster, so there is no server to reach" if Hatchbox.blank?(cluster)
+
+    (client.get("/clusters/#{cluster}").json || {})["servers"] || []
+  end
+end
+
 class Hatchbox::Context
 
   class << self
@@ -187,6 +229,10 @@ class Hatchbox::Context
     @client ||= Hatchbox::Client.new(token: token)
   end
 
+  def app
+    @app ||= Hatchbox::App.new(client: client, app_id: app_id)
+  end
+
   private
 
   def read_apps
@@ -203,6 +249,83 @@ class Hatchbox::Context
 
     line = File.readlines(Hatchbox::GLOBAL_CONFIG).find { |text| text.strip.start_with?("token") && text.include?("=") }
     line ? line.split("=", 2).last.strip : nil
+  end
+end
+
+class Hatchbox::LogStream
+
+
+  ENDED = ["completed", "failed", "aborted"].freeze
+
+  def initialize(client:, app:, env:, log_id:)
+    @client = client
+    @app = app
+    @env = env
+    @log_id = log_id
+    @seen = {}
+    @headers = {}
+  end
+
+  def follow
+    waited = 0
+    loop do
+      data = fetch
+      emit(key: "parent", text: data["body"].to_s)
+      emit_children(data)
+      state = data["state"].to_s
+      return finish(state) if ENDED.include?(state)
+      return give_up(state) if waited >= Hatchbox::MAX_WAIT_SECONDS
+
+      sleep(Hatchbox::POLL_SECONDS)
+      waited += Hatchbox::POLL_SECONDS
+    end
+  end
+
+  private
+
+  attr_reader :client, :app, :env, :log_id, :seen, :headers
+
+  def fetch
+    client.get("/logs/#{log_id}").json || {}
+  end
+
+  def emit(key:, text:)
+    old = seen[key].to_s
+    if old.empty?
+      print(text) unless text.empty?
+    elsif text.length > old.length && text.start_with?(old)
+      print(text[old.length + 1..-1])
+    elsif text != old
+      print(text)
+    end
+    $stdout.flush
+    seen[key] = text
+  end
+
+  def emit_children(data)
+    (data["child_logs"] || []).each do |child|
+      text = child["body"].to_s
+      id = child["id"]
+      if !text.empty? && !headers[id]
+        puts
+        puts("output from #{app.server_name(child["loggable_id"])}".cyan)
+        headers[id] = true
+      end
+      emit(key: "child-#{id}", text: text)
+    end
+  end
+
+  def finish(state)
+    puts
+    puts(state == "completed" ? state.green : state.red)
+    state == "completed"
+  end
+
+  def give_up(state)
+    puts
+    puts("gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}".yellow)
+    puts("pick it back up with: hatchbox -e #{env} logs #{log_id}".dim)
+    false
   end
 end
 
@@ -257,12 +380,24 @@ class Hatchbox::Command
     context.client
   end
 
+  def app
+    context.app
+  end
+
   def env
     context.env
   end
 
   def app_id
     context.app_id
+  end
+
+  def follow(log_id)
+    stream(log_id).follow ? 0 : 1
+  end
+
+  def stream(log_id)
+    Hatchbox::LogStream.new(client: client, app: app, env: env, log_id: log_id)
   end
 
   def print_json(data)
@@ -278,15 +413,35 @@ end
 class Hatchbox::Deploy < Hatchbox::Command
 
   def call
-    reject_extra(parse(name: "deploy"), name: "deploy")
-    print_json(client.post("/apps/#{app_id}/deploy").json || {})
+    options = { follow: true }
+    rest = parse(name: "deploy") do |parser|
+      parser.on("--no-follow") { options[:follow] = false }
+    end
+    reject_extra(rest, name: "deploy")
+    start(options)
+  end
+
+  private
+
+  def start(options)
+    response = client.post("/apps/#{app_id}/deploy")
+    data = response.json || {}
+    return print_json(data) unless options[:follow]
+
+    log_id = data["id"]
+    raise Hatchbox::Error, "hatchbox accepted the deploy but returned no log id: #{response.body}" if Hatchbox.blank?(log_id)
+
+    puts("queued deploy to #{env.cyan}, log #{log_id.to_s.cyan}")
+    puts
+    follow(log_id)
   end
 end
 
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
-    deploy                 queue a deploy and print the json hatchbox hands back
+    deploy                 queue a deploy and stream it until it lands
+    deploy --no-follow     queue it and print the json hatchbox hands back
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
