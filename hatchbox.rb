@@ -57,7 +57,8 @@ class Hatchbox::Http
 
   METHODS = {
     "GET" => Net::HTTP::Get,
-    "POST" => Net::HTTP::Post
+    "POST" => Net::HTTP::Post,
+    "DELETE" => Net::HTTP::Delete
   }.freeze
 
   class Response
@@ -132,6 +133,10 @@ class Hatchbox::Client
 
   def post(path, body: nil)
     ensure_ok(http.request(method: "POST", path: path, body: body))
+  end
+
+  def delete(path)
+    ensure_ok(http.request(method: "DELETE", path: path))
   end
 
   private
@@ -793,6 +798,14 @@ class Hatchbox::PsRestart < Hatchbox::PsCommand
   end
 end
 
+class Hatchbox::PsStop < Hatchbox::PsCommand
+
+  def call
+    process = one(parse(name: "ps:stop"), name: "ps:stop")
+    settle(client.delete(path_for(process, "activation")), "disabled #{label(process).cyan} on #{env}")
+  end
+end
+
 class Hatchbox::Envs < Hatchbox::Command
 
   def call
@@ -817,6 +830,7 @@ Hatchbox::USAGE = <<~USAGE
     ps                     the processes on the app, what they run, where they run
     ps:restart             restart every process and stream it
     ps:restart sidekiq     restart one of them
+    ps:stop sidekiq        turn a process off, leaving it defined
 
     envs                   the environments this app is configured for
 
@@ -862,6 +876,7 @@ class Hatchbox::Cli
     "status" => Hatchbox::Status,
     "ps" => Hatchbox::Ps,
     "ps:restart" => Hatchbox::PsRestart,
+    "ps:stop" => Hatchbox::PsStop,
     "envs" => Hatchbox::Envs
   }.freeze
 
