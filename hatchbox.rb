@@ -643,9 +643,10 @@ end
 class Hatchbox::Deploy < Hatchbox::Command
 
   def call
-    options = { follow: true }
+    options = { watch: false }
     rest = parse(name: "deploy") do |parser|
-      parser.on("--no-follow") { options[:follow] = false }
+      parser.on("--watch") { options[:watch] = true }
+      parser.on("--no-follow") { options[:watch] = false }
       parser.on("--status") { options[:status] = true }
     end
     rest.each do |arg|
@@ -662,7 +663,11 @@ class Hatchbox::Deploy < Hatchbox::Command
 
   def start(options)
     data = queue(path: "/apps/#{app_id}/deploy", kind: "deploy")
-    return print_json(data) unless options[:follow]
+
+    unless options[:watch]
+      puts(JSON.pretty_generate(data))
+      return 0
+    end
 
     log_id = data["id"]
     puts("queued deploy to #{env.cyan}, log #{log_id.to_s.cyan}")
@@ -830,8 +835,8 @@ end
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
-    deploy                 queue a deploy and stream it until it lands
-    deploy --no-follow     queue it and print the json hatchbox hands back
+    deploy                 queue a deploy and print the json hatchbox hands back
+    deploy --watch         queue it and stream the log until it lands
     deploy status          last deployed sha, then stream the most recent deploy log
     status                 the same thing
 
