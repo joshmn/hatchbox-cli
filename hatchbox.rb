@@ -5,6 +5,7 @@ require "json"
 require "net/http"
 require "uri"
 require "optparse"
+require "pathname"
 
 class String
 
@@ -193,6 +194,99 @@ class Hatchbox::App
   end
 end
 
+class Hatchbox::Config
+
+  attr_reader :path
+
+  def initialize(path)
+    @path = path.to_s
+  end
+
+  def exists?
+    File.file?(path)
+  end
+
+  def get(key)
+    settings[key]
+  end
+
+  def set(key:, value:)
+    unless writable?
+      warn("could not write #{key} to #{path}, it is not writable".yellow)
+      return
+    end
+
+    written = false
+    kept = lines.map do |line|
+      next line unless setting_key(line) == key
+      next nil if written
+
+      written = true
+      "#{key} = #{value}"
+    end
+    kept = kept.compact
+    kept << "#{key} = #{value}" unless written
+    write(kept)
+  end
+
+  def apps
+    lines.map { |line| split_app(line) }.compact
+  end
+
+  def envs
+    apps.map { |env, _app| env }
+  end
+
+  def app_for(env)
+    found = apps.select { |name, _app| name == env }.last
+    found ? found.last : nil
+  end
+
+  private
+
+  def lines
+    return [] unless exists?
+
+    File.readlines(path).map { |line| line.chomp }
+  end
+
+  def settings
+    found = {}
+    lines.each do |line|
+      key = setting_key(line)
+      found[key] = line.split("=", 2).last.strip if key
+    end
+    found
+  end
+
+  def write(rows)
+    File.write(path, rows.map { |row| "#{row}\n" }.join)
+  end
+
+  def writable?
+    return File.writable?(path) if exists?
+
+    File.writable?(File.dirname(path))
+  end
+
+  def setting_key(line)
+    text = line.strip
+    return nil if text.start_with?("#") || !text.include?("=")
+
+    text.split("=", 2).first.strip
+  end
+
+  def split_app(line)
+    text = line.strip
+    return nil if text.empty? || text.start_with?("#") || text.include?("=")
+
+    app, _colon, env = text.rpartition(":")
+    return nil if app.strip.empty? || env.strip.empty?
+
+    [env.strip, app.strip]
+  end
+end
+
 class Hatchbox::Context
 
   class << self
@@ -202,23 +296,16 @@ class Hatchbox::Context
     end
   end
 
-  attr_reader :env, :app_id, :token
+  attr_reader :config, :env, :app_id, :token
 
   def initialize(env_name)
     @env = env_name
   end
 
   def load
-    @path = File.join(Dir.pwd, ".hatchbox")
-    raise Hatchbox::Error, "no .hatchbox in #{Dir.pwd}. see hatchbox --help for the format" unless File.file?(@path)
-
-    apps = read_apps
-    @env = apps.keys.first if Hatchbox.blank?(env) && apps.length == 1
-    raise Hatchbox::Error, "#{@path} has more than one environment, so pick one with -e" if Hatchbox.blank?(env)
-
-    @app_id = apps[env]
-    raise Hatchbox::Error, "no app is listed for #{env} in #{@path}" if Hatchbox.blank?(app_id)
-
+    @config = Hatchbox::Config.new(locate)
+    @env = pick_env
+    @app_id = pick_app
     @token = read_token
     raise Hatchbox::Error, "no api token. put 'token = ...' in #{Hatchbox::GLOBAL_CONFIG} or set HATCHBOX_API_TOKEN" if Hatchbox.blank?(token)
 
@@ -235,20 +322,49 @@ class Hatchbox::Context
 
   private
 
-  def read_apps
-    File.readlines(@path).each_with_object({}) do |line, found|
-      app, _colon, name = line.strip.rpartition(":")
-      found[name] = app unless app.empty? || line.include?("=")
+  def locate
+    Pathname.new(Dir.pwd).ascend do |dir|
+      candidate = dir.join(".hatchbox")
+      return candidate.to_s if candidate.file? && candidate.to_s != Hatchbox::GLOBAL_CONFIG
     end
+    raise Hatchbox::Error, "no .hatchbox found here or above #{Dir.pwd}. see hatchbox --help for the format"
+  end
+
+  def pick_env
+    raise Hatchbox::Error, "#{config.path} names no app, so there is nothing to talk to. see hatchbox --help" if config.envs.empty?
+
+    name = env
+    name = ENV["HATCHBOX_ENV"] if Hatchbox.blank?(name)
+    name = config.get("default") if Hatchbox.blank?(name)
+    name = config.envs.first if Hatchbox.blank?(name) && config.envs.length == 1
+    raise Hatchbox::Error, "#{config.path} has more than one environment and no default line, so pick one with -e\n\n#{listing}" if Hatchbox.blank?(name)
+
+    name
+  end
+
+  def pick_app
+    found = config.app_for(env)
+    raise Hatchbox::Error, "no app is listed for #{env} in #{config.path}\n\nenvironments it does know about:\n#{listing}" if Hatchbox.blank?(found)
+
+    found
   end
 
   def read_token
     from_env = ENV["HATCHBOX_API_TOKEN"]
     return from_env unless Hatchbox.blank?(from_env)
-    return nil unless File.file?(Hatchbox::GLOBAL_CONFIG)
 
-    line = File.readlines(Hatchbox::GLOBAL_CONFIG).find { |text| text.strip.start_with?("token") && text.include?("=") }
-    line ? line.split("=", 2).last.strip : nil
+    scoped = global_config.get("token:#{env}")
+    return scoped unless Hatchbox.blank?(scoped)
+
+    global_config.get("token")
+  end
+
+  def global_config
+    Hatchbox::Config.new(Hatchbox::GLOBAL_CONFIG)
+  end
+
+  def listing
+    config.envs.map { |name| "  #{name}" }.join("\n")
   end
 end
 
@@ -376,6 +492,10 @@ class Hatchbox::Command
 
   attr_reader :context, :args
 
+  def config
+    context.config
+  end
+
   def client
     context.client
   end
@@ -398,6 +518,16 @@ class Hatchbox::Command
 
   def stream(log_id)
     Hatchbox::LogStream.new(client: client, app: app, env: env, log_id: log_id)
+  end
+
+  def queue(path:, kind:)
+    response = client.post(path)
+    data = response.json || {}
+    log_id = data["id"]
+    raise Hatchbox::Error, "hatchbox accepted the #{kind} but returned no log id: #{response.body}" if Hatchbox.blank?(log_id)
+
+    config.set(key: "last_#{kind}:#{env}", value: log_id)
+    data
   end
 
   def print_json(data)
@@ -424,13 +554,10 @@ class Hatchbox::Deploy < Hatchbox::Command
   private
 
   def start(options)
-    response = client.post("/apps/#{app_id}/deploy")
-    data = response.json || {}
+    data = queue(path: "/apps/#{app_id}/deploy", kind: "deploy")
     return print_json(data) unless options[:follow]
 
     log_id = data["id"]
-    raise Hatchbox::Error, "hatchbox accepted the deploy but returned no log id: #{response.body}" if Hatchbox.blank?(log_id)
-
     puts("queued deploy to #{env.cyan}, log #{log_id.to_s.cyan}")
     puts
     follow(log_id)
@@ -445,20 +572,34 @@ Hatchbox::USAGE = <<~USAGE
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
-  the app comes from .hatchbox in the working directory. an app is a bare line,
-  written the way the dashboard url spells it, followed by the environment it is:
+  the app comes from the nearest .hatchbox, looked for in the working directory and
+  then upward. an app is a bare line, written the way the dashboard url spells it,
+  followed by the environment it is:
 
     13673-fpd:production
     20001-fpd-qa:qa
+    default = production
 
-  with one environment it is used automatically, otherwise -e picks one.
+  only the leading number is read by hatchbox, so the rest is there to tell you
+  which app you are looking at.
 
-  the api token is read from HATCHBOX_API_TOKEN, then from ~/.hatchbox:
+  with one environment it is used automatically, otherwise default decides and -e
+  beats it.
+
+  the api token is a secret and stays out of the repo. it is read from
+  HATCHBOX_API_TOKEN, then from ~/.hatchbox, which is the token file and is never
+  read as an app config. it takes token:ENV or a plain token:
 
     token = your-api-token
 
+  a log is only reachable by its id and hatchbox publishes no way to list them, so
+  the id of every deploy started from here is written back to .hatchbox:
+
+    last_deploy:production = 4212
+
   env
     HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
+    HATCHBOX_ENV           default environment, still beaten by -e
     HATCHBOX_API_BASE      defaults to https://hatchbox.io/api/v1
 USAGE
 
