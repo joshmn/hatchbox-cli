@@ -294,7 +294,7 @@ class Hatchbox::LogStream
     if old.empty?
       print(text) unless text.empty?
     elsif text.length > old.length && text.start_with?(old)
-      print(text[old.length + 1..-1])
+      print(text[old.length..-1])
     elsif text != old
       print(text)
     end
