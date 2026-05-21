@@ -6,6 +6,7 @@ require "net/http"
 require "uri"
 require "optparse"
 require "pathname"
+require "shellwords"
 
 class String
 
@@ -42,6 +43,8 @@ module Hatchbox
   GLOBAL_CONFIG = File.join(Dir.home, ".hatchbox")
   POLL_SECONDS = 3
   MAX_WAIT_SECONDS = 3600
+  DEFAULT_SSH_USER = "deploy"
+  DEFAULT_SSH_PORT = "22"
 
   class Error < StandardError; end
 
@@ -49,6 +52,13 @@ module Hatchbox
 
     def blank?(value)
       value.nil? || value.to_s.strip.empty?
+    end
+
+    def run(argv)
+      started = system(*argv)
+      raise Error, "#{argv.first} is required and is not installed" if started.nil?
+
+      $?.exitstatus.to_i
     end
   end
 end
@@ -305,6 +315,41 @@ class Hatchbox::Config
   end
 end
 
+class Hatchbox::Prompt
+
+  def available?
+    !tty.nil?
+  end
+
+  def ask(question:, io: $stdout)
+    io.print(question)
+    io.flush
+    answer = tty.gets
+    answer.nil? ? nil : answer.strip
+  end
+
+  def ask_number(question:, count:, io: $stdout)
+    answer = ask(question: question, io: io).to_s
+    raise Hatchbox::Error, "that is not a number" unless answer =~ /\A[0-9]+\z/
+    raise Hatchbox::Error, "there is no #{answer} on that list" if answer.to_i < 1 || answer.to_i > count
+
+    answer.to_i
+  end
+
+  private
+
+  def tty
+    return @tty if @opened
+
+    @opened = true
+    @tty = begin
+      File.open("/dev/tty", "r")
+    rescue SystemCallError
+      nil
+    end
+  end
+end
+
 class Hatchbox::Context
 
   class << self
@@ -383,6 +428,125 @@ class Hatchbox::Context
 
   def listing
     config.envs.map { |name| "  #{name}" }.join("\n")
+  end
+end
+
+class Hatchbox::ServerPicker
+
+  def initialize(app:, prompt: Hatchbox::Prompt.new)
+    @app = app
+    @prompt = prompt
+  end
+
+  def pick(filter)
+    pool = Hatchbox.blank?(filter) ? app.servers : matching(filter)
+    raise Hatchbox::Error, "#{nothing_message(filter)}\n\n#{listing(app.servers)}" if pool.empty?
+    return pool.first if pool.length == 1
+    raise Hatchbox::Error, "that cluster has more than one server, so name one with --server\n\n#{listing(pool)}" unless prompt.available?
+
+    choose(pool)
+  end
+
+  private
+
+  attr_reader :app, :prompt
+
+  def matching(filter)
+    wanted = filter.downcase
+    app.servers.select do |server|
+      roles(server).map { |role| role.downcase }.include?(wanted) || label(server).downcase.include?(wanted)
+    end
+  end
+
+  def nothing_message(filter)
+    return "that cluster has no servers" if Hatchbox.blank?(filter)
+
+    "no server called #{filter}, and none with that role"
+  end
+
+  def listing(pool)
+    pool.map { |server| "  #{label(server)}  #{roles(server).join(", ")}" }.join("\n")
+  end
+
+  def label(server)
+    Hatchbox.blank?(server["name"]) ? "unnamed" : server["name"]
+  end
+
+  def roles(server)
+    (server["roles"] || []).map { |role| role.to_s }
+  end
+
+  def choose(pool)
+    warn("servers on this cluster")
+    pool.each_with_index { |server, index| warn("  #{index + 1}  #{label(server)}  #{roles(server).join(", ")}") }
+    warn("")
+    pool[prompt.ask_number(question: "which one? ", count: pool.length, io: $stderr) - 1]
+  end
+end
+
+class Hatchbox::SshTarget
+
+  class << self
+
+    def resolve(context:, filter: nil)
+      new(context: context, filter: filter).resolve
+    end
+  end
+
+  attr_reader :host, :user, :port, :server
+
+  def initialize(context:, filter: nil)
+    @context = context
+    @filter = filter
+  end
+
+  def resolve
+    @host = config.get("ssh_host:#{env}")
+    @user = config.get("ssh_user:#{env}")
+    @port = config.get("ssh_port:#{env}")
+    from_cluster if Hatchbox.blank?(host)
+    @user = Hatchbox::DEFAULT_SSH_USER if Hatchbox.blank?(user)
+    @port = Hatchbox::DEFAULT_SSH_PORT if Hatchbox.blank?(port)
+    self
+  end
+
+  def address
+    "#{user}@#{host}"
+  end
+
+  def server_label
+    return nil unless server
+
+    Hatchbox.blank?(server["name"]) ? "server" : server["name"]
+  end
+
+  def app_name
+    context.app.name
+  end
+
+  private
+
+  attr_reader :context, :filter
+
+  def config
+    context.config
+  end
+
+  def env
+    context.env
+  end
+
+  def picker
+    Hatchbox::ServerPicker.new(app: context.app)
+  end
+
+  def from_cluster
+    @server = picker.pick(filter)
+    @host = server["public_ip"].to_s
+    @port = server["ssh_port"].to_s if Hatchbox.blank?(port)
+    return unless Hatchbox.blank?(host)
+
+    raise Hatchbox::Error, "#{server_label} has no public ip. set ssh_host:#{env} in #{config.path}"
   end
 end
 
@@ -546,6 +710,90 @@ class Hatchbox::ProcessCatalog
   end
 end
 
+class Hatchbox::Journal
+
+  META = /([\\^$.|?*+()\[\]{}])/.freeze
+
+  def initialize(app_name:, process_name: nil, lines: 100, follow: false)
+    @app_name = app_name.to_s
+    @process_name = process_name.to_s
+    @lines = lines
+    @follow = follow
+  end
+
+  def script
+    [
+      "set -u",
+      "list() { systemctl \"$@\" list-units --type=service --all --plain --no-legend --no-pager 2>/dev/null | awk '{print $1}'; }",
+      "scope=system",
+      "names=$(list)",
+      "units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(primary)} || true)",
+      "if [ -z \"$units\" ]; then units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(secondary)} || true); fi",
+      "if [ -z \"$units\" ]; then",
+      "  scope=user",
+      "  names=$(list --user)",
+      "  units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(primary)} || true)",
+      "  if [ -z \"$units\" ]; then units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(secondary)} || true); fi",
+      "fi",
+      "if [ -z \"$units\" ]; then",
+      "  echo #{quote(miss)} >&2",
+      "  echo 'services on this server:' >&2",
+      "  list >&2",
+      "  list --user >&2",
+      "  exit 1",
+      "fi",
+      "args=''",
+      "for u in $units; do args=\"$args -u $u\"; done",
+      tail
+    ].join("\n")
+  end
+
+  private
+
+  attr_reader :app_name, :process_name, :lines, :follow
+
+  def tail
+    [
+      "echo unit $units >&2",
+      "if [ \"$scope\" = user ]; then",
+      "  exec journalctl --user $args #{flags}",
+      "fi",
+      "exec journalctl $args #{flags}"
+    ].join("\n")
+  end
+
+  def flags
+    parts = ["-n", lines.to_s]
+    parts << (follow ? "-f" : "--no-pager")
+    parts.join(" ")
+  end
+
+  def primary
+    return "^.*#{safe(app_name)}.*\\.service$" if process_name.empty?
+
+    "^(.*#{safe(app_name)}.*#{safe(process_name)}|.*#{safe(process_name)}.*#{safe(app_name)}).*\\.service$"
+  end
+
+  def secondary
+    return "^.*#{safe(app_name)}.*\\.service$" if process_name.empty?
+
+    "^.*#{safe(process_name)}.*\\.service$"
+  end
+
+  def miss
+    wanted = process_name.empty? ? app_name : "#{app_name} and #{process_name}"
+    "no systemd service on this server has #{wanted} in its name, so there is no journal to read"
+  end
+
+  def safe(text)
+    text.gsub(META) { "\\#{Regexp.last_match(1)}" }
+  end
+
+  def quote(text)
+    Shellwords.escape(text)
+  end
+end
+
 module Hatchbox::Options
 
   def parse_args(list:, name:, hint: nil)
@@ -640,8 +888,14 @@ class Hatchbox::Command
     0
   end
 
+  def passthru
+    cut = args.index("--")
+    cut ? args[(cut + 1)..-1] : []
+  end
+
   def parse(name:, hint: nil, &block)
-    parse_args(list: args.dup, name: name, hint: hint, &block)
+    cut = args.index("--")
+    parse_args(list: cut ? args[0, cut] : args.dup, name: name, hint: hint, &block)
   end
 end
 
@@ -824,6 +1078,64 @@ class Hatchbox::PsStop < Hatchbox::PsCommand
   end
 end
 
+class Hatchbox::Logs < Hatchbox::Command
+
+  HINT = "logs --ps sidekiq --tail, and ssh's own flags after a --"
+
+  def call
+    options = { lines: 100, follow: false }
+    rest = parse(name: "logs", hint: HINT) do |parser|
+      parser.on("-p", "--ps NAME") { |value| options[:process] = value }
+      parser.on("-d", "--dyno NAME") { |value| options[:process] = value }
+      parser.on("-n", "--num LINES", Integer) { |value| options[:lines] = value }
+      parser.on("-t", "--tail") { options[:follow] = true }
+      parser.on("-f", "--follow") { options[:follow] = true }
+      parser.on("-s", "--server NAME") { |value| options[:server] = value }
+    end
+    raise Hatchbox::Error, "one process at a time. #{HINT}" if rest.length > 1
+
+    options[:process] = rest.first if rest.any? && Hatchbox.blank?(options[:process])
+    tail(options)
+  end
+
+  private
+
+  def tail(options)
+    process = options[:process] ? catalog.find(options[:process]) : nil
+    target = Hatchbox::SshTarget.resolve(context: context, filter: options[:server])
+    warn(heading(process: process, target: target).dim)
+    Hatchbox.run(command_line(target: target, script: script(process: process, target: target, options: options)))
+  end
+
+  def catalog
+    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
+  end
+
+  def script(process:, target:, options:)
+    Hatchbox::Journal.new(
+      app_name: target.app_name,
+      process_name: process ? process["name"] : nil,
+      lines: options[:lines],
+      follow: options[:follow]
+    ).script
+  end
+
+  def command_line(target:, script:)
+    argv = ["ssh", "-p", target.port.to_s]
+    argv.concat(passthru)
+    argv << "-t" if $stdout.tty?
+    argv << target.address
+    argv << "bash -lc #{Shellwords.escape(script)}"
+    argv
+  end
+
+  def heading(process:, target:)
+    who = process ? Hatchbox::ProcessCatalog.label(process) : "every process"
+    where = target.server_label || target.host
+    "#{who} on #{where}, journal on the server, hatchbox stores none of this"
+  end
+end
+
 class Hatchbox::Envs < Hatchbox::Command
 
   def call
@@ -918,6 +1230,10 @@ Hatchbox::USAGE = <<~USAGE
     ps:stop sidekiq        turn a process off, leaving it defined
     ps:start sidekiq       turn it back on
 
+    logs                   the last 100 journal lines from every process
+    logs --ps sidekiq      just that one
+    logs --ps sidekiq -t   follow it
+
     vars set FOO=bar       set an env var on the app, then hatchbox pushes it to
                            the servers
     vars unset FOO         take env vars off the app
@@ -945,6 +1261,15 @@ Hatchbox::USAGE = <<~USAGE
   read as an app config. it takes token:ENV or a plain token:
 
     token = your-api-token
+
+  logs is the odd one out, because it does not use the api. hatchbox stores no
+  runtime output and publishes no endpoint that serves any, and there is nothing
+  under a process at all. so logs goes to the server over ssh, finds the systemd
+  units whose names hold the app and the process, and runs journalctl on them. it
+  falls back to user units if there are no system ones.
+
+  because it is ssh, logs needs a server, and --server names one when the cluster
+  has several.
 
   a log is only reachable by its id and hatchbox publishes no way to list them, so
   the id of every deploy and restart started from here is written back to
@@ -975,6 +1300,7 @@ class Hatchbox::Cli
     "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
     "restart" => Hatchbox::PsRestart,
+    "logs" => Hatchbox::Logs,
     "vars" => Hatchbox::Vars,
     "envs" => Hatchbox::Envs
   }.freeze
@@ -1011,7 +1337,10 @@ class Hatchbox::Cli
   attr_reader :argv, :env_name, :help
 
   def strip_env
-    scan(argv.dup)
+    cut = argv.index("--")
+    head = cut ? argv[0, cut] : argv.dup
+    tail = cut ? argv[cut..-1] : []
+    scan(head) + tail
   end
 
   def scan(head)
