@@ -714,11 +714,13 @@ class Hatchbox::Journal
 
   META = /([\\^$.|?*+()\[\]{}])/.freeze
 
-  def initialize(app_name:, process_name: nil, lines: 100, follow: false)
+  def initialize(app_name:, process_name: nil, lines: 100, follow: false, since: nil, units_only: false)
     @app_name = app_name.to_s
     @process_name = process_name.to_s
     @lines = lines
     @follow = follow
+    @since = since
+    @units_only = units_only
   end
 
   def script
@@ -744,13 +746,20 @@ class Hatchbox::Journal
       "fi",
       "args=''",
       "for u in $units; do args=\"$args -u $u\"; done",
-      tail
+      units_only ? report : tail
     ].join("\n")
   end
 
   private
 
-  attr_reader :app_name, :process_name, :lines, :follow
+  attr_reader :app_name, :process_name, :lines, :follow, :since, :units_only
+
+  def report
+    [
+      "echo \"scope $scope\"",
+      "printf '%s\\n' $units"
+    ].join("\n")
+  end
 
   def tail
     [
@@ -768,6 +777,7 @@ class Hatchbox::Journal
 
   def flags
     parts = ["-n", lines.to_s]
+    parts.concat(["--since", Shellwords.escape(since)]) unless Hatchbox.blank?(since)
     parts << (follow ? "-f" : "--no-pager")
     parts.join(" ")
   end
@@ -1095,6 +1105,8 @@ class Hatchbox::Logs < Hatchbox::Command
       parser.on("-t", "--tail") { options[:follow] = true }
       parser.on("-f", "--follow") { options[:follow] = true }
       parser.on("-s", "--server NAME") { |value| options[:server] = value }
+      parser.on("--since WHEN") { |value| options[:since] = value }
+      parser.on("--units") { options[:unit] = true }
     end
     raise Hatchbox::Error, "one process at a time. #{HINT}" if rest.length > 1
 
@@ -1120,7 +1132,9 @@ class Hatchbox::Logs < Hatchbox::Command
       app_name: target.app_name,
       process_name: process ? process["name"] : nil,
       lines: options[:lines],
-      follow: options[:follow]
+      follow: options[:follow],
+      since: options[:since],
+      units_only: options[:units]
     ).script
   end
 
@@ -1237,6 +1251,8 @@ Hatchbox::USAGE = <<~USAGE
     logs                   the last 100 journal lines from every process
     logs --ps sidekiq      just that one
     logs --ps sidekiq -t   follow it
+    logs -n 500 --since "1 hour ago"
+    logs --ps sidekiq --units   which systemd units it would read, and stop there
 
     vars set FOO=bar       set an env var on the app, then hatchbox pushes it to
                            the servers
@@ -1269,9 +1285,11 @@ Hatchbox::USAGE = <<~USAGE
   logs is the odd one out, because it does not use the api. hatchbox stores no
   runtime output and publishes no endpoint that serves any, and there is nothing
   under a process at all. so logs goes to the server over ssh, finds the systemd
-  units whose names hold the app and the process, and runs journalctl on them. it
-  reaches for sudo only when journalctl says the deploy user cannot read the
-  journal, and it falls back to user units if there are no system ones.
+  units whose names hold the app and the process, and runs journalctl on them.
+  --units prints what it matched without reading anything, which is worth doing
+  once if you have a process whose name is a common word. it reaches for sudo only
+  when journalctl says the deploy user cannot read the journal, and it falls back
+  to user units if there are no system ones.
 
   because it is ssh, logs needs a server, and --server names one when the cluster
   has several.
