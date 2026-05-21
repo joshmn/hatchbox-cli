@@ -758,7 +758,11 @@ class Hatchbox::Journal
       "if [ \"$scope\" = user ]; then",
       "  exec journalctl --user $args #{flags}",
       "fi",
-      "exec journalctl $args #{flags}"
+      "probe=$(journalctl -n 1 --no-pager $args 2>&1 || true)",
+      "case \"$probe\" in",
+      "  *'No journal files'*|*'Permission denied'*|*'systemd-journal'*) exec sudo journalctl $args #{flags} ;;",
+      "  *) exec journalctl $args #{flags} ;;",
+      "esac"
     ].join("\n")
   end
 
@@ -1266,7 +1270,8 @@ Hatchbox::USAGE = <<~USAGE
   runtime output and publishes no endpoint that serves any, and there is nothing
   under a process at all. so logs goes to the server over ssh, finds the systemd
   units whose names hold the app and the process, and runs journalctl on them. it
-  falls back to user units if there are no system ones.
+  reaches for sudo only when journalctl says the deploy user cannot read the
+  journal, and it falls back to user units if there are no system ones.
 
   because it is ssh, logs needs a server, and --server names one when the cluster
   has several.
