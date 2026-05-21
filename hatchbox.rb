@@ -1106,7 +1106,7 @@ class Hatchbox::Logs < Hatchbox::Command
       parser.on("-f", "--follow") { options[:follow] = true }
       parser.on("-s", "--server NAME") { |value| options[:server] = value }
       parser.on("--since WHEN") { |value| options[:since] = value }
-      parser.on("--units") { options[:unit] = true }
+      parser.on("--units") { options[:units] = true }
     end
     raise Hatchbox::Error, "one process at a time. #{HINT}" if rest.length > 1
 
