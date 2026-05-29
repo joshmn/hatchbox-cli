@@ -1391,5 +1391,7 @@ if $PROGRAM_NAME == __FILE__
   rescue Hatchbox::Error => e
     warn(e.message.red)
     exit(1)
+  rescue Errno::EPIPE
+    exit(0)
   end
 end
