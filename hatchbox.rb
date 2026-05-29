@@ -520,6 +520,21 @@ class Hatchbox::SshTarget
     Hatchbox.blank?(server["name"]) ? "server" : server["name"]
   end
 
+  def app_dir
+    configured = config.get("app_dir:#{env}")
+    return configured unless Hatchbox.blank?(configured)
+    return nil if app_name.empty?
+
+    "/home/#{user}/#{app_name}/current"
+  end
+
+  def enter(separator:)
+    dir = app_dir
+    return "" if Hatchbox.blank?(dir)
+
+    "cd #{Shellwords.escape(dir)} 2>/dev/null#{separator}"
+  end
+
   def app_name
     context.app.name
   end
@@ -1234,6 +1249,48 @@ class Hatchbox::Vars < Hatchbox::Command
   end
 end
 
+class Hatchbox::Run < Hatchbox::Command
+
+  HINT = "quote the command, and put ssh's own flags after a --"
+
+  def call
+    rest = parse(name: "run", hint: HINT)
+    raise Hatchbox::Error, "run needs a command, quoted as one argument" if rest.empty?
+
+    target = Hatchbox::SshTarget.resolve(context: context)
+    Hatchbox.run(command_line(script: script_for(command: rest.join(" "), target: target), target: target))
+  end
+
+  private
+
+  def command_line(script:, target:)
+    argv = ["ssh", "-p", target.port.to_s]
+    argv.concat(passthru)
+    argv << "-t" if $stdout.tty?
+    argv << target.address
+    argv << "bash -lc #{Shellwords.escape(script)}"
+    argv
+  end
+
+  def rails?(command)
+    ["rails", "bin/rails"].include?(command) || command.start_with?("rails ", "bin/rails ")
+  end
+
+  def script_for(command:, target:)
+    return "#{target.enter(separator: "\n")}#{command}" unless rails?(command)
+
+    dir = target.app_dir
+    raise Hatchbox::Error, "no release directory to run rails in. set app_dir:#{env} in #{config.path}" if Hatchbox.blank?(dir)
+
+    "#{enter_or_stop(dir)}\nexec bin/rails #{command.sub(%r{\Abin/}, "").sub(/\Arails/, "").strip}"
+  end
+
+  def enter_or_stop(dir)
+    complaint = "#{dir} is not there, so nothing is deployed yet. set app_dir:#{env} in .hatchbox if the app lives somewhere else"
+    "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
@@ -1258,6 +1315,8 @@ Hatchbox::USAGE = <<~USAGE
                            the servers
     vars unset FOO         take env vars off the app
 
+    run "rails db:migrate" run a command on the server, in the app's release
+    run "bundle exec rake" anything that is not rails runs from the same place
     envs                   the environments this app is configured for
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
@@ -1301,6 +1360,21 @@ Hatchbox::USAGE = <<~USAGE
     last_deploy:production = 4212
     last_restart:production = 4213
 
+  run goes to the server over ssh and lands in /home/deploy/<app>/current, the
+  release that is live, where <app> is the name the api has for it, and falls back
+  to the home directory when that is not there yet. it runs through a login shell
+  so the app's environment is loaded, and it returns whatever the command returned.
+  a command starting with rails runs as bin/rails from that same release directory
+  and stops if it is not there, rather than running somewhere else. app_dir settles
+  it when the release lives anywhere but the usual place. quote the whole command as
+  one argument, or -e in it is read as hatchbox's own environment flag and taken
+  away. run and logs take the same per environment overrides in the same file:
+
+    ssh_user:production = deploy
+    ssh_host:production = 203.0.113.10
+    ssh_port:production = 22
+    app_dir:production = /home/deploy/fpd/current
+
   env vars are write only here. hatchbox publishes no endpoint that lists them and
   never returns a value, so vars can set and unset but not read, and what is on the
   app is on its dashboard page. names are uppercased for you, and hatchbox pushes the
@@ -1325,6 +1399,7 @@ class Hatchbox::Cli
     "restart" => Hatchbox::PsRestart,
     "logs" => Hatchbox::Logs,
     "vars" => Hatchbox::Vars,
+    "run" => Hatchbox::Run,
     "envs" => Hatchbox::Envs
   }.freeze
 
