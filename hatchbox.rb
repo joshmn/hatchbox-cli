@@ -1291,6 +1291,32 @@ class Hatchbox::Run < Hatchbox::Command
   end
 end
 
+class Hatchbox::Ssh < Hatchbox::Command
+
+  HINT = "put ssh's own flags after a --"
+
+  def call
+    rest = parse(name: "ssh", hint: HINT)
+    raise Hatchbox::Error, "only one command at a time, quote it as one argument" if rest.length > 1
+
+    target = Hatchbox::SshTarget.resolve(context: context)
+    warn("#{target.server_label}, #{target.host}".dim) if target.server && rest.empty?
+    Hatchbox.run(command_line(command: rest.first, target: target))
+  end
+
+  private
+
+  def command_line(command:, target:)
+    argv = ["ssh"]
+    argv << "-t" if command.nil?
+    argv.concat(["-p", target.port.to_s])
+    argv.concat(passthru)
+    argv << target.address
+    argv << "#{target.enter(separator: "; ")}#{command || "exec ${SHELL:-/bin/bash} -l"}"
+    argv
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
@@ -1317,6 +1343,8 @@ Hatchbox::USAGE = <<~USAGE
 
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
+    ssh                    a shell on the server, in the app's current release
+    ssh "df -h"            run one command there and come back
     envs                   the environments this app is configured for
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
@@ -1350,8 +1378,8 @@ Hatchbox::USAGE = <<~USAGE
   when journalctl says the deploy user cannot read the journal, and it falls back
   to user units if there are no system ones.
 
-  because it is ssh, logs needs a server, and --server names one when the cluster
-  has several.
+  because it is ssh, logs picks a server the same way ssh does, and --server names
+  one when the cluster has several.
 
   a log is only reachable by its id and hatchbox publishes no way to list them, so
   the id of every deploy and restart started from here is written back to
@@ -1360,15 +1388,15 @@ Hatchbox::USAGE = <<~USAGE
     last_deploy:production = 4212
     last_restart:production = 4213
 
-  run goes to the server over ssh and lands in /home/deploy/<app>/current, the
-  release that is live, where <app> is the name the api has for it, and falls back
-  to the home directory when that is not there yet. it runs through a login shell
-  so the app's environment is loaded, and it returns whatever the command returned.
-  a command starting with rails runs as bin/rails from that same release directory
-  and stops if it is not there, rather than running somewhere else. app_dir settles
-  it when the release lives anywhere but the usual place. quote the whole command as
-  one argument, or -e in it is read as hatchbox's own environment flag and taken
-  away. run and logs take the same per environment overrides in the same file:
+  ssh lands in /home/deploy/<app>/current, the release that is live, where <app> is
+  the name the api has for it, and falls back to the home directory when that is
+  not there yet. run does the same, through a login shell so the app's environment
+  is loaded, and it returns whatever the command returned. a command starting with
+  rails runs as bin/rails from that same release directory and stops if it is not
+  there, rather than running somewhere else. app_dir settles it when the release
+  lives anywhere but the usual place. quote the whole command as one argument, or
+  -e in it is read as hatchbox's own environment flag and taken away. ssh, run and
+  logs take the same per environment overrides in the same file:
 
     ssh_user:production = deploy
     ssh_host:production = 203.0.113.10
@@ -1400,6 +1428,7 @@ class Hatchbox::Cli
     "logs" => Hatchbox::Logs,
     "vars" => Hatchbox::Vars,
     "run" => Hatchbox::Run,
+    "ssh" => Hatchbox::Ssh,
     "envs" => Hatchbox::Envs
   }.freeze
 
