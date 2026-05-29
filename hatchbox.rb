@@ -536,7 +536,8 @@ class Hatchbox::SshTarget
   end
 
   def app_name
-    context.app.name
+    name = context.app.name
+    name.empty? ? context.app_id.to_s.sub(/\A[0-9]+-/, "") : name
   end
 
   private
