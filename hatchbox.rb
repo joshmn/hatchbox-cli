@@ -1254,10 +1254,13 @@ class Hatchbox::Run < Hatchbox::Command
   HINT = "quote the command, and put ssh's own flags after a --"
 
   def call
-    rest = parse(name: "run", hint: HINT)
+    wanted = nil
+    rest = parse(name: "run", hint: HINT) do |parser|
+      parser.on("-s", "--server NAME") { |value| wanted = value }
+    end
     raise Hatchbox::Error, "run needs a command, quoted as one argument" if rest.empty?
 
-    target = Hatchbox::SshTarget.resolve(context: context)
+    target = Hatchbox::SshTarget.resolve(context: context, filter: wanted)
     Hatchbox.run(command_line(script: script_for(command: rest.join(" "), target: target), target: target))
   end
 
@@ -1296,10 +1299,13 @@ class Hatchbox::Ssh < Hatchbox::Command
   HINT = "put ssh's own flags after a --"
 
   def call
-    rest = parse(name: "ssh", hint: HINT)
+    wanted = nil
+    rest = parse(name: "ssh", hint: HINT) do |parser|
+      parser.on("-s", "--server NAME") { |value| wanted = value }
+    end
     raise Hatchbox::Error, "only one command at a time, quote it as one argument" if rest.length > 1
 
-    target = Hatchbox::SshTarget.resolve(context: context)
+    target = Hatchbox::SshTarget.resolve(context: context, filter: wanted)
     warn("#{target.server_label}, #{target.host}".dim) if target.server && rest.empty?
     Hatchbox.run(command_line(command: rest.first, target: target))
   end
