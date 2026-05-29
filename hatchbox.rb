@@ -1393,5 +1393,7 @@ if $PROGRAM_NAME == __FILE__
     exit(1)
   rescue Errno::EPIPE
     exit(0)
+  rescue Interrupt
+    exit(130)
   end
 end
