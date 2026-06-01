@@ -1458,11 +1458,12 @@ class Hatchbox::Psql < Hatchbox::Command
   def call
     options = {}
     rest = parse(name: "psql", hint: HINT) do |parser|
+      parser.on("-c", "--command SQL") { |value| options[:sql] = value.sub(/\A=/, "") }
       parser.on("-d", "--database NAME") { |value| options[:database] = value }
       parser.on("--url") { options[:url] = true }
       parser.on("--direct") { options[:direct] = true }
     end
-    raise Hatchbox::Error, "only one statement at a time, quote it as one argument" if rest.length > 1
+    raise Hatchbox::Error, "only one statement at a time, quote it as one argument" if rest.length > 1 || (rest.any? && options[:sql])
 
     options[:sql] = rest.first if rest.any?
     connect(options)
