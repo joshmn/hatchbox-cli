@@ -660,6 +660,7 @@ class Hatchbox::Tunnel
   end
 
   def close
+    Hatchbox.run(["ssh", "-S", control, "-O", "exit", "-o", "LogLevel=QUIET", target.address])
     FileUtils.remove_entry(dir)
   end
 
