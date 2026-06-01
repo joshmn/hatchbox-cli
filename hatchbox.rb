@@ -6,7 +6,10 @@ require "net/http"
 require "uri"
 require "optparse"
 require "pathname"
+require "socket"
 require "shellwords"
+require "tmpdir"
+require "fileutils"
 
 class String
 
@@ -54,8 +57,8 @@ module Hatchbox
       value.nil? || value.to_s.strip.empty?
     end
 
-    def run(argv)
-      started = system(*argv)
+    def run(argv, env: {})
+      started = system(env, *argv)
       raise Error, "#{argv.first} is required and is not installed" if started.nil?
 
       $?.exitstatus.to_i
@@ -484,20 +487,41 @@ class Hatchbox::ServerPicker
   end
 end
 
+class Hatchbox::DatabasePicker
+
+  def initialize(context:)
+    @context = context
+  end
+
+  def pick(_filter)
+    servers = context.app.servers
+    found = servers.find { |server| (server["roles"] || []).include?("postgresql") }
+    found = servers.first if found.nil? && servers.length == 1
+    raise Hatchbox::Error, "could not tell which server holds the database. set ssh_host:#{context.env} in #{context.config.path}" unless found
+
+    found
+  end
+
+  private
+
+  attr_reader :context
+end
+
 class Hatchbox::SshTarget
 
   class << self
 
-    def resolve(context:, filter: nil)
-      new(context: context, filter: filter).resolve
+    def resolve(context:, filter: nil, picker: nil)
+      new(context: context, filter: filter, picker: picker).resolve
     end
   end
 
   attr_reader :host, :user, :port, :server
 
-  def initialize(context:, filter: nil)
+  def initialize(context:, filter: nil, picker: nil)
     @context = context
     @filter = filter
+    @picker = picker
   end
 
   def resolve
@@ -553,7 +577,7 @@ class Hatchbox::SshTarget
   end
 
   def picker
-    Hatchbox::ServerPicker.new(app: context.app)
+    @picker ||= Hatchbox::ServerPicker.new(app: context.app)
   end
 
   def from_cluster
@@ -563,6 +587,104 @@ class Hatchbox::SshTarget
     return unless Hatchbox.blank?(host)
 
     raise Hatchbox::Error, "#{server_label} has no public ip. set ssh_host:#{env} in #{config.path}"
+  end
+end
+
+class Hatchbox::Database
+
+  def initialize(text)
+    @uri = URI.parse(text)
+  rescue URI::InvalidURIError
+    raise Hatchbox::Error, "could not read the connection uri hatchbox returned"
+  end
+
+  def user
+    uri.user.to_s
+  end
+
+  def password
+    uri.password.to_s
+  end
+
+  def host
+    uri.host.to_s
+  end
+
+  def port
+    (uri.port || 5432).to_s
+  end
+
+  def name
+    uri.path.to_s.sub(%r{\A/}, "")
+  end
+
+  def sslmode
+    found = URI.decode_www_form(uri.query.to_s).to_h["sslmode"]
+    Hatchbox.blank?(found) ? "prefer" : found
+  end
+
+  private
+
+  attr_reader :uri
+end
+
+class Hatchbox::Tunnel
+
+  class << self
+
+    def open(context:, host:, port:)
+      new(context: context, host: host, port: port).open
+    end
+  end
+
+  attr_reader :local_port
+
+  def initialize(context:, host:, port:)
+    @context = context
+    @host = host
+    @port = port
+  end
+
+  def open
+    @target = Hatchbox::SshTarget.resolve(context: context, picker: Hatchbox::DatabasePicker.new(context: context))
+    @local_port = free_port
+    @dir = Dir.mktmpdir("hbx", "/tmp")
+    warn("tunnelling to #{host}:#{port} through #{target.address}".dim)
+    raise Hatchbox::Error, failure_message unless Hatchbox.run(ssh_command).zero?
+
+    self
+  end
+
+  def close
+    FileUtils.remove_entry(dir)
+  end
+
+  private
+
+  attr_reader :context, :host, :port, :dir, :target
+
+  def control
+    File.join(dir, "control")
+  end
+
+  def ssh_command
+    [
+      "ssh", "-f", "-N", "-M", "-S", control,
+      "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10",
+      "-p", target.port.to_s, "-L", "127.0.0.1:#{local_port}:#{host}:#{port}", target.address
+    ]
+  end
+
+  def failure_message
+    "could not open an ssh tunnel. hatchbox puts your key on the deploy user, so\n" \
+      "check that ssh #{target.address} works, or set ssh_user:#{context.env} in #{context.config.path}"
+  end
+
+  def free_port
+    socket = TCPServer.new("127.0.0.1", 0)
+    picked = socket.addr[1]
+    socket.close
+    picked
   end
 end
 
@@ -1324,6 +1446,96 @@ class Hatchbox::Ssh < Hatchbox::Command
   end
 end
 
+class Hatchbox::Psql < Hatchbox::Command
+
+  HINT = "put psql's own flags after a --"
+
+  def call
+    options = {}
+    rest = parse(name: "psql", hint: HINT) do |parser|
+      parser.on("-d", "--database NAME") { |value| options[:database] = value }
+      parser.on("--url") { options[:url] = true }
+      parser.on("--direct") { options[:direct] = true }
+    end
+    raise Hatchbox::Error, "only one statement at a time, quote it as one argument" if rest.length > 1
+
+    options[:sql] = rest.first if rest.any?
+    connect(options)
+  end
+
+  private
+
+  def connect(options)
+    record = choose(options[:database])
+    public_uri = record["public_connection_uri"].to_s
+    text = Hatchbox.blank?(public_uri) ? record["private_connection_uri"].to_s : public_uri
+    raise Hatchbox::Error, "that database has no connection uri, which happens on sqlite" if Hatchbox.blank?(text)
+    return print_url(text: text, public_uri: public_uri) if options[:url]
+
+    open_psql(database: Hatchbox::Database.new(text), tunnelled: Hatchbox.blank?(public_uri) && !options[:direct], options: options)
+  end
+
+  def databases
+    @databases ||= client.get("/apps/#{app_id}/databases").json || []
+  end
+
+  def choose(wanted)
+    pool = databases.select { |record| record["engine"] == "postgresql" }
+    pool = pool.select { |record| record["name"] == wanted } unless Hatchbox.blank?(wanted)
+    raise Hatchbox::Error, none_message(wanted) if pool.empty?
+    raise Hatchbox::Error, "#{env} has more than one postgresql database, so pick one with --database\n\n#{names(pool)}" if pool.length > 1
+
+    pool.first
+  end
+
+  def none_message(wanted)
+    head = Hatchbox.blank?(wanted) ? "no postgresql database is attached to #{env}" : "no postgresql database called #{wanted} is attached to #{env}"
+    return head if databases.empty?
+
+    "#{head}\n\nwhat is attached:\n#{attached}"
+  end
+
+  def attached
+    databases.map do |record|
+      var = (record["app_attachments"] || []).map { |item| item["env_var"] }.first
+      "  #{record["name"]}, #{record["engine"]}, reachable as #{var || "nothing"}"
+    end.join("\n")
+  end
+
+  def names(pool)
+    pool.map { |record| "  #{record["name"]}" }.join("\n")
+  end
+
+  def print_url(text:, public_uri:)
+    puts(text)
+    warn("that host is the database's own machine, so the uri only works from the server".yellow) if Hatchbox.blank?(public_uri)
+    0
+  end
+
+  def open_psql(database:, tunnelled:, options:)
+    tunnel = tunnelled ? Hatchbox::Tunnel.open(context: context, host: database.host, port: database.port) : nil
+    host = tunnel ? "127.0.0.1" : database.host
+    port = tunnel ? tunnel.local_port.to_s : database.port
+
+    begin
+      Hatchbox.run(psql_command(database: database, host: host, port: port, sql: options[:sql]), env: environment(database))
+    ensure
+      tunnel.close if tunnel
+    end
+  end
+
+  def psql_command(database:, host:, port:, sql:)
+    argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
+    argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
+    argv.concat(passthru)
+    argv
+  end
+
+  def environment(database)
+    { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
@@ -1352,6 +1564,9 @@ Hatchbox::USAGE = <<~USAGE
     run "bundle exec rake" anything that is not rails runs from the same place
     ssh                    a shell on the server, in the app's current release
     ssh "df -h"            run one command there and come back
+    psql                   open a psql on the app's database, over an ssh tunnel
+    psql "select 1"        run one statement and print the result
+    psql --url             print the connection uri instead of connecting
     envs                   the environments this app is configured for
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
@@ -1395,15 +1610,18 @@ Hatchbox::USAGE = <<~USAGE
     last_deploy:production = 4212
     last_restart:production = 4213
 
-  ssh lands in /home/deploy/<app>/current, the release that is live, where <app> is
-  the name the api has for it, and falls back to the home directory when that is
-  not there yet. run does the same, through a login shell so the app's environment
-  is loaded, and it returns whatever the command returned. a command starting with
-  rails runs as bin/rails from that same release directory and stops if it is not
-  there, rather than running somewhere else. app_dir settles it when the release
-  lives anywhere but the usual place. quote the whole command as one argument, or
-  -e in it is read as hatchbox's own environment flag and taken away. ssh, run and
-  logs take the same per environment overrides in the same file:
+  the database psql connects to is whichever postgresql one is attached to the
+  app. unmanaged clusters listen on their own machine's loopback, so psql goes
+  through an ssh tunnel to the server holding the database, as the deploy user
+  hatchbox sets up. ssh lands in /home/deploy/<app>/current, the release that is
+  live, where <app> is the name the api has for it, and falls back to the home
+  directory when that is not there yet. run does the same, through a login shell so
+  the app's environment is loaded, and it returns whatever the command returned. a
+  command starting with rails runs as bin/rails from that same release directory and
+  stops if it is not there, rather than running somewhere else. app_dir settles it
+  when the release lives anywhere but the usual place. quote the whole command as one
+  argument, or -e in it is read as hatchbox's own environment flag and taken away.
+  ssh, run, logs and psql take the same per environment overrides in the same file:
 
     ssh_user:production = deploy
     ssh_host:production = 203.0.113.10
@@ -1436,6 +1654,7 @@ class Hatchbox::Cli
     "vars" => Hatchbox::Vars,
     "run" => Hatchbox::Run,
     "ssh" => Hatchbox::Ssh,
+    "psql" => Hatchbox::Psql,
     "envs" => Hatchbox::Envs
   }.freeze
 
