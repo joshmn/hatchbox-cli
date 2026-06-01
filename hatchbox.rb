@@ -599,11 +599,11 @@ class Hatchbox::Database
   end
 
   def user
-    uri.user.to_s
+    decode(uri.user)
   end
 
   def password
-    uri.password.to_s
+    decode(uri.password)
   end
 
   def host
@@ -615,7 +615,7 @@ class Hatchbox::Database
   end
 
   def name
-    uri.path.to_s.sub(%r{\A/}, "")
+    decode(uri.path.to_s.sub(%r{\A/}, ""))
   end
 
   def sslmode
@@ -626,6 +626,10 @@ class Hatchbox::Database
   private
 
   attr_reader :uri
+
+  def decode(value)
+    value.nil? ? "" : URI.decode_www_form_component(value)
+  end
 end
 
 class Hatchbox::Tunnel
