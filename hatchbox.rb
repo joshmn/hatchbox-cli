@@ -1394,15 +1394,15 @@ class Hatchbox::Vars < Hatchbox::Command
   private
 
   def set(pairs)
-    raise Hatchbox::Error, "vars set takes one NAME=VALUE" unless pairs.length == 1
+    raise Hatchbox::Error, "vars set takes NAME=VALUE, one or more of them" if pairs.empty?
 
-    vars = [pair_for(pairs.first)]
+    vars = pairs.map { |pair| pair_for(pair) }
     client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars })
     report(verb: "set", names: vars.map { |var| var["name"] })
   end
 
   def unset(names)
-    raise Hatchbox::Error, "vars unset takes a name" if names.empty?
+    raise Hatchbox::Error, "vars unset takes a name, one or more of them" if names.empty?
 
     wanted = names.map { |name| usable(name) }
     client.delete("/apps/#{app_id}/env_vars", body: { "env_vars" => wanted })
@@ -1434,8 +1434,8 @@ class Hatchbox::Vars < Hatchbox::Command
       "hatchbox has no endpoint that reads env vars back, and it never returns a value,",
       "so there is nothing to list here. what is set is on the app's dashboard page.",
       "",
-      "  hatchbox config:set FOO=bar",
-      "  hatchbox config:unset FOO",
+      "  hatchbox config:set FOO=bar BAZ=qux",
+      "  hatchbox config:unset FOO BAZ",
       "",
       "hatchbox uppercases the names, and a value you type here lands in your shell history."
     ].join("\n"))
@@ -1813,8 +1813,8 @@ Hatchbox::USAGE = <<~USAGE
     logs -n 500 --since "1 hour ago"
     logs --ps sidekiq --units   which systemd units it would read, and stop there
 
-    config:set FOO=bar     set an env var on the app, then hatchbox pushes it to
-                           the servers
+    config:set FOO=bar     set env vars on the app, one or many, then hatchbox
+                           pushes them to the servers
     config:unset FOO       take env vars off the app
 
     run "rails db:migrate" run a command on the server, in the app's release
