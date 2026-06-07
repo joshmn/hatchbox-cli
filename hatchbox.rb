@@ -142,7 +142,7 @@ class Hatchbox::Client
   end
 
   def get(path)
-    ensure_ok(http.request(method: "GET", path: path))
+    ensure_ok(try_get(path))
   end
 
   def post(path, body: nil)
@@ -157,14 +157,8 @@ class Hatchbox::Client
     ensure_ok(http.request(method: "DELETE", path: path, body: body))
   end
 
-  private
-
-  attr_reader :http
-
-  def ensure_ok(response)
-    return response if response.ok?
-
-    raise Hatchbox::Error, "hatchbox said: #{error_message(response)}"
+  def try_get(path)
+    http.request(method: "GET", path: path)
   end
 
   def error_message(response)
@@ -174,6 +168,16 @@ class Hatchbox::Client
     detail = data["error"].to_s
     detail = Array(data["errors"]).join(", ") if detail.empty?
     detail.empty? ? "http #{response.code}" : detail
+  end
+
+  private
+
+  attr_reader :http
+
+  def ensure_ok(response)
+    return response if response.ok?
+
+    raise Hatchbox::Error, "hatchbox said: #{error_message(response)}"
   end
 end
 
@@ -227,6 +231,11 @@ end
 
 class Hatchbox::Config
 
+  HEADER = [
+    "# the apps this repo deploys to, written the way the dashboard url spells them,",
+    "# then the environment each one is. run hatchbox setup to add another."
+  ].freeze
+
   attr_reader :path
 
   def initialize(path)
@@ -247,17 +256,7 @@ class Hatchbox::Config
       return
     end
 
-    written = false
-    kept = lines.map do |line|
-      next line unless setting_key(line) == key
-      next nil if written
-
-      written = true
-      "#{key} = #{value}"
-    end
-    kept = kept.compact
-    kept << "#{key} = #{value}" unless written
-    write(kept)
+    rewrite("#{key} = #{value}") { |line| setting_key(line) == key }
   end
 
   def apps
@@ -273,7 +272,28 @@ class Hatchbox::Config
     found ? found.last : nil
   end
 
+  def set_app(env:, app:)
+    write(HEADER.dup) unless exists?
+    raise Hatchbox::Error, "#{path} is not writable" unless writable?
+
+    rewrite("#{app}:#{env}") { |line| line_env(line) == env }
+  end
+
   private
+
+  def rewrite(replacement)
+    written = false
+    kept = lines.map do |line|
+      next line unless yield(line)
+      next nil if written
+
+      written = true
+      replacement
+    end
+    kept = kept.compact
+    kept << replacement unless written
+    write(kept)
+  end
 
   def lines
     return [] unless exists?
@@ -305,6 +325,11 @@ class Hatchbox::Config
     return nil if text.start_with?("#") || !text.include?("=")
 
     text.split("=", 2).first.strip
+  end
+
+  def line_env(line)
+    pair = split_app(line)
+    pair ? pair.first : nil
   end
 
   def split_app(line)
@@ -353,12 +378,54 @@ class Hatchbox::Prompt
   end
 end
 
+class Hatchbox::TokenStore
+
+  def initialize(prompt: Hatchbox::Prompt.new)
+    @prompt = prompt
+    @global = Hatchbox::Config.new(Hatchbox::GLOBAL_CONFIG)
+  end
+
+  def read(env: nil)
+    from_env = ENV["HATCHBOX_API_TOKEN"]
+    return from_env unless Hatchbox.blank?(from_env)
+
+    scoped = env ? global.get("token:#{env}") : nil
+    return scoped unless Hatchbox.blank?(scoped)
+
+    global.get("token")
+  end
+
+  def ensure_token
+    token = read
+    return token unless Hatchbox.blank?(token)
+    raise Hatchbox::Error, "no api token, and no terminal to ask for one. set HATCHBOX_API_TOKEN" unless prompt.available?
+
+    puts("no api token yet. hatchbox has them under api tokens in your account settings.")
+    token = prompt.ask(question: "token: ")
+    raise Hatchbox::Error, "nothing entered" if Hatchbox.blank?(token)
+
+    token
+  end
+
+  private
+
+  attr_reader :prompt, :global
+end
+
 class Hatchbox::Context
 
   class << self
 
     def load(env_name)
       new(env_name).load
+    end
+
+    def find_config
+      Pathname.new(Dir.pwd).ascend do |dir|
+        candidate = dir.join(".hatchbox")
+        return candidate.to_s if candidate.file? && candidate.to_s != Hatchbox::GLOBAL_CONFIG
+      end
+      nil
     end
   end
 
@@ -372,7 +439,7 @@ class Hatchbox::Context
     @config = Hatchbox::Config.new(locate)
     @env = pick_env
     @app_id = pick_app
-    @token = read_token
+    @token = Hatchbox::TokenStore.new.read(env: env)
     raise Hatchbox::Error, "no api token. put 'token = ...' in #{Hatchbox::GLOBAL_CONFIG} or set HATCHBOX_API_TOKEN" if Hatchbox.blank?(token)
 
     self
@@ -389,11 +456,10 @@ class Hatchbox::Context
   private
 
   def locate
-    Pathname.new(Dir.pwd).ascend do |dir|
-      candidate = dir.join(".hatchbox")
-      return candidate.to_s if candidate.file? && candidate.to_s != Hatchbox::GLOBAL_CONFIG
-    end
-    raise Hatchbox::Error, "no .hatchbox found here or above #{Dir.pwd}. see hatchbox --help for the format"
+    found = self.class.find_config
+    raise Hatchbox::Error, "no .hatchbox found here or above #{Dir.pwd}. see hatchbox --help for the format" unless found
+
+    found
   end
 
   def pick_env
@@ -413,16 +479,6 @@ class Hatchbox::Context
     raise Hatchbox::Error, "no app is listed for #{env} in #{config.path}\n\nenvironments it does know about:\n#{listing}" if Hatchbox.blank?(found)
 
     found
-  end
-
-  def read_token
-    from_env = ENV["HATCHBOX_API_TOKEN"]
-    return from_env unless Hatchbox.blank?(from_env)
-
-    scoped = global_config.get("token:#{env}")
-    return scoped unless Hatchbox.blank?(scoped)
-
-    global_config.get("token")
   end
 
   def global_config
@@ -1542,6 +1598,169 @@ class Hatchbox::Psql < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppCatalog
+
+  def initialize(token:)
+    @client = Hatchbox::Client.new(token: token)
+  end
+
+  def entries(filter: nil)
+    rows = accounts.map { |account| apps_for(account) }.flatten
+    return rows if Hatchbox.blank?(filter)
+
+    wanted = filter.downcase
+    rows.select { |row| row[:slug].downcase.include?(wanted) || row[:name].downcase.include?(wanted) }
+  end
+
+  private
+
+  attr_reader :client
+
+  def accounts
+    client.get("/accounts").json || []
+  end
+
+  def apps_for(account)
+    response = client.try_get("/accounts/#{account["id"]}/apps")
+    unless response.ok?
+      warn("skipping #{account["name"]}, #{client.error_message(response)}".yellow)
+      return []
+    end
+
+    (response.json || []).map do |app|
+      { slug: "#{app["id"]}-#{app["name"]}", name: app["name"].to_s, account: account["name"].to_s }
+    end
+  end
+end
+
+class Hatchbox::Setup
+
+  include Hatchbox::Options
+
+  class << self
+
+    def call(args)
+      new(args).call
+    end
+  end
+
+  def initialize(args)
+    @args = args
+    @prompt = Hatchbox::Prompt.new
+  end
+
+  def call
+    options = parse
+    token = Hatchbox::TokenStore.new(prompt: prompt).ensure_token
+    @config = Hatchbox::Config.new(target_path)
+
+    app = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: options[:filter]) : options[:app]
+    env = Hatchbox.blank?(options[:env]) ? ask_env : options[:env]
+    validate(env)
+    return 1 unless confirm(env: env, app: app)
+
+    write(env: env, app: app)
+    0
+  end
+
+  private
+
+  attr_reader :args, :prompt, :config
+
+  def parse
+    options = {}
+    rest = parse_args(list: args.dup, name: "setup") do |parser|
+      parser.on("--app APP") { |value| options[:app] = value }
+      parser.on("--as ENV") { |value| options[:env] = value }
+    end
+    options[:filter] = rest.first
+    options
+  end
+
+  def target_path
+    found = Hatchbox::Context.find_config
+    return found if found
+
+    repo = Pathname.new(Dir.pwd).ascend { |dir| break dir if dir.join(".git").directory? }
+    File.join((repo || Dir.pwd).to_s, ".hatchbox")
+  end
+
+  def choose_app(token:, filter:)
+    raise Hatchbox::Error, "setup needs a terminal, or pass --app and --as" unless prompt.available?
+
+    rows = Hatchbox::AppCatalog.new(token: token).entries(filter: filter)
+    raise Hatchbox::Error, empty_message(filter) if rows.empty?
+
+    puts
+    puts("apps this token can see")
+    rows.each_with_index { |row, index| puts(format("  %2d  %-34s %s", index + 1, row[:slug], row[:account])) }
+    puts
+    rows[prompt.ask_number(question: "which one? ", count: rows.length) - 1][:slug]
+  end
+
+  def empty_message(filter)
+    Hatchbox.blank?(filter) ? "the token can see no apps at all" : "no app matches #{filter}"
+  end
+
+  def ask_env
+    answer = prompt.ask(question: "call it what, here? [production] ")
+    Hatchbox.blank?(answer) ? "production" : answer
+  end
+
+  def validate(env)
+    return unless env =~ /[:=\s]/
+
+    raise Hatchbox::Error, "an environment name cannot hold a colon, an equals or a space"
+  end
+
+  def confirm(env:, app:)
+    existing = config.exists? ? config.app_for(env) : nil
+    return true if Hatchbox.blank?(existing) || existing == app
+
+    puts
+    puts("#{env} is already #{existing} in #{config.path}".yellow)
+    return true unless prompt.available? && Hatchbox.blank?(ENV["HATCHBOX_ASSUME_YES"])
+    return true if ["y", "yes"].include?(prompt.ask(question: "point it at #{app} instead? [y/N] ").to_s.downcase)
+
+    puts("left alone")
+    false
+  end
+
+  def write(env:, app:)
+    config.set_app(env: env, app: app)
+    puts
+    puts("#{app} is #{env} in #{config.path}".green)
+    choose_default
+    report
+  end
+
+  def choose_default
+    envs = config.envs
+    return if envs.length < 2 || !Hatchbox.blank?(config.get("default"))
+
+    puts
+    puts("there is more than one environment here now, so every command wants -e")
+    puts("unless one of them is the default")
+    return unless prompt.available?
+
+    set_default(envs, prompt.ask(question: "which should it be? (blank to always pass -e) "))
+  end
+
+  def set_default(envs, answer)
+    return if Hatchbox.blank?(answer)
+    return puts("no environment called #{answer}, leaving the default unset".yellow) unless envs.include?(answer)
+
+    config.set(key: "default", value: answer)
+    puts("default is #{answer}".green)
+  end
+
+  def report
+    puts
+    puts("environments in #{config.path}")
+    config.apps.each { |env, app| puts("  #{env}, app #{app}") }
+  end
+end
+
 Hatchbox::USAGE = <<~USAGE
   hatchbox, talks to the hatchbox api for the app you are standing in
 
@@ -1574,6 +1793,8 @@ Hatchbox::USAGE = <<~USAGE
     psql "select 1"        run one statement and print the result
     psql --url             print the connection uri instead of connecting
     envs                   the environments this app is configured for
+    setup                  pick an app off your account and write it to .hatchbox
+    setup fpd              same, narrowed to apps matching fpd
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -1586,7 +1807,8 @@ Hatchbox::USAGE = <<~USAGE
     default = production
 
   only the leading number is read by hatchbox, so the rest is there to tell you
-  which app you are looking at.
+  which app you are looking at. hatchbox setup writes those lines for you, into the
+  nearest .hatchbox or, failing that, one at the root of the repo you are in.
 
   with one environment it is used automatically, otherwise default decides and -e
   beats it.
@@ -1684,6 +1906,7 @@ class Hatchbox::Cli
       puts(Hatchbox::USAGE)
       return 0
     end
+    return Hatchbox::Setup.call(rest.drop(1)) if name == "setup"
 
     command = COMMANDS[name]
     raise Hatchbox::Error, "no command called #{name}\n\n#{Hatchbox::USAGE}" unless command
