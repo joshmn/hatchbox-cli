@@ -1434,8 +1434,8 @@ class Hatchbox::Vars < Hatchbox::Command
       "hatchbox has no endpoint that reads env vars back, and it never returns a value,",
       "so there is nothing to list here. what is set is on the app's dashboard page.",
       "",
-      "  hatchbox vars set FOO=bar",
-      "  hatchbox vars unset FOO",
+      "  hatchbox config:set FOO=bar",
+      "  hatchbox config:unset FOO",
       "",
       "hatchbox uppercases the names, and a value you type here lands in your shell history."
     ].join("\n"))
