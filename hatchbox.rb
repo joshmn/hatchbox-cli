@@ -404,12 +404,22 @@ class Hatchbox::TokenStore
     token = prompt.ask(question: "token: ")
     raise Hatchbox::Error, "nothing entered" if Hatchbox.blank?(token)
 
+    save(token)
     token
   end
 
   private
 
   attr_reader :prompt, :global
+
+  def save(token)
+    File.open(global.path, File::WRONLY | File::APPEND | File::CREAT, 0600) do |file|
+      file.puts("token = #{token}")
+    end
+    File.chmod(0600, global.path)
+    puts("saved it to #{global.path}".green)
+    puts
+  end
 end
 
 class Hatchbox::Context
