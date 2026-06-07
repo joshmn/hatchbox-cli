@@ -1443,6 +1443,28 @@ class Hatchbox::Vars < Hatchbox::Command
   end
 end
 
+class Hatchbox::ConfigShow < Hatchbox::Vars
+
+  def call
+    parse(name: "config")
+    explain
+  end
+end
+
+class Hatchbox::ConfigSet < Hatchbox::Vars
+
+  def call
+    set(parse(name: "config:set", hint: "config:set NAME=VALUE"))
+  end
+end
+
+class Hatchbox::ConfigUnset < Hatchbox::Vars
+
+  def call
+    unset(parse(name: "config:unset", hint: "config:unset NAME"))
+  end
+end
+
 class Hatchbox::Run < Hatchbox::Command
 
   HINT = "quote the command, and put ssh's own flags after a --"
@@ -1791,9 +1813,9 @@ Hatchbox::USAGE = <<~USAGE
     logs -n 500 --since "1 hour ago"
     logs --ps sidekiq --units   which systemd units it would read, and stop there
 
-    vars set FOO=bar       set an env var on the app, then hatchbox pushes it to
+    config:set FOO=bar     set an env var on the app, then hatchbox pushes it to
                            the servers
-    vars unset FOO         take env vars off the app
+    config:unset FOO       take env vars off the app
 
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
@@ -1867,10 +1889,10 @@ Hatchbox::USAGE = <<~USAGE
     app_dir:production = /home/deploy/fpd/current
 
   env vars are write only here. hatchbox publishes no endpoint that lists them and
-  never returns a value, so vars can set and unset but not read, and what is on the
+  never returns a value, so config can set and unset but not read, and what is on the
   app is on its dashboard page. names are uppercased for you, and hatchbox pushes the
   change to the servers itself without handing back a log id to follow. a value typed
-  into vars set lands in your shell history like anything else on the command line.
+  into config:set lands in your shell history like anything else on the command line.
 
   env
     HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
@@ -1889,6 +1911,9 @@ class Hatchbox::Cli
     "ps:stop" => Hatchbox::PsStop,
     "restart" => Hatchbox::PsRestart,
     "logs" => Hatchbox::Logs,
+    "config" => Hatchbox::ConfigShow,
+    "config:set" => Hatchbox::ConfigSet,
+    "config:unset" => Hatchbox::ConfigUnset,
     "vars" => Hatchbox::Vars,
     "run" => Hatchbox::Run,
     "ssh" => Hatchbox::Ssh,
