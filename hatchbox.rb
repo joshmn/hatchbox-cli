@@ -1243,8 +1243,8 @@ module Hatchbox::ProcessFields
     parser.on("--roles LIST") { |value| fields["roles"] = value.split(",").map { |role| role.strip }.reject { |role| role.empty? } }
     parser.on("--server NAME") { |value| fields["server"] = value }
     parser.on("--systemd-type TYPE") { |value| fields["systemd_type"] = value }
-    parser.on("--socket") { fields["socket"] = true }
-    parser.on("--restart-on-deploy") { fields["restart_on_deploy"] = true }
+    parser.on("--[no-]socket") { |value| fields["socket"] = value }
+    parser.on("--[no-]restart-on-deploy") { |value| fields["restart_on_deploy"] = value }
     parser.on("--appsignal NAME") { |value| fields["appsignal"] = value }
     parser.on("--appsignal-options JSON") { |value| fields["appsignal_options"] = value }
   end
@@ -1415,12 +1415,18 @@ end
 
 class Hatchbox::PsUpdate < Hatchbox::PsCommand
 
+  HINT = "ps:update worker --start 'bundle exec sidekiq -c 10'"
+
   def call
     fields = {}
-    rest = parse(name: "ps:update") { |parser| Hatchbox::ProcessFields.attach(parser, fields) }
+    rest = parse(name: "ps:update", hint: HINT) { |parser| Hatchbox::ProcessFields.attach(parser, fields) }
     process = one(rest, name: "ps:update")
-    client.patch(path_for(process), body: { "process" => fields })
-    puts("updated #{label(process).cyan} on #{env}")
+    raise Hatchbox::Error, "ps:update needs something to change. #{HINT}" if fields.empty?
+
+    body = body_from(fields)
+    client.patch(path_for(process), body: { "process" => body })
+    puts("updated #{label(process).cyan} on #{env}, #{body.keys.join(", ")}")
+    puts("it is written to the servers on the next deploy or restart".dim)
     0
   end
 end
@@ -2036,6 +2042,7 @@ Hatchbox::USAGE = <<~USAGE
     ps:stop sidekiq        turn a process off, leaving it defined
     ps:start sidekiq       turn it back on
     ps:create --name worker --start "bundle exec sidekiq" --roles worker
+    ps:update worker --start "bundle exec sidekiq -c 10"
 
     logs                   the last 100 journal lines from every process
     logs --ps sidekiq      just that one
@@ -2089,7 +2096,7 @@ Hatchbox::USAGE = <<~USAGE
   and either a list of roles, meaning every server holding that role runs it, or one
   server id, meaning only that machine does. a change made here is recorded on the
   app straight away and written to the servers on the next deploy or restart, which
-  is why ps:create says so and then stops.
+  is why ps:create and ps:update say so and then stop.
 
   logs is the odd one out, because it does not use the api. hatchbox stores no
   runtime output and publishes no endpoint that serves any: /apps/ID/logs returns
