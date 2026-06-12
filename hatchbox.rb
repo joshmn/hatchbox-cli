@@ -881,6 +881,22 @@ class Hatchbox::ProcessCatalog
       roles = (row["roles"] || []).map { |role| role.to_s }
       roles.empty? ? "nowhere" : roles.join(", ")
     end
+
+    def detail(row)
+      [
+        ["state", row["active"] ? "on" : "off"],
+        ["runs on", where(row)],
+        ["start", row["start_command"]],
+        ["stop", row["stop_command"]],
+        ["reload", row["reload_command"]],
+        ["socket", row["socket"] ? "yes" : "no"],
+        ["systemd type", row["systemd_type"]],
+        ["on deploy", row["restart_on_deploy"] ? "restarts" : "left alone"],
+        ["appsignal", row["appsignal"]],
+        ["created", row["created_at"]],
+        ["updated", row["updated_at"]]
+      ].map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n")
+    end
   end
 
   def initialize(client:, app_id:)
@@ -1260,7 +1276,9 @@ end
 class Hatchbox::Ps < Hatchbox::PsCommand
 
   def call
-    parse(name: "ps")
+    rest = parse(name: "ps")
+    return Hatchbox::PsInfo.call(context: context, args: rest) if rest.any?
+
     rows = catalog.all
     if rows.empty?
       puts("no processes on #{env}")
@@ -1270,6 +1288,17 @@ class Hatchbox::Ps < Hatchbox::PsCommand
     puts("processes on #{env.cyan}, app #{app_id}")
     puts
     puts(catalog.table)
+    0
+  end
+end
+
+class Hatchbox::PsInfo < Hatchbox::PsCommand
+
+  def call
+    process = one(parse(name: "ps:info"), name: "ps:info")
+    puts("#{label(process).cyan}, process #{process["id"]} on #{env}")
+    puts
+    puts(Hatchbox::ProcessCatalog.detail(process))
     0
   end
 end
@@ -1915,6 +1944,8 @@ Hatchbox::USAGE = <<~USAGE
     status                 the same thing
 
     ps                     the processes on the app, what they run, where they run
+    ps sidekiq             one of them in full
+    ps:info sidekiq        the same thing
     ps:restart             restart every process and stream it
     ps:restart sidekiq     restart one of them
     ps:stop sidekiq        turn a process off, leaving it defined
@@ -2024,6 +2055,7 @@ class Hatchbox::Cli
     "deploy" => Hatchbox::Deploy,
     "status" => Hatchbox::Status,
     "ps" => Hatchbox::Ps,
+    "ps:info" => Hatchbox::PsInfo,
     "ps:restart" => Hatchbox::PsRestart,
     "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
