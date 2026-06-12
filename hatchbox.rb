@@ -919,10 +919,14 @@ class Hatchbox::ProcessCatalog
     raise Hatchbox::Error, "which process?\n\n#{listing}" if Hatchbox.blank?(wanted)
     raise Hatchbox::Error, "this app has no processes yet" if all.empty?
 
-    found = all.find { |row| self.class.label(row).downcase == wanted.to_s.downcase || row["id"].to_s == wanted.to_s }
-    raise Hatchbox::Error, "no process called #{wanted}\n\n#{listing}" if found.nil?
+    exact = all.find { |row| self.class.label(row).downcase == wanted.to_s.downcase || row["id"].to_s == wanted.to_s }
+    return exact if exact
 
-    found
+    near = all.select { |row| self.class.label(row).downcase.include?(wanted.to_s.downcase) }
+    return near.first if near.length == 1
+    raise Hatchbox::Error, "#{wanted} matches more than one process, #{near.map { |row| self.class.label(row) }.join(" and ")}" if near.length > 1
+
+    raise Hatchbox::Error, "no process called #{wanted}\n\n#{listing}"
   end
 
   def table
