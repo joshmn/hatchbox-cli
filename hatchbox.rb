@@ -36,6 +36,8 @@ class String
   private
 
   def ansi(code)
+    return self unless Hatchbox.color?
+
     "\e[#{code}m#{self}\e[0m"
   end
 end
@@ -55,6 +57,12 @@ module Hatchbox
 
     def blank?(value)
       value.nil? || value.to_s.strip.empty?
+    end
+
+    def color?
+      return false if ENV["NO_COLOR"]
+
+      $stdout.tty?
     end
 
     def run(argv, env: {})
