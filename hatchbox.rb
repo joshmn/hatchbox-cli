@@ -1318,6 +1318,7 @@ class Hatchbox::Logs < Hatchbox::Command
       parser.on("--units") { options[:units] = true }
     end
     raise Hatchbox::Error, "one process at a time. #{HINT}" if rest.length > 1
+    raise Hatchbox::Error, "logs reads the running app now. a hatchbox log id goes to releases:output #{rest.first}" if rest.first =~ /\A[0-9]+\z/
 
     options[:process] = rest.first if rest.any? && Hatchbox.blank?(options[:process])
     tail(options)
