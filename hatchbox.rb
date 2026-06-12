@@ -80,6 +80,7 @@ class Hatchbox::Http
     "GET" => Net::HTTP::Get,
     "POST" => Net::HTTP::Post,
     "PUT" => Net::HTTP::Put,
+    "PATCH" => Net::HTTP::Patch,
     "DELETE" => Net::HTTP::Delete
   }.freeze
 
@@ -159,6 +160,10 @@ class Hatchbox::Client
 
   def put(path, body: nil)
     ensure_ok(http.request(method: "PUT", path: path, body: body))
+  end
+
+  def patch(path, body: nil)
+    ensure_ok(http.request(method: "PATCH", path: path, body: body))
   end
 
   def delete(path, body: nil)
@@ -1408,6 +1413,18 @@ class Hatchbox::PsCreate < Hatchbox::PsCommand
   end
 end
 
+class Hatchbox::PsUpdate < Hatchbox::PsCommand
+
+  def call
+    fields = {}
+    rest = parse(name: "ps:update") { |parser| Hatchbox::ProcessFields.attach(parser, fields) }
+    process = one(rest, name: "ps:update")
+    client.patch(path_for(process), body: { "process" => fields })
+    puts("updated #{label(process).cyan} on #{env}")
+    0
+  end
+end
+
 class Hatchbox::Logs < Hatchbox::Command
 
   HINT = "logs --ps sidekiq --tail, and ssh's own flags after a --"
@@ -2135,6 +2152,7 @@ class Hatchbox::Cli
     "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
     "ps:create" => Hatchbox::PsCreate,
+    "ps:update" => Hatchbox::PsUpdate,
     "restart" => Hatchbox::PsRestart,
     "logs" => Hatchbox::Logs,
     "releases" => Hatchbox::Releases,
