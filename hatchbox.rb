@@ -1104,8 +1104,8 @@ class Hatchbox::Command
     Hatchbox::LogStream.new(client: client, app: app, env: env, log_id: log_id)
   end
 
-  def queue(path:, kind:)
-    response = client.post(path)
+  def queue(path:, kind:, body: nil)
+    response = client.post(path, body: body)
     data = response.json || {}
     log_id = data["id"]
     raise Hatchbox::Error, "hatchbox accepted the #{kind} but returned no log id: #{response.body}" if Hatchbox.blank?(log_id)
@@ -1135,6 +1135,7 @@ class Hatchbox::Deploy < Hatchbox::Command
   def call
     options = { watch: false }
     rest = parse(name: "deploy") do |parser|
+      parser.on("--sha SHA") { |value| options[:sha] = value }
       parser.on("--watch") { options[:watch] = true }
       parser.on("--no-follow") { options[:watch] = false }
       parser.on("--status") { options[:status] = true }
@@ -1152,7 +1153,8 @@ class Hatchbox::Deploy < Hatchbox::Command
   private
 
   def start(options)
-    data = queue(path: "/apps/#{app_id}/deploy", kind: "deploy")
+    body = options[:sha] ? { "sha" => options[:sha] } : nil
+    data = queue(path: "/apps/#{app_id}/deploy", kind: "deploy", body: body)
 
     unless options[:watch]
       puts(JSON.pretty_generate(data))
@@ -1908,6 +1910,7 @@ Hatchbox::USAGE = <<~USAGE
 
     deploy                 queue a deploy and print the json hatchbox hands back
     deploy --watch         queue it and stream the log until it lands
+    deploy --sha SHA       deploy one commit instead of the tip of the branch
     deploy status          last deployed sha, then stream the most recent deploy log
     status                 the same thing
 
