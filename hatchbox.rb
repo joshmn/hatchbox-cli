@@ -1431,6 +1431,26 @@ class Hatchbox::PsUpdate < Hatchbox::PsCommand
   end
 end
 
+class Hatchbox::PsDestroy < Hatchbox::PsCommand
+
+  def call
+    process = one(parse(name: "ps:destroy"), name: "ps:destroy")
+    agreed(process)
+    client.delete(path_for(process))
+    puts("deleted #{label(process).cyan} on #{env}")
+    puts("the unit comes off the servers on the next deploy or restart".dim)
+    0
+  end
+
+  private
+
+  def agreed(process)
+    name = label(process)
+    answer = Hatchbox::Prompt.new.ask(question: "delete #{name} on #{env}? type the name to confirm: ", io: $stderr)
+    raise Hatchbox::Error, "left #{name} alone" unless answer == name
+  end
+end
+
 class Hatchbox::Logs < Hatchbox::Command
 
   HINT = "logs --ps sidekiq --tail, and ssh's own flags after a --"
@@ -2043,6 +2063,7 @@ Hatchbox::USAGE = <<~USAGE
     ps:start sidekiq       turn it back on
     ps:create --name worker --start "bundle exec sidekiq" --roles worker
     ps:update worker --start "bundle exec sidekiq -c 10"
+    ps:destroy worker      delete it, after you type the name back
 
     logs                   the last 100 journal lines from every process
     logs --ps sidekiq      just that one
@@ -2160,6 +2181,7 @@ class Hatchbox::Cli
     "ps:stop" => Hatchbox::PsStop,
     "ps:create" => Hatchbox::PsCreate,
     "ps:update" => Hatchbox::PsUpdate,
+    "ps:destroy" => Hatchbox::PsDestroy,
     "restart" => Hatchbox::PsRestart,
     "logs" => Hatchbox::Logs,
     "releases" => Hatchbox::Releases,
