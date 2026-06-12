@@ -1363,6 +1363,107 @@ class Hatchbox::Logs < Hatchbox::Command
   end
 end
 
+class Hatchbox::Releases < Hatchbox::Command
+
+  NAMES = {
+    "Apps::Deploy" => "deploy",
+    "Apps::Restart" => "restart",
+    "Apps::EnvVars" => "config",
+    "Apps::Maintenance" => "maintenance"
+  }.freeze
+
+  def call
+    options = { limit: 20, page: 1 }
+    parse(name: "releases") do |parser|
+      parser.on("-n", "--num COUNT", Integer) { |value| options[:limit] = value }
+      parser.on("--page PAGE", Integer) { |value| options[:page] = value }
+    end
+    rows = client.get("/apps/#{app_id}/logs?page=#{options[:page]}&limit=#{options[:limit]}").json || []
+    if rows.empty?
+      puts("nothing on record for #{env}")
+      return 0
+    end
+
+    puts("#{env.cyan}, app #{app_id}")
+    puts
+    rows.each { |row| puts(line(row)) }
+    puts
+    puts("the output of one of these is releases:output ID".dim)
+    0
+  end
+
+  private
+
+  def line(row)
+    id = row["id"].to_s.ljust(9)
+    kind = (NAMES[row["name"].to_s] || row["name"].to_s).ljust(11)
+    sha = row["commit_sha"].to_s
+    sha = sha.empty? ? "".ljust(7) : sha[0, 7]
+    "  #{id}#{kind}#{state(row)}#{sha}  #{when_for(row)}  #{row["description"]}"
+  end
+
+  def state(row)
+    raw = row["state"].to_s
+    text = raw.ljust(11)
+    return text.green if raw == "completed"
+    return text.red if ["failed", "aborted"].include?(raw)
+
+    text.yellow
+  end
+
+  def when_for(row)
+    stamp = row["created_at"].to_s
+    stamp.empty? ? "" : stamp[0, 16].sub("T", " ")
+  end
+end
+
+class Hatchbox::ReleasesOutput < Hatchbox::Command
+
+  KINDS = {
+    "deploy" => "deploy",
+    "deploys" => "deploy",
+    "restart" => "restart",
+    "restarts" => "restart"
+  }.freeze
+
+  def call
+    rest = parse(name: "releases:output")
+    wanted = rest.first
+    if Hatchbox.blank?(wanted)
+      puts(kinds_report)
+      return 0
+    end
+
+    show(wanted =~ /\A[0-9]+\z/ ? wanted : id_for(wanted))
+  end
+
+  private
+
+  def id_for(wanted)
+    kind = KINDS[wanted]
+    raise Hatchbox::Error, "no log type called #{wanted}\n\n#{kinds_report}" unless kind
+
+    found = config.get("last_#{kind}:#{env}")
+    raise Hatchbox::Error, "no #{kind} has been started from here for #{env}, so there is no log id to fetch. releases lists what hatchbox has" if Hatchbox.blank?(found)
+
+    found
+  end
+
+  def kinds_report
+    [
+      "releases:output takes a log id, which releases lists for you",
+      "",
+      "  releases:output 4212",
+      "  releases:output deploy     #{recorded(config.get("last_deploy:#{env}"))}",
+      "  releases:output restart    #{recorded(config.get("last_restart:#{env}"))}"
+    ].join("\n")
+  end
+
+  def recorded(id)
+    Hatchbox.blank?(id) ? "nothing started from here yet" : "the one started from here, log #{id}"
+  end
+end
+
 class Hatchbox::Envs < Hatchbox::Command
 
   def call
@@ -1813,6 +1914,10 @@ Hatchbox::USAGE = <<~USAGE
     logs -n 500 --since "1 hour ago"
     logs --ps sidekiq --units   which systemd units it would read, and stop there
 
+    releases               deploys, restarts and config changes hatchbox has on record
+    releases:output 4212   the output of one of them
+    releases:output deploy the most recent one started from here
+
     config:set FOO=bar     set env vars on the app, one or many, then hatchbox
                            pushes them to the servers
     config:unset FOO       take env vars off the app
@@ -1852,20 +1957,21 @@ Hatchbox::USAGE = <<~USAGE
     token = your-api-token
 
   logs is the odd one out, because it does not use the api. hatchbox stores no
-  runtime output and publishes no endpoint that serves any, and there is nothing
-  under a process at all. so logs goes to the server over ssh, finds the systemd
-  units whose names hold the app and the process, and runs journalctl on them.
-  --units prints what it matched without reading anything, which is worth doing
-  once if you have a process whose name is a common word. it reaches for sudo only
-  when journalctl says the deploy user cannot read the journal, and it falls back
-  to user units if there are no system ones.
+  runtime output and publishes no endpoint that serves any: /apps/ID/logs returns
+  the transcripts of its own deploys and restarts, which is what releases reads, and
+  there is nothing under a process at all. so logs goes to the server over ssh,
+  finds the systemd units whose names hold the app and the process, and runs
+  journalctl on them. --units prints what it matched without reading anything, which
+  is worth doing once if you have a process whose name is a common word. it reaches
+  for sudo only when journalctl says the deploy user cannot read the journal, and it
+  falls back to user units if there are no system ones.
 
   because it is ssh, logs picks a server the same way ssh does, and --server names
   one when the cluster has several.
 
-  a log is only reachable by its id and hatchbox publishes no way to list them, so
-  the id of every deploy and restart started from here is written back to
-  .hatchbox:
+  releases lists what hatchbox does keep. the id of every deploy and restart started
+  from here is still written back to .hatchbox, so releases:output deploy works
+  without looking an id up:
 
     last_deploy:production = 4212
     last_restart:production = 4213
@@ -1911,6 +2017,8 @@ class Hatchbox::Cli
     "ps:stop" => Hatchbox::PsStop,
     "restart" => Hatchbox::PsRestart,
     "logs" => Hatchbox::Logs,
+    "releases" => Hatchbox::Releases,
+    "releases:output" => Hatchbox::ReleasesOutput,
     "config" => Hatchbox::ConfigShow,
     "config:set" => Hatchbox::ConfigSet,
     "config:unset" => Hatchbox::ConfigUnset,
