@@ -865,6 +865,8 @@ end
 
 class Hatchbox::ProcessCatalog
 
+  NAME = /\A[A-Za-z0-9_-]+\z/.freeze
+
   class << self
 
     def label(row)
@@ -1226,6 +1228,23 @@ class Hatchbox::Status < Hatchbox::Command
   end
 end
 
+module Hatchbox::ProcessFields
+
+  def self.attach(parser, fields)
+    parser.on("--name NAME") { |value| fields["name"] = value }
+    parser.on("--start COMMAND") { |value| fields["start_command"] = value }
+    parser.on("--stop COMMAND") { |value| fields["stop_command"] = value }
+    parser.on("--reload COMMAND") { |value| fields["reload_command"] = value }
+    parser.on("--roles LIST") { |value| fields["roles"] = value.split(",").map { |role| role.strip }.reject { |role| role.empty? } }
+    parser.on("--server NAME") { |value| fields["server"] = value }
+    parser.on("--systemd-type TYPE") { |value| fields["systemd_type"] = value }
+    parser.on("--socket") { fields["socket"] = true }
+    parser.on("--restart-on-deploy") { fields["restart_on_deploy"] = true }
+    parser.on("--appsignal NAME") { |value| fields["appsignal"] = value }
+    parser.on("--appsignal-options JSON") { |value| fields["appsignal_options"] = value }
+  end
+end
+
 class Hatchbox::PsCommand < Hatchbox::Command
 
   private
@@ -1271,6 +1290,24 @@ class Hatchbox::PsCommand < Hatchbox::Command
     id = data["id"]
     Hatchbox.blank?(id) ? nil : id
   end
+
+  def server_id_for(name)
+    return name if name.to_s =~ /\A[0-9]+\z/
+
+    found = app.servers.find do |server|
+      server["name"].to_s.downcase == name.to_s.downcase || (server["roles"] || []).map { |role| role.to_s.downcase }.include?(name.to_s.downcase)
+    end
+    raise Hatchbox::Error, "no server called #{name} on this app's cluster" if found.nil?
+
+    found["id"]
+  end
+
+  def body_from(fields)
+    body = fields.dup
+    server = body.delete("server")
+    body["server_id"] = server_id_for(server) unless Hatchbox.blank?(server)
+    body
+  end
 end
 
 class Hatchbox::Ps < Hatchbox::PsCommand
@@ -1281,7 +1318,7 @@ class Hatchbox::Ps < Hatchbox::PsCommand
 
     rows = catalog.all
     if rows.empty?
-      puts("no processes on #{env}")
+      puts("no processes on #{env}, add one with ps:create")
       return 0
     end
 
@@ -1337,6 +1374,37 @@ class Hatchbox::PsStop < Hatchbox::PsCommand
   def call
     process = one(parse(name: "ps:stop"), name: "ps:stop")
     settle(client.delete(path_for(process, "activation")), "disabled #{label(process).cyan} on #{env}")
+  end
+end
+
+class Hatchbox::PsCreate < Hatchbox::PsCommand
+
+  HINT = "ps:create --name worker --start 'bundle exec sidekiq' --roles worker"
+
+  def call
+    fields = {}
+    rest = parse(name: "ps:create", hint: HINT) { |parser| Hatchbox::ProcessFields.attach(parser, fields) }
+    fields["name"] = rest.first if rest.length == 1 && Hatchbox.blank?(fields["name"])
+    raise Hatchbox::Error, "ps:create takes one name. #{HINT}" if rest.length > 1
+
+    check(fields)
+    body = body_from(fields)
+    data = client.post("/apps/#{app_id}/processes", body: { "process" => body }).json || {}
+    puts("created #{fields["name"].to_s.cyan} on #{env}, process #{data["id"]}")
+    puts
+    puts(Hatchbox::ProcessCatalog.detail(data))
+    puts
+    puts("it is written to the servers on the next deploy or restart".dim)
+    0
+  end
+
+  private
+
+  def check(fields)
+    raise Hatchbox::Error, "ps:create needs --name. #{HINT}" if Hatchbox.blank?(fields["name"])
+    raise Hatchbox::Error, "#{fields["name"]} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless fields["name"] =~ Hatchbox::ProcessCatalog::NAME
+    raise Hatchbox::Error, "ps:create needs --start, the command that runs. #{HINT}" if Hatchbox.blank?(fields["start_command"])
+    raise Hatchbox::Error, "ps:create needs --roles or --server, so hatchbox knows where to run it. #{HINT}" if Hatchbox.blank?(fields["roles"]) && Hatchbox.blank?(fields["server"])
   end
 end
 
@@ -1950,6 +2018,7 @@ Hatchbox::USAGE = <<~USAGE
     ps:restart sidekiq     restart one of them
     ps:stop sidekiq        turn a process off, leaving it defined
     ps:start sidekiq       turn it back on
+    ps:create --name worker --start "bundle exec sidekiq" --roles worker
 
     logs                   the last 100 journal lines from every process
     logs --ps sidekiq      just that one
@@ -1998,6 +2067,12 @@ Hatchbox::USAGE = <<~USAGE
   read as an app config. it takes token:ENV or a plain token:
 
     token = your-api-token
+
+  processes are systemd services on the servers. one is defined by a start command
+  and either a list of roles, meaning every server holding that role runs it, or one
+  server id, meaning only that machine does. a change made here is recorded on the
+  app straight away and written to the servers on the next deploy or restart, which
+  is why ps:create says so and then stops.
 
   logs is the odd one out, because it does not use the api. hatchbox stores no
   runtime output and publishes no endpoint that serves any: /apps/ID/logs returns
@@ -2059,6 +2134,7 @@ class Hatchbox::Cli
     "ps:restart" => Hatchbox::PsRestart,
     "ps:start" => Hatchbox::PsStart,
     "ps:stop" => Hatchbox::PsStop,
+    "ps:create" => Hatchbox::PsCreate,
     "restart" => Hatchbox::PsRestart,
     "logs" => Hatchbox::Logs,
     "releases" => Hatchbox::Releases,
