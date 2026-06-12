@@ -954,6 +954,60 @@ class Hatchbox::ProcessCatalog
   end
 end
 
+class Hatchbox::FixedPicker
+
+  def initialize(server)
+    @server = server
+  end
+
+  def pick(_filter)
+    @server
+  end
+end
+
+class Hatchbox::ProcessTarget
+
+  class << self
+
+    def resolve(context:, process:, filter: nil)
+      new(context: context, process: process, filter: filter).resolve
+    end
+  end
+
+  def initialize(context:, process:, filter: nil)
+    @context = context
+    @process = process
+    @filter = filter
+  end
+
+  def resolve
+    Hatchbox::SshTarget.resolve(context: context, filter: role_filter, picker: pinned)
+  end
+
+  private
+
+  attr_reader :context, :process, :filter
+
+  def role_filter
+    return filter unless Hatchbox.blank?(filter)
+    return nil if process.nil?
+
+    (process["roles"] || []).map { |role| role.to_s }.first
+  end
+
+  def pinned
+    return nil if process.nil? || !Hatchbox.blank?(filter)
+
+    id = process["server_id"]
+    return nil if Hatchbox.blank?(id)
+
+    found = context.app.servers.find { |server| server["id"].to_s == id.to_s }
+    raise Hatchbox::Error, "#{process["name"]} is pinned to server #{id}, which is not on this app's cluster" if found.nil?
+
+    Hatchbox::FixedPicker.new(found)
+  end
+end
+
 class Hatchbox::Journal
 
   META = /([\\^$.|?*+()\[\]{}])/.freeze
@@ -1482,7 +1536,7 @@ class Hatchbox::Logs < Hatchbox::Command
 
   def tail(options)
     process = options[:process] ? catalog.find(options[:process]) : nil
-    target = Hatchbox::SshTarget.resolve(context: context, filter: options[:server])
+    target = Hatchbox::ProcessTarget.resolve(context: context, process: process, filter: options[:server])
     warn(heading(process: process, target: target).dim)
     Hatchbox.run(command_line(target: target, script: script(process: process, target: target, options: options)))
   end
@@ -2133,8 +2187,9 @@ Hatchbox::USAGE = <<~USAGE
   for sudo only when journalctl says the deploy user cannot read the journal, and it
   falls back to user units if there are no system ones.
 
-  because it is ssh, logs picks a server the same way ssh does, and --server names
-  one when the cluster has several.
+  because it is ssh, logs picks a server the same way ssh does: a process pinned to a
+  server_id goes to that machine, one with roles goes to a server holding the first
+  role, and --server names one yourself.
 
   releases lists what hatchbox does keep. the id of every deploy and restart started
   from here is still written back to .hatchbox, so releases:output deploy works
