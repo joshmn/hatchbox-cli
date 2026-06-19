@@ -1869,6 +1869,7 @@ class Hatchbox::Psql < Hatchbox::Command
       parser.on("-d", "--database NAME") { |value| options[:database] = value }
       parser.on("--url") { options[:url] = true }
       parser.on("--direct") { options[:direct] = true }
+      parser.on("--dangerous") { options[:dangerous] = true }
     end
     raise Hatchbox::Error, "only one statement at a time, quote it as one argument" if rest.length > 1 || (rest.any? && options[:sql])
 
@@ -1930,8 +1931,9 @@ class Hatchbox::Psql < Hatchbox::Command
     host = tunnel ? "127.0.0.1" : database.host
     port = tunnel ? tunnel.local_port.to_s : database.port
 
+    warn(options[:dangerous] ? "read write session".yellow : "read only session, pass --dangerous to write".dim)
     begin
-      Hatchbox.run(psql_command(database: database, host: host, port: port, sql: options[:sql]), env: environment(database))
+      Hatchbox.run(psql_command(database: database, host: host, port: port, sql: options[:sql]), env: environment(database: database, dangerous: options[:dangerous]))
     ensure
       tunnel.close if tunnel
     end
@@ -1944,8 +1946,12 @@ class Hatchbox::Psql < Hatchbox::Command
     argv
   end
 
-  def environment(database)
-    { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
+  def environment(database:, dangerous:)
+    env = { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
+    return env if dangerous
+
+    extra = [ENV["PGOPTIONS"], "-c default_transaction_read_only=on"].reject { |part| Hatchbox.blank?(part) }
+    env.merge("PGOPTIONS" => extra.join(" "))
   end
 end
 
@@ -2153,6 +2159,7 @@ Hatchbox::USAGE = <<~USAGE
     psql                   open a psql on the app's database, over an ssh tunnel
     psql "select 1"        run one statement and print the result
     psql --url             print the connection uri instead of connecting
+    psql --dangerous       a session that can write, which it cannot by default
     envs                   the environments this app is configured for
     setup                  pick an app off your account and write it to .hatchbox
     setup fpd              same, narrowed to apps matching fpd
