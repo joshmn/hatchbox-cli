@@ -363,6 +363,8 @@ class Hatchbox::Prompt
   end
 
   def ask(question:, io: $stdout)
+    return nil unless available?
+
     io.print(question)
     io.flush
     answer = tty.gets
@@ -1492,8 +1494,10 @@ end
 class Hatchbox::PsDestroy < Hatchbox::PsCommand
 
   def call
-    process = one(parse(name: "ps:destroy"), name: "ps:destroy")
-    agreed(process)
+    confirm = nil
+    rest = parse(name: "ps:destroy") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
+    process = one(rest, name: "ps:destroy")
+    agreed(process: process, confirm: confirm)
     client.delete(path_for(process))
     puts("deleted #{label(process).cyan} on #{env}")
     puts("the unit comes off the servers on the next deploy or restart".dim)
@@ -1502,9 +1506,14 @@ class Hatchbox::PsDestroy < Hatchbox::PsCommand
 
   private
 
-  def agreed(process)
+  def agreed(process:, confirm:)
     name = label(process)
-    answer = Hatchbox::Prompt.new.ask(question: "delete #{name} on #{env}? type the name to confirm: ", io: $stderr)
+    return if confirm == name
+
+    prompt = Hatchbox::Prompt.new
+    raise Hatchbox::Error, "this deletes #{name} on #{env}. run it again with --confirm #{name}" unless prompt.available?
+
+    answer = prompt.ask(question: "delete #{name} on #{env}? type the name to confirm: ", io: $stderr)
     raise Hatchbox::Error, "left #{name} alone" unless answer == name
   end
 end
