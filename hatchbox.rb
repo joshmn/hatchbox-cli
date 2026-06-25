@@ -137,7 +137,7 @@ class Hatchbox::Http
     session = Net::HTTP.new(uri.host, uri.port)
     session.use_ssl = uri.scheme == "https"
     session.open_timeout = 15
-    session.read_timeout = 30
+    session.read_timeout = 60
     session.start { |open| open.request(message) }
   rescue StandardError => e
     raise Hatchbox::Error, "request to #{uri} failed, #{e.message}"
