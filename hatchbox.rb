@@ -2257,19 +2257,24 @@ class Hatchbox::Cli
     "ps:create" => Hatchbox::PsCreate,
     "ps:update" => Hatchbox::PsUpdate,
     "ps:destroy" => Hatchbox::PsDestroy,
-    "restart" => Hatchbox::PsRestart,
+    "ps:exec" => Hatchbox::Ssh,
     "logs" => Hatchbox::Logs,
     "releases" => Hatchbox::Releases,
     "releases:output" => Hatchbox::ReleasesOutput,
     "config" => Hatchbox::ConfigShow,
     "config:set" => Hatchbox::ConfigSet,
     "config:unset" => Hatchbox::ConfigUnset,
-    "vars" => Hatchbox::Vars,
+    "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
+    "apps" => Hatchbox::Envs,
+    "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
     "psql" => Hatchbox::Psql,
+    "vars" => Hatchbox::Vars,
     "envs" => Hatchbox::Envs
   }.freeze
+
+  ALIASES = ["restart", "ssh", "psql", "vars", "envs"].freeze
 
   class << self
 
