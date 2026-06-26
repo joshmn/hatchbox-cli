@@ -506,10 +506,6 @@ class Hatchbox::Context
     found
   end
 
-  def global_config
-    Hatchbox::Config.new(Hatchbox::GLOBAL_CONFIG)
-  end
-
   def listing
     config.envs.map { |name| "  #{name}" }.join("\n")
   end
@@ -1127,12 +1123,6 @@ module Hatchbox::Options
   rescue OptionParser::InvalidArgument => e
     raise Hatchbox::Error, "#{e.args.join(" ")} is not a value #{name} takes there"
   end
-
-  def reject_extra(list, name:)
-    return if list.empty?
-
-    raise Hatchbox::Error, "#{name} takes no arguments, got #{list.join(" ")}"
-  end
 end
 
 class Hatchbox::Command
@@ -1195,11 +1185,6 @@ class Hatchbox::Command
 
     config.set(key: "last_#{kind}:#{env}", value: log_id)
     data
-  end
-
-  def print_json(data)
-    puts(JSON.pretty_generate(data))
-    0
   end
 
   def passthru
