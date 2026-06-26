@@ -2137,6 +2137,8 @@ Hatchbox::USAGE = <<~USAGE
     ps:create --name worker --start "bundle exec sidekiq" --roles worker
     ps:update worker --start "bundle exec sidekiq -c 10"
     ps:destroy worker      delete it, after you type the name back
+    ps:exec                a shell on the server, in the app's current release
+    ps:exec "df -h"        run one command there and come back
 
     logs                   the last 100 journal lines from every process
     logs --ps sidekiq      just that one
@@ -2154,17 +2156,17 @@ Hatchbox::USAGE = <<~USAGE
 
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
-    ssh                    a shell on the server, in the app's current release
-    ssh "df -h"            run one command there and come back
-    psql                   open a psql on the app's database, over an ssh tunnel
-    psql "select 1"        run one statement and print the result
-    psql --url             print the connection uri instead of connecting
-    psql --dangerous       a session that can write, which it cannot by default
-    envs                   the environments this app is configured for
+    pg:psql                open a psql on the app's database, over an ssh tunnel
+    pg:psql "select 1"     run one statement and print the result
+    pg:psql --url          print the connection uri instead of connecting
+    pg:psql --dangerous    a session that can write, which it cannot by default
+    apps                   the environments this app is configured for
     setup                  pick an app off your account and write it to .hatchbox
     setup fpd              same, narrowed to apps matching fpd
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
+
+  the older names still work and do the same thing: restart, ssh, psql, vars, envs.
 
   the app comes from the nearest .hatchbox, looked for in the working directory and
   then upward. an app is a bare line, written the way the dashboard url spells it,
@@ -2214,10 +2216,10 @@ Hatchbox::USAGE = <<~USAGE
     last_deploy:production = 4212
     last_restart:production = 4213
 
-  the database psql connects to is whichever postgresql one is attached to the
+  the database pg:psql connects to is whichever postgresql one is attached to the
   app. unmanaged clusters listen on their own machine's loopback, so psql goes
   through an ssh tunnel to the server holding the database, as the deploy user
-  hatchbox sets up. ssh lands in /home/deploy/<app>/current, the release that is
+  hatchbox sets up. ps:exec lands in /home/deploy/<app>/current, the release that is
   live, where <app> is the name the api has for it, and falls back to the home
   directory when that is not there yet. run does the same, through a login shell so
   the app's environment is loaded, and it returns whatever the command returned. a
@@ -2225,7 +2227,8 @@ Hatchbox::USAGE = <<~USAGE
   stops if it is not there, rather than running somewhere else. app_dir settles it
   when the release lives anywhere but the usual place. quote the whole command as one
   argument, or -e in it is read as hatchbox's own environment flag and taken away.
-  ssh, run, logs and psql take the same per environment overrides in the same file:
+  ps:exec, run, logs and pg:psql take the same per environment overrides in the same
+  file:
 
     ssh_user:production = deploy
     ssh_host:production = 203.0.113.10
