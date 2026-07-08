@@ -416,6 +416,21 @@ class Hatchbox::TokenStore
     global.get("token")
   end
 
+  def fetch(env: nil)
+    token = read(env: env)
+    raise Hatchbox::Error, "no api token. run hatchbox auth:login or set HATCHBOX_API_TOKEN" if Hatchbox.blank?(token)
+
+    token
+  end
+
+  def source(env: nil)
+    return "HATCHBOX_API_TOKEN" unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
+    return "token:#{env} in #{path}" if env && !Hatchbox.blank?(global.get("token:#{env}"))
+    return path unless Hatchbox.blank?(global.get("token"))
+
+    nil
+  end
+
   def ask
     raise Hatchbox::Error, "no terminal to ask for a token on. set HATCHBOX_API_TOKEN" unless prompt.available?
 
@@ -2012,6 +2027,19 @@ class Hatchbox::AuthLogout < Hatchbox::Command
   end
 end
 
+class Hatchbox::AuthWhoami < Hatchbox::Command
+
+  def call
+    parse(name: "auth:whoami")
+    store = Hatchbox::TokenStore.new
+    accounts = Hatchbox::Client.new(token: store.fetch(env: env)).get("/accounts").json || []
+    puts("the token reaches")
+    accounts.each { |account| puts("  #{account["name"]}, account #{account["id"]}") }
+    puts("token from #{store.source(env: env)}".dim)
+    0
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2223,6 +2251,7 @@ Hatchbox::USAGE = <<~USAGE
 
     auth:login             paste an api token, check it and save it to ~/.hatchbox
     auth:logout            take every saved token out of ~/.hatchbox
+    auth:whoami            the accounts the token reaches, and where it came from
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -2341,7 +2370,9 @@ class Hatchbox::Cli
     "auth:login" => Hatchbox::AuthLogin,
     "login" => Hatchbox::AuthLogin,
     "auth:logout" => Hatchbox::AuthLogout,
-    "logout" => Hatchbox::AuthLogout
+    "logout" => Hatchbox::AuthLogout,
+    "auth:whoami" => Hatchbox::AuthWhoami,
+    "whoami" => Hatchbox::AuthWhoami
   }.freeze
 
   ALIASES = ["restart", "ssh", "psql", "vars", "envs"].freeze
