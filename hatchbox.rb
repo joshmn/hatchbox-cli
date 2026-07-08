@@ -445,6 +445,15 @@ class Hatchbox::TokenStore
     File.chmod(0600, path)
   end
 
+  def forget
+    found = lines.select { |line| token_key?(key_of(line)) }
+    return 0 if found.empty?
+
+    kept = lines.reject { |line| token_key?(key_of(line)) }
+    File.open(path, File::WRONLY | File::TRUNC, 0600) { |file| kept.each { |line| file.puts(line) } }
+    found.length
+  end
+
   private
 
   attr_reader :prompt, :global
@@ -460,6 +469,10 @@ class Hatchbox::TokenStore
     return nil if text.start_with?("#") || !text.include?("=")
 
     text.split("=", 2).first.strip
+  end
+
+  def token_key?(key)
+    key == "token" || key.to_s.start_with?("token:")
   end
 end
 
@@ -1987,6 +2000,18 @@ class Hatchbox::AuthLogin < Hatchbox::Command
   end
 end
 
+class Hatchbox::AuthLogout < Hatchbox::Command
+
+  def call
+    parse(name: "auth:logout")
+    store = Hatchbox::TokenStore.new
+    removed = store.forget
+    puts(removed.zero? ? "no token saved in #{store.path}, nothing to do" : "took the token out of #{store.path}")
+    warn("HATCHBOX_API_TOKEN is still set, so commands keep working until you unset it".yellow) unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
+    0
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2197,6 +2222,7 @@ Hatchbox::USAGE = <<~USAGE
     setup fpd              same, narrowed to apps matching fpd
 
     auth:login             paste an api token, check it and save it to ~/.hatchbox
+    auth:logout            take every saved token out of ~/.hatchbox
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -2313,7 +2339,9 @@ class Hatchbox::Cli
 
   ACCOUNT_COMMANDS = {
     "auth:login" => Hatchbox::AuthLogin,
-    "login" => Hatchbox::AuthLogin
+    "login" => Hatchbox::AuthLogin,
+    "auth:logout" => Hatchbox::AuthLogout,
+    "logout" => Hatchbox::AuthLogout
   }.freeze
 
   ALIASES = ["restart", "ssh", "psql", "vars", "envs"].freeze
