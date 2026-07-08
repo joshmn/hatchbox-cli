@@ -249,7 +249,7 @@ class Hatchbox::Config
 
   HEADER = [
     "# the apps this repo deploys to, written the way the dashboard url spells them,",
-    "# then the environment each one is. run hatchbox setup to add another."
+    "# then the environment each one is. run hatchbox git:remote to add another."
   ].freeze
 
   attr_reader :path
@@ -2095,48 +2095,33 @@ class Hatchbox::AppCatalog
   end
 end
 
-class Hatchbox::Setup
-
-  include Hatchbox::Options
-
-  class << self
-
-    def call(args)
-      new(args).call
-    end
-  end
-
-  def initialize(args)
-    @args = args
-    @prompt = Hatchbox::Prompt.new
-  end
+class Hatchbox::GitRemote < Hatchbox::Command
 
   def call
-    options = parse
+    options = {}
+    rest = parse(name: "git:remote") do |parser|
+      parser.on("--app APP") { |value| options[:app] = value }
+      parser.on("--as ENV") { |value| options[:env] = value }
+    end
     token = Hatchbox::TokenStore.new(prompt: prompt).ensure_token
-    @config = Hatchbox::Config.new(target_path)
+    @file = Hatchbox::Config.new(target_path)
 
-    app = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: options[:filter]) : options[:app]
-    env = Hatchbox.blank?(options[:env]) ? ask_env : options[:env]
-    validate(env)
-    return 1 unless confirm(env: env, app: app)
+    slug = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: options[:filter]) : options[:app]
+    name = options[:env] || env
+    name = ask_env if Hatchbox.blank?(name)
+    validate(name)
+    return 1 unless confirm(env: name, app: slug)
 
-    write(env: env, app: app)
+    write(env: name, app: slug)
     0
   end
 
   private
 
-  attr_reader :args, :prompt, :config
+  attr_reader :file
 
-  def parse
-    options = {}
-    rest = parse_args(list: args.dup, name: "setup") do |parser|
-      parser.on("--app APP") { |value| options[:app] = value }
-      parser.on("--as ENV") { |value| options[:env] = value }
-    end
-    options[:filter] = rest.first
-    options
+  def prompt
+    @prompt ||= Hatchbox::Prompt.new
   end
 
   def target_path
@@ -2148,7 +2133,7 @@ class Hatchbox::Setup
   end
 
   def choose_app(token:, filter:)
-    raise Hatchbox::Error, "setup needs a terminal, or pass --app and --as" unless prompt.available?
+    raise Hatchbox::Error, "git:remote needs a terminal, or pass --app and --as" unless prompt.available?
 
     rows = Hatchbox::AppCatalog.new(token: token).entries(filter: filter)
     raise Hatchbox::Error, empty_message(filter) if rows.empty?
@@ -2176,11 +2161,11 @@ class Hatchbox::Setup
   end
 
   def confirm(env:, app:)
-    existing = config.exists? ? config.app_for(env) : nil
+    existing = file.exists? ? file.app_for(env) : nil
     return true if Hatchbox.blank?(existing) || existing == app
 
     puts
-    puts("#{env} is already #{existing} in #{config.path}".yellow)
+    puts("#{env} is already #{existing} in #{file.path}".yellow)
     return true unless prompt.available? && Hatchbox.blank?(ENV["HATCHBOX_ASSUME_YES"])
     return true if ["y", "yes"].include?(prompt.ask(question: "point it at #{app} instead? [y/N] ").to_s.downcase)
 
@@ -2189,16 +2174,16 @@ class Hatchbox::Setup
   end
 
   def write(env:, app:)
-    config.set_app(env: env, app: app)
+    file.set_app(env: env, app: app)
     puts
-    puts("#{app} is #{env} in #{config.path}".green)
+    puts("#{app} is #{env} in #{file.path}".green)
     choose_default
     report
   end
 
   def choose_default
-    envs = config.envs
-    return if envs.length < 2 || !Hatchbox.blank?(config.get("default"))
+    envs = file.envs
+    return if envs.length < 2 || !Hatchbox.blank?(file.get("default"))
 
     puts
     puts("there is more than one environment here now, so every command wants -e")
@@ -2212,14 +2197,14 @@ class Hatchbox::Setup
     return if Hatchbox.blank?(answer)
     return puts("no environment called #{answer}, leaving the default unset".yellow) unless envs.include?(answer)
 
-    config.set(key: "default", value: answer)
+    file.set(key: "default", value: answer)
     puts("default is #{answer}".green)
   end
 
   def report
     puts
-    puts("environments in #{config.path}")
-    config.apps.each { |env, app| puts("  #{env}, app #{app}") }
+    puts("environments in #{file.path}")
+    file.apps.each { |env, app| puts("  #{env}, app #{app}") }
   end
 end
 
@@ -2266,8 +2251,9 @@ Hatchbox::USAGE = <<~USAGE
     pg:psql --url          print the connection uri instead of connecting
     pg:psql --dangerous    a session that can write, which it cannot by default
     apps                   the environments this app is configured for
-    setup                  pick an app off your account and write it to .hatchbox
-    setup fpd              same, narrowed to apps matching fpd
+    git:remote             pick an app off your account and write it to .hatchbox
+    git:remote fpd         same, narrowed to apps matching fpd
+    git:remote --as qa     write it as qa instead of asking, same as -e qa
 
     auth:login             paste an api token, check it and save it to ~/.hatchbox
     auth:logout            take every saved token out of ~/.hatchbox
@@ -2276,7 +2262,8 @@ Hatchbox::USAGE = <<~USAGE
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
-  the older names still work and do the same thing: restart, ssh, psql, vars, envs.
+  the older names still work and do the same thing: restart, ssh, psql, vars, envs,
+  setup.
 
   the app comes from the nearest .hatchbox, looked for in the working directory and
   then upward. an app is a bare line, written the way the dashboard url spells it,
@@ -2287,8 +2274,8 @@ Hatchbox::USAGE = <<~USAGE
     default = production
 
   only the leading number is read by hatchbox, so the rest is there to tell you
-  which app you are looking at. hatchbox setup writes those lines for you, into the
-  nearest .hatchbox or, failing that, one at the root of the repo you are in.
+  which app you are looking at. hatchbox git:remote writes those lines for you, into
+  the nearest .hatchbox or, failing that, one at the root of the repo you are in.
 
   with one environment it is used automatically, otherwise default decides and -e
   beats it.
@@ -2394,10 +2381,12 @@ class Hatchbox::Cli
     "logout" => Hatchbox::AuthLogout,
     "auth:whoami" => Hatchbox::AuthWhoami,
     "whoami" => Hatchbox::AuthWhoami,
-    "auth:token" => Hatchbox::AuthToken
+    "auth:token" => Hatchbox::AuthToken,
+    "git:remote" => Hatchbox::GitRemote,
+    "setup" => Hatchbox::GitRemote
   }.freeze
 
-  ALIASES = ["restart", "ssh", "psql", "vars", "envs"].freeze
+  ALIASES = ["restart", "ssh", "psql", "vars", "envs", "setup"].freeze
 
   class << self
 
@@ -2419,7 +2408,6 @@ class Hatchbox::Cli
       puts(Hatchbox::USAGE)
       return 0
     end
-    return Hatchbox::Setup.call(rest.drop(1)) if name == "setup"
     return ACCOUNT_COMMANDS[name].call(context: Hatchbox::Context.new(env_name), args: rest.drop(1)) if ACCOUNT_COMMANDS.key?(name)
 
     command = COMMANDS[name]
