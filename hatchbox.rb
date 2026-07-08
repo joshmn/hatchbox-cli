@@ -175,6 +175,8 @@ class Hatchbox::Client
   end
 
   def error_message(response)
+    return "hatchbox turned the token down. run hatchbox auth:login, or check HATCHBOX_API_TOKEN" if response.code == 401
+
     data = response.json
     return "http #{response.code}" unless data.is_a?(Hash)
 
@@ -190,7 +192,7 @@ class Hatchbox::Client
   def ensure_ok(response)
     return response if response.ok?
 
-    raise Hatchbox::Error, "hatchbox said: #{error_message(response)}"
+    raise Hatchbox::Error, response.code == 401 ? error_message(response) : "hatchbox said: #{error_message(response)}"
   end
 end
 
@@ -400,6 +402,10 @@ class Hatchbox::TokenStore
     @global = Hatchbox::Config.new(Hatchbox::GLOBAL_CONFIG)
   end
 
+  def path
+    global.path
+  end
+
   def read(env: nil)
     from_env = ENV["HATCHBOX_API_TOKEN"]
     return from_env unless Hatchbox.blank?(from_env)
@@ -410,30 +416,50 @@ class Hatchbox::TokenStore
     global.get("token")
   end
 
-  def ensure_token
-    token = read
-    return token unless Hatchbox.blank?(token)
-    raise Hatchbox::Error, "no api token, and no terminal to ask for one. set HATCHBOX_API_TOKEN" unless prompt.available?
+  def ask
+    raise Hatchbox::Error, "no terminal to ask for a token on. set HATCHBOX_API_TOKEN" unless prompt.available?
 
-    puts("no api token yet. hatchbox has them under api tokens in your account settings.")
+    puts("paste an api token, hatchbox has them under api tokens in your account settings.")
     token = prompt.ask(question: "token: ")
     raise Hatchbox::Error, "nothing entered" if Hatchbox.blank?(token)
 
-    save(token)
     token
+  end
+
+  def ensure_token
+    token = read
+    return token unless Hatchbox.blank?(token)
+
+    token = ask
+    save(token)
+    puts("saved it to #{path}".green)
+    puts
+    token
+  end
+
+  def save(token)
+    kept = lines.reject { |line| key_of(line) == "token" }
+    File.open(path, File::WRONLY | File::CREAT | File::TRUNC, 0600) do |file|
+      (kept + ["token = #{token}"]).each { |line| file.puts(line) }
+    end
+    File.chmod(0600, path)
   end
 
   private
 
   attr_reader :prompt, :global
 
-  def save(token)
-    File.open(global.path, File::WRONLY | File::APPEND | File::CREAT, 0600) do |file|
-      file.puts("token = #{token}")
-    end
-    File.chmod(0600, global.path)
-    puts("saved it to #{global.path}".green)
-    puts
+  def lines
+    return [] unless File.file?(path)
+
+    File.readlines(path).map { |line| line.chomp }
+  end
+
+  def key_of(line)
+    text = line.strip
+    return nil if text.start_with?("#") || !text.include?("=")
+
+    text.split("=", 2).first.strip
   end
 end
 
@@ -1940,6 +1966,27 @@ class Hatchbox::Psql < Hatchbox::Command
   end
 end
 
+class Hatchbox::AuthLogin < Hatchbox::Command
+
+  def call
+    token = nil
+    parse(name: "auth:login") { |parser| parser.on("--token TOKEN") { |value| token = value } }
+    store = Hatchbox::TokenStore.new
+    token = store.ask if Hatchbox.blank?(token)
+
+    probe = Hatchbox::Client.new(token: token)
+    response = probe.try_get("/accounts")
+    raise Hatchbox::Error, probe.error_message(response) unless response.ok?
+
+    store.save(token)
+    names = (response.json || []).map { |account| account["name"] }
+    puts("logged in, the token reaches #{names.join(", ")}".green)
+    puts("saved it to #{store.path}".dim)
+    warn("HATCHBOX_API_TOKEN is set and wins over #{store.path} until you unset it".yellow) unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
+    0
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2149,6 +2196,8 @@ Hatchbox::USAGE = <<~USAGE
     setup                  pick an app off your account and write it to .hatchbox
     setup fpd              same, narrowed to apps matching fpd
 
+    auth:login             paste an api token, check it and save it to ~/.hatchbox
+
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
   the older names still work and do the same thing: restart, ssh, psql, vars, envs.
@@ -2262,6 +2311,11 @@ class Hatchbox::Cli
     "envs" => Hatchbox::Envs
   }.freeze
 
+  ACCOUNT_COMMANDS = {
+    "auth:login" => Hatchbox::AuthLogin,
+    "login" => Hatchbox::AuthLogin
+  }.freeze
+
   ALIASES = ["restart", "ssh", "psql", "vars", "envs"].freeze
 
   class << self
@@ -2285,6 +2339,7 @@ class Hatchbox::Cli
       return 0
     end
     return Hatchbox::Setup.call(rest.drop(1)) if name == "setup"
+    return ACCOUNT_COMMANDS[name].call(context: Hatchbox::Context.new(env_name), args: rest.drop(1)) if ACCOUNT_COMMANDS.key?(name)
 
     command = COMMANDS[name]
     raise Hatchbox::Error, "no command called #{name}\n\n#{Hatchbox::USAGE}" unless command
