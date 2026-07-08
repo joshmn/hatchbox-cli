@@ -10,6 +10,7 @@ require "socket"
 require "shellwords"
 require "tmpdir"
 require "fileutils"
+require "io/console"
 
 class String
 
@@ -373,6 +374,16 @@ class Hatchbox::Prompt
     answer.nil? ? nil : answer.strip
   end
 
+  def secret(question:, io: $stdout)
+    return nil unless available?
+
+    io.print(question)
+    io.flush
+    answer = tty.noecho { |input| input.gets }
+    io.puts
+    answer.nil? ? nil : answer.strip
+  end
+
   def ask_number(question:, count:, io: $stdout)
     answer = ask(question: question, io: io).to_s
     raise Hatchbox::Error, "that is not a number" unless answer =~ /\A[0-9]+\z/
@@ -435,7 +446,7 @@ class Hatchbox::TokenStore
     raise Hatchbox::Error, "no terminal to ask for a token on. set HATCHBOX_API_TOKEN" unless prompt.available?
 
     puts("paste an api token, hatchbox has them under api tokens in your account settings.")
-    token = prompt.ask(question: "token: ")
+    token = prompt.secret(question: "token: ")
     raise Hatchbox::Error, "nothing entered" if Hatchbox.blank?(token)
 
     token
