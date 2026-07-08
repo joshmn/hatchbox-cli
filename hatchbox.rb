@@ -2106,7 +2106,7 @@ class Hatchbox::GitRemote < Hatchbox::Command
     token = Hatchbox::TokenStore.new(prompt: prompt).ensure_token
     @file = Hatchbox::Config.new(target_path)
 
-    slug = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: options[:filter]) : options[:app]
+    slug = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: rest.first) : options[:app]
     name = options[:env] || env
     name = ask_env if Hatchbox.blank?(name)
     validate(name)
