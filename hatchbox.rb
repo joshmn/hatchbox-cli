@@ -2040,6 +2040,15 @@ class Hatchbox::AuthWhoami < Hatchbox::Command
   end
 end
 
+class Hatchbox::AuthToken < Hatchbox::Command
+
+  def call
+    parse(name: "auth:token")
+    puts(Hatchbox::TokenStore.new.fetch(env: env))
+    0
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2252,6 +2261,7 @@ Hatchbox::USAGE = <<~USAGE
     auth:login             paste an api token, check it and save it to ~/.hatchbox
     auth:logout            take every saved token out of ~/.hatchbox
     auth:whoami            the accounts the token reaches, and where it came from
+    auth:token             print the token in use, for curl and the like
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
@@ -2372,7 +2382,8 @@ class Hatchbox::Cli
     "auth:logout" => Hatchbox::AuthLogout,
     "logout" => Hatchbox::AuthLogout,
     "auth:whoami" => Hatchbox::AuthWhoami,
-    "whoami" => Hatchbox::AuthWhoami
+    "whoami" => Hatchbox::AuthWhoami,
+    "auth:token" => Hatchbox::AuthToken
   }.freeze
 
   ALIASES = ["restart", "ssh", "psql", "vars", "envs"].freeze
