@@ -1732,11 +1732,11 @@ class Hatchbox::ReleasesOutput < Hatchbox::Command
   end
 end
 
-class Hatchbox::Envs < Hatchbox::Command
+class Hatchbox::Remotes < Hatchbox::Command
 
   def call
-    parse(name: "envs")
-    puts("environments in #{config.path}")
+    parse(name: "remotes")
+    puts("remotes in #{config.path}")
     config.apps.each do |name, slug|
       current = name == env ? " (in use)".green : ""
       puts("  #{name}, app #{slug}#{current}")
@@ -2250,7 +2250,8 @@ Hatchbox::USAGE = <<~USAGE
     pg:psql "select 1"     run one statement and print the result
     pg:psql --url          print the connection uri instead of connecting
     pg:psql --dangerous    a session that can write, which it cannot by default
-    apps                   the environments this app is configured for
+    remotes                the apps in .hatchbox, and which one is in use
+    apps                   the same thing
     git:remote             pick an app off your account and write it to .hatchbox
     git:remote fpd         same, narrowed to apps matching fpd
     git:remote --as qa     write it as qa instead of asking, same as -e qa
@@ -2366,12 +2367,13 @@ class Hatchbox::Cli
     "config:unset" => Hatchbox::ConfigUnset,
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
-    "apps" => Hatchbox::Envs,
+    "remotes" => Hatchbox::Remotes,
+    "apps" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
     "psql" => Hatchbox::Psql,
     "vars" => Hatchbox::Vars,
-    "envs" => Hatchbox::Envs
+    "envs" => Hatchbox::Remotes
   }.freeze
 
   ACCOUNT_COMMANDS = {
