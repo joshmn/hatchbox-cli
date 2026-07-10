@@ -89,6 +89,16 @@ module Hatchbox::Ui
 
       "#{items[0..-2].join(", ")} and #{items.last}"
     end
+
+    def confirm(expected:, supplied:, action:)
+      return if supplied == expected
+
+      prompt = Hatchbox::Prompt.new
+      raise Hatchbox::Error, "#{action}. run it again with --confirm #{expected}" unless prompt.available?
+
+      answer = prompt.ask(question: "#{action}. type #{expected} to confirm: ", io: $stderr)
+      raise Hatchbox::Error, "left #{expected} alone" unless answer == expected
+    end
   end
 end
 
@@ -312,7 +322,19 @@ class Hatchbox::Config
     rewrite("#{app}:#{env}") { |line| line_env(line) == env }
   end
 
+  def remove_app_id(app_id)
+    return [] unless exists? && writable?
+
+    gone = apps.select { |_env, slug| id_of(slug) == id_of(app_id) }.map { |env, _slug| env }
+    write(lines.reject { |line| (pair = split_app(line)) && id_of(pair.last) == id_of(app_id) })
+    gone
+  end
+
   private
+
+  def id_of(slug)
+    slug.to_s[/\A[0-9]+/]
+  end
 
   def rewrite(replacement)
     written = false
@@ -2209,6 +2231,24 @@ class Hatchbox::AppsCreate < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsDestroy < Hatchbox::Command
+
+  def call
+    confirm = nil
+    parse(name: "apps:destroy") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
+    name = app.name
+    Hatchbox::Ui.confirm(expected: name, supplied: confirm, action: "this destroys #{name}, its folder and services on every server")
+    data = client.delete("/apps/#{app_id}", body: { "name" => name }).json || {}
+    puts("destroying #{name.cyan}, its databases are detached, not deleted")
+    gone = config.remove_app_id(app_id)
+    puts("took #{Hatchbox::Ui.list(gone)} out of #{config.path}".dim) if gone.any?
+    return 0 if Hatchbox.blank?(data["id"])
+
+    puts
+    follow(data["id"])
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2414,6 +2454,7 @@ Hatchbox::USAGE = <<~USAGE
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
     apps:create my-app --cluster netcup --repo myuser/my-app
+    apps:destroy           destroy the app, after you type its name back
     remotes                the apps in .hatchbox, and which one is in use
     git:remote             pick an app off your account and write it to .hatchbox
     git:remote fpd         same, narrowed to apps matching fpd
@@ -2531,6 +2572,7 @@ class Hatchbox::Cli
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
     "apps:info" => Hatchbox::AppsInfo,
+    "apps:destroy" => Hatchbox::AppsDestroy,
     "remotes" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
