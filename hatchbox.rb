@@ -75,6 +75,23 @@ module Hatchbox
   end
 end
 
+module Hatchbox::Ui
+
+  class << self
+
+    def header(text)
+      puts(text.cyan)
+    end
+
+    def list(words)
+      items = words.map { |word| word.to_s }
+      return items.first.to_s if items.length < 2
+
+      "#{items[0..-2].join(", ")} and #{items.last}"
+    end
+  end
+end
+
 class Hatchbox::Http
 
   METHODS = {
@@ -2060,10 +2077,43 @@ class Hatchbox::AuthToken < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsList < Hatchbox::Command
+
+  def call
+    parse(name: "apps")
+    catalog = Hatchbox::AppCatalog.new(token: Hatchbox::TokenStore.new.fetch(env: env))
+    rows = catalog.entries
+    if rows.empty?
+      puts("no apps on any account the token reaches")
+      return 0
+    end
+
+    clusters = cluster_names(catalog: catalog, rows: rows)
+    rows.group_by { |row| row[:account] }.each_with_index do |(account, mine), index|
+      puts if index.positive?
+      Hatchbox::Ui.header("apps on #{account}")
+      mine.each { |row| puts("  #{row[:slug].ljust(34)} #{clusters[row[:cluster_id]] || "cluster #{row[:cluster_id]}"}") }
+    end
+    0
+  end
+
+  private
+
+  def cluster_names(catalog:, rows:)
+    used = catalog.accounts.select { |account| rows.any? { |row| row[:account_id] == account["id"].to_s } }
+    found = used.map { |account| catalog.clusters_for(account) }.flatten
+    found.to_h { |cluster| [cluster["id"].to_s, cluster["name"].to_s] }
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
     @client = Hatchbox::Client.new(token: token)
+  end
+
+  def accounts
+    @accounts ||= client.get("/accounts").json || []
   end
 
   def entries(filter: nil)
@@ -2074,13 +2124,13 @@ class Hatchbox::AppCatalog
     rows.select { |row| row[:slug].downcase.include?(wanted) || row[:name].downcase.include?(wanted) }
   end
 
+  def clusters_for(account)
+    client.get("/accounts/#{account["id"]}/clusters").json || []
+  end
+
   private
 
   attr_reader :client
-
-  def accounts
-    client.get("/accounts").json || []
-  end
 
   def apps_for(account)
     response = client.try_get("/accounts/#{account["id"]}/apps")
@@ -2090,7 +2140,14 @@ class Hatchbox::AppCatalog
     end
 
     (response.json || []).map do |app|
-      { slug: "#{app["id"]}-#{app["name"]}", name: app["name"].to_s, account: account["name"].to_s }
+      {
+        id: app["id"].to_s,
+        slug: "#{app["id"]}-#{app["name"]}",
+        name: app["name"].to_s,
+        cluster_id: app["cluster_id"].to_s,
+        account: account["name"].to_s,
+        account_id: account["id"].to_s
+      }
     end
   end
 end
@@ -2250,8 +2307,9 @@ Hatchbox::USAGE = <<~USAGE
     pg:psql "select 1"     run one statement and print the result
     pg:psql --url          print the connection uri instead of connecting
     pg:psql --dangerous    a session that can write, which it cannot by default
+
+    apps                   every app on every account the token reaches
     remotes                the apps in .hatchbox, and which one is in use
-    apps                   the same thing
     git:remote             pick an app off your account and write it to .hatchbox
     git:remote fpd         same, narrowed to apps matching fpd
     git:remote --as qa     write it as qa instead of asking, same as -e qa
@@ -2368,7 +2426,6 @@ class Hatchbox::Cli
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
     "remotes" => Hatchbox::Remotes,
-    "apps" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
     "psql" => Hatchbox::Psql,
@@ -2385,7 +2442,8 @@ class Hatchbox::Cli
     "whoami" => Hatchbox::AuthWhoami,
     "auth:token" => Hatchbox::AuthToken,
     "git:remote" => Hatchbox::GitRemote,
-    "setup" => Hatchbox::GitRemote
+    "setup" => Hatchbox::GitRemote,
+    "apps" => Hatchbox::AppsList
   }.freeze
 
   ALIASES = ["restart", "ssh", "psql", "vars", "envs", "setup"].freeze
