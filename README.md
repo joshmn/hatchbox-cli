@@ -1,6 +1,6 @@
 # hatchbox
 
-A command line for [Hatchbox](https://hatchbox.io) that works on the app you're standing in. One file, standard library only.
+A heroku-style command line for [Hatchbox](https://hatchbox.io). One file, standard library only.
 
 ## Install
 
@@ -9,15 +9,25 @@ cp hatchbox.rb ~/bin/hatchbox
 chmod +x ~/bin/hatchbox
 ```
 
-## Setup
+## Logging in
 
-Make an API token at https://hatchbox.io/api_tokens, then from inside the repo:
+Make an API token at https://hatchbox.io/api_tokens, then:
 
 ```bash
-hatchbox setup
+hatchbox login
 ```
 
-It asks for the token, saves it to `~/.hatchbox`, lets you pick an app and writes a `.hatchbox` next to the repo:
+That saves it to `~/.hatchbox`. `HATCHBOX_API_TOKEN` wins over the file when it's set.
+
+## Pointing a repo at an app
+
+From inside the repo:
+
+```bash
+hatchbox git:remote
+```
+
+It writes a `.hatchbox` at the root of the repo:
 
 ```
 13673-fpd:production
@@ -25,21 +35,20 @@ It asks for the token, saves it to `~/.hatchbox`, lets you pick an app and write
 default = production
 ```
 
-Pick an environment with `-e qa`.
+Pick an environment with `-e qa`. `hatchbox remotes` lists them.
 
 ## Using it
 
 ```bash
+hatchbox apps
+hatchbox apps:info
 hatchbox deploy --watch
-hatchbox status
-hatchbox ps
 hatchbox ps:restart sidekiq
 hatchbox logs --ps sidekiq -t
-hatchbox releases
 hatchbox config:set FOO=bar
 hatchbox run "rails db:migrate"
-hatchbox ssh
-hatchbox psql
+hatchbox ps:exec
+hatchbox pg:psql
 ```
 
 `hatchbox --help` has the rest.
