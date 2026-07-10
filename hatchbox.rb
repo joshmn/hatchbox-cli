@@ -2249,6 +2249,54 @@ class Hatchbox::AppsDestroy < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsUpdate < Hatchbox::Command
+
+  HINT = "apps:update --branch main, or --build-script @bin/hatchbox-build to read it from a file"
+
+  def call
+    body = {}
+    parse(name: "apps:update", hint: HINT) do |parser|
+      parser.on("-b", "--branch BRANCH") { |value| body["branch"] = value }
+      parser.on("--repo REPO") { |value| body["repo_path"] = value }
+      parser.on("--pre-build-script SCRIPT") { |value| body["pre_build_script"] = expand(value) }
+      parser.on("--build-script SCRIPT") { |value| body["build_script"] = expand(value) }
+      parser.on("--post-build-script SCRIPT") { |value| body["post_build_script"] = expand(value) }
+      parser.on("--post-deploy-script SCRIPT") { |value| body["post_deploy_script"] = expand(value) }
+      parser.on("--failed-deploy-script SCRIPT") { |value| body["failed_deploy_script"] = expand(value) }
+      parser.on("--health-check PATH") { |value| body["health_check_uri"] = value }
+      parser.on("--caddyfile FILE") { |value| body["caddyfile"] = caddyfile(value) }
+      parser.on("--dns-provider PROVIDER") { |value| body["dns_provider"] = value }
+      parser.on("--dns-api-user USER") { |value| body["dns_api_user"] = value }
+      parser.on("--dns-access-token TOKEN") { |value| body["dns_access_token"] = value }
+    end
+    raise Hatchbox::Error, "apps:update needs something to change. #{HINT}" if body.empty?
+    raise Hatchbox::Error, "--health-check takes a relative path like /up" if body.key?("health_check_uri") && !body["health_check_uri"].start_with?("/")
+
+    client.patch("/apps/#{app_id}", body: { "app" => body })
+    puts("updated #{env.cyan}, #{body.keys.join(", ")}")
+    puts("caddy is being reapplied on the servers".dim) if body.key?("caddyfile") || body.key?("health_check_uri")
+    0
+  end
+
+  private
+
+  def expand(value)
+    return value unless value.start_with?("@")
+
+    File.read(value[1..-1])
+  rescue Errno::ENOENT
+    raise Hatchbox::Error, "no file at #{value[1..-1]}"
+  end
+
+  def caddyfile(path)
+    return $stdin.read if path == "-"
+
+    File.read(path)
+  rescue Errno::ENOENT
+    raise Hatchbox::Error, "no file at #{path}"
+  end
+end
+
 class Hatchbox::AppCatalog
 
   CACHE = File.join(Dir.home, ".hatchbox-apps.json")
@@ -2472,6 +2520,7 @@ Hatchbox::USAGE = <<~USAGE
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
     apps:create my-app --cluster netcup --repo myuser/my-app
+    apps:update --branch main --build-script @bin/hatchbox-build
     apps:destroy           destroy the app, after you type its name back
     remotes                the apps in .hatchbox, and which one is in use
     git:remote             pick an app off your account and write it to .hatchbox
@@ -2591,6 +2640,7 @@ class Hatchbox::Cli
     "run" => Hatchbox::Run,
     "apps:info" => Hatchbox::AppsInfo,
     "apps:destroy" => Hatchbox::AppsDestroy,
+    "apps:update" => Hatchbox::AppsUpdate,
     "remotes" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
