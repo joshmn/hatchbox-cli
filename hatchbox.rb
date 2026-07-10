@@ -330,6 +330,21 @@ class Hatchbox::Config
     gone
   end
 
+  def rename_app_id(app_id:, slug:)
+    return [] unless exists? && writable?
+
+    moved = []
+    rows = lines.map do |line|
+      pair = split_app(line)
+      next line unless pair && id_of(pair.last) == id_of(app_id)
+
+      moved << pair.first
+      "#{slug}:#{pair.first}"
+    end
+    write(rows)
+    moved
+  end
+
   private
 
   def id_of(slug)
@@ -2249,6 +2264,31 @@ class Hatchbox::AppsDestroy < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsRename < Hatchbox::Command
+
+  def call
+    confirm = nil
+    rest = parse(name: "apps:rename") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
+    raise Hatchbox::Error, "apps:rename takes the new name, and only that" unless rest.length == 1
+
+    new_name = rest.first
+    raise Hatchbox::Error, "#{new_name} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless new_name =~ Hatchbox::AppsCreate::NAME
+
+    old = app.name
+    raise Hatchbox::Error, "#{old} is already called that" if new_name == old
+
+    Hatchbox::Ui.confirm(expected: old, supplied: confirm, action: "renaming #{old} stops its processes and moves its folder, so it is down until it finishes")
+    data = client.post("/apps/#{app_id}/rename", body: { "app" => { "name" => new_name } }).json || {}
+    puts("renaming #{old.cyan} to #{new_name.cyan}")
+    moved = config.rename_app_id(app_id: app_id, slug: "#{app_id.to_s[/\A[0-9]+/]}-#{new_name}")
+    moved.each { |remote| puts("#{remote} in #{config.path} follows it".dim) }
+    return 0 if Hatchbox.blank?(data["id"])
+
+    puts
+    follow(data["id"])
+  end
+end
+
 class Hatchbox::AppsUpdate < Hatchbox::Command
 
   HINT = "apps:update --branch main, or --build-script @bin/hatchbox-build to read it from a file"
@@ -2521,6 +2561,7 @@ Hatchbox::USAGE = <<~USAGE
     apps:info              the app's branch, cluster, servers, processes and domains
     apps:create my-app --cluster netcup --repo myuser/my-app
     apps:update --branch main --build-script @bin/hatchbox-build
+    apps:rename fpd-new    rename it, which takes it down while it moves
     apps:destroy           destroy the app, after you type its name back
     remotes                the apps in .hatchbox, and which one is in use
     git:remote             pick an app off your account and write it to .hatchbox
@@ -2641,6 +2682,7 @@ class Hatchbox::Cli
     "apps:info" => Hatchbox::AppsInfo,
     "apps:destroy" => Hatchbox::AppsDestroy,
     "apps:update" => Hatchbox::AppsUpdate,
+    "apps:rename" => Hatchbox::AppsRename,
     "remotes" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
