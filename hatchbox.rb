@@ -2106,6 +2106,44 @@ class Hatchbox::AppsList < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsInfo < Hatchbox::Command
+
+  def call
+    parse(name: "apps:info")
+    data = app.details
+    cluster = Hatchbox.blank?(data["cluster_id"]) ? {} : client.get("/clusters/#{data["cluster_id"]}").json || {}
+    processes = client.get("/apps/#{app_id}/processes").json || []
+    domains = client.get("/apps/#{app_id}/domains").json || []
+    databases = client.get("/apps/#{app_id}/databases").json || []
+
+    Hatchbox::Ui.header("#{data["name"]}, app #{data["id"]} on #{env}")
+    rows = [
+      ["branch", data["branch"]],
+      ["repo", data["repo_path"]],
+      ["auto deploy", data["auto_deploy"] ? "on" : "off"],
+      ["maintenance", data["maintenance"] ? "on" : "off"],
+      ["cluster", cluster["name"]],
+      ["servers", (cluster["servers"] || []).map { |server| server["name"] }.join(", ")],
+      ["processes", processes.map { |row| row["name"] }.join(", ")],
+      ["domains", domains.map { |row| row["name"] }.join(", ")],
+      ["databases", databases.map { |record| "#{record["name"]} (#{record["engine"]})" }.join(", ")],
+      ["health check", data["health_check_uri"]],
+      ["last deploy", last_deploy(data)]
+    ]
+    puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
+    0
+  end
+
+  private
+
+  def last_deploy(data)
+    sha = data["last_deploy_sha"].to_s
+    return nil if sha.empty?
+
+    [sha[0, 7], data["last_deploy_at"]].compact.join(" at ")
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2309,6 +2347,7 @@ Hatchbox::USAGE = <<~USAGE
     pg:psql --dangerous    a session that can write, which it cannot by default
 
     apps                   every app on every account the token reaches
+    apps:info              the app's branch, cluster, servers, processes and domains
     remotes                the apps in .hatchbox, and which one is in use
     git:remote             pick an app off your account and write it to .hatchbox
     git:remote fpd         same, narrowed to apps matching fpd
@@ -2425,6 +2464,7 @@ class Hatchbox::Cli
     "config:unset" => Hatchbox::ConfigUnset,
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
+    "apps:info" => Hatchbox::AppsInfo,
     "remotes" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
