@@ -2144,6 +2144,71 @@ class Hatchbox::AppsInfo < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsCreate < Hatchbox::Command
+
+  NAME = /\A[A-Za-z0-9_-]+\z/.freeze
+  HINT = "apps:create my-app --cluster netcup --repo myuser/my-app"
+
+  def call
+    options = {}
+    rest = parse(name: "apps:create", hint: HINT) do |parser|
+      parser.on("-c", "--cluster CLUSTER") { |value| options[:cluster] = value }
+      parser.on("--repo REPO") { |value| options[:repo] = value }
+      parser.on("-b", "--branch BRANCH") { |value| options[:branch] = value }
+    end
+    raise Hatchbox::Error, "apps:create needs a name. #{HINT}" if rest.empty?
+    raise Hatchbox::Error, "one name at a time, apps:create got #{rest.join(" ")}" if rest.length > 1
+
+    name = rest.first
+    raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless name =~ NAME
+
+    token = Hatchbox::TokenStore.new.fetch(env: env)
+    cluster = pick_cluster(catalog: Hatchbox::AppCatalog.new(token: token), wanted: options[:cluster])
+    body = { "cluster_id" => cluster["id"], "name" => name }
+    body["branch"] = options[:branch] unless Hatchbox.blank?(options[:branch])
+    body["repo_path"] = options[:repo] unless Hatchbox.blank?(options[:repo])
+    created = Hatchbox::Client.new(token: token).post("/apps", body: { "app" => body }).json || {}
+    slug = "#{created["id"]}-#{created["name"] || name}"
+    puts("created #{slug.cyan} on #{cluster["name"]}, auto deploy is off")
+    remember(slug)
+    0
+  end
+
+  private
+
+  def pick_cluster(catalog:, wanted:)
+    clusters = catalog.accounts.map { |account| catalog.clusters_for(account) }.flatten
+    raise Hatchbox::Error, "the token reaches no clusters, make one on the dashboard first" if clusters.empty?
+    if Hatchbox.blank?(wanted)
+      return clusters.first if clusters.length == 1
+
+      raise Hatchbox::Error, "more than one cluster, so pick one with --cluster\n\n#{listing(clusters)}"
+    end
+
+    found = clusters.find { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) }
+    raise Hatchbox::Error, "no cluster called #{wanted}\n\n#{listing(clusters)}" unless found
+
+    found
+  end
+
+  def listing(clusters)
+    clusters.map { |row| "  #{row["name"]}, cluster #{row["id"]}" }.join("\n")
+  end
+
+  def remember(slug)
+    found = Hatchbox::Context.find_config
+    return puts("add it to a .hatchbox with hatchbox git:remote --app #{slug}".dim) unless found
+
+    file = Hatchbox::Config.new(found)
+    remote = Hatchbox.blank?(env) ? "production" : env
+    existing = file.app_for(remote)
+    return puts("#{remote} is already #{existing} in #{file.path}, so it was left alone".yellow) unless Hatchbox.blank?(existing)
+
+    file.set_app(env: remote, app: slug)
+    puts("#{slug} is #{remote} in #{file.path}".green)
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2348,6 +2413,7 @@ Hatchbox::USAGE = <<~USAGE
 
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
+    apps:create my-app --cluster netcup --repo myuser/my-app
     remotes                the apps in .hatchbox, and which one is in use
     git:remote             pick an app off your account and write it to .hatchbox
     git:remote fpd         same, narrowed to apps matching fpd
@@ -2483,7 +2549,8 @@ class Hatchbox::Cli
     "auth:token" => Hatchbox::AuthToken,
     "git:remote" => Hatchbox::GitRemote,
     "setup" => Hatchbox::GitRemote,
-    "apps" => Hatchbox::AppsList
+    "apps" => Hatchbox::AppsList,
+    "apps:create" => Hatchbox::AppsCreate
   }.freeze
 
   ALIASES = ["restart", "ssh", "psql", "vars", "envs", "setup"].freeze
