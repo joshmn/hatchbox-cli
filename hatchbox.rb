@@ -252,6 +252,15 @@ class Hatchbox::App
     @servers ||= load_servers
   end
 
+  def domains
+    @domains ||= client.get("/apps/#{app_id}/domains").json || []
+  end
+
+  def web_url
+    found = domains.map { |row| row["name"].to_s }.reject { |host| host.start_with?("*") }.first
+    found ? "https://#{found}/" : nil
+  end
+
   def server_name(id)
     match = servers.find { |server| server["id"].to_s == id.to_s }
     return "server #{id}" if match.nil? || Hatchbox.blank?(match["name"])
@@ -2293,8 +2302,13 @@ end
 class Hatchbox::AppsOpen < Hatchbox::Command
 
   def call
-    parse(name: "apps:open")
-    url = "https://app.hatchbox.io/apps/#{app_id}"
+    rest = parse(name: "apps:open")
+    raise Hatchbox::Error, "one path at a time, apps:open got #{rest.join(" ")}" if rest.length > 1
+
+    base = app.web_url
+    raise Hatchbox::Error, "#{env} has no domains, so there is nothing to open. add one on the dashboard" unless base
+
+    url = "#{base.chomp("/")}/#{rest.first.to_s.sub(%r{\A/}, "")}"
     opener = RbConfig::CONFIG["host_os"] =~ /darwin/ ? "open" : "xdg-open"
     warn("opening #{url}".dim)
     Hatchbox.run([opener, url])
@@ -2572,7 +2586,8 @@ Hatchbox::USAGE = <<~USAGE
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
     apps:create my-app --cluster netcup --repo myuser/my-app
-    apps:open              the app's page on the hatchbox dashboard, in a browser
+    apps:open              the app's first domain, in a browser
+    apps:open /admin       a path on it
     apps:update --branch main --build-script @bin/hatchbox-build
     apps:rename fpd-new    rename it, which takes it down while it moves
     apps:destroy           destroy the app, after you type its name back
