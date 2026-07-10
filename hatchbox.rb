@@ -11,6 +11,7 @@ require "shellwords"
 require "tmpdir"
 require "fileutils"
 require "io/console"
+require "rbconfig"
 
 class String
 
@@ -2289,6 +2290,17 @@ class Hatchbox::AppsRename < Hatchbox::Command
   end
 end
 
+class Hatchbox::AppsOpen < Hatchbox::Command
+
+  def call
+    parse(name: "apps:open")
+    url = "https://app.hatchbox.io/apps/#{app_id}"
+    opener = RbConfig::CONFIG["host_os"] =~ /darwin/ ? "open" : "xdg-open"
+    warn("opening #{url}".dim)
+    Hatchbox.run([opener, url])
+  end
+end
+
 class Hatchbox::AppsUpdate < Hatchbox::Command
 
   HINT = "apps:update --branch main, or --build-script @bin/hatchbox-build to read it from a file"
@@ -2560,6 +2572,7 @@ Hatchbox::USAGE = <<~USAGE
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
     apps:create my-app --cluster netcup --repo myuser/my-app
+    apps:open              the app's page on the hatchbox dashboard, in a browser
     apps:update --branch main --build-script @bin/hatchbox-build
     apps:rename fpd-new    rename it, which takes it down while it moves
     apps:destroy           destroy the app, after you type its name back
@@ -2683,6 +2696,7 @@ class Hatchbox::Cli
     "apps:destroy" => Hatchbox::AppsDestroy,
     "apps:update" => Hatchbox::AppsUpdate,
     "apps:rename" => Hatchbox::AppsRename,
+    "apps:open" => Hatchbox::AppsOpen,
     "remotes" => Hatchbox::Remotes,
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
