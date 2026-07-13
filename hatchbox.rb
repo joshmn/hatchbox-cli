@@ -174,13 +174,32 @@ class Hatchbox::Http
   end
 
   def send_request(uri:, message:)
-    session = Net::HTTP.new(uri.host, uri.port)
-    session.use_ssl = uri.scheme == "https"
-    session.open_timeout = 15
-    session.read_timeout = 60
-    session.start { |open| open.request(message) }
+    session(uri).request(message)
   rescue StandardError => e
+    drop(uri)
     raise Hatchbox::Error, "request to #{uri} failed, #{e.message}"
+  end
+
+  def session(uri)
+    pool = (Thread.current[:hatchbox_sessions] ||= {})
+    key = "#{uri.scheme}://#{uri.host}:#{uri.port}"
+    open = pool[key]
+    return open if open && open.started?
+
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = uri.scheme == "https"
+    http.open_timeout = 15
+    http.read_timeout = 60
+    http.start
+    pool[key] = http
+  end
+
+  def drop(uri)
+    pool = Thread.current[:hatchbox_sessions] || {}
+    open = pool.delete("#{uri.scheme}://#{uri.host}:#{uri.port}")
+    open.finish if open && open.started?
+  rescue StandardError
+    nil
   end
 end
 
