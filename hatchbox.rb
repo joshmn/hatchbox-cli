@@ -73,6 +73,17 @@ module Hatchbox
 
       $?.exitstatus.to_i
     end
+
+    def parallel(jobs)
+      threads = jobs.map do |key, job|
+        thread = Thread.new do
+          Thread.current.report_on_exception = false
+          job.call
+        end
+        [key, thread]
+      end
+      threads.to_h { |key, thread| [key, thread.value] }
+    end
   end
 end
 
@@ -2148,7 +2159,7 @@ class Hatchbox::AppsList < Hatchbox::Command
 
   def cluster_names(catalog:, rows:)
     used = catalog.accounts.select { |account| rows.any? { |row| row[:account_id] == account["id"].to_s } }
-    found = used.map { |account| catalog.clusters_for(account) }.flatten
+    found = Hatchbox.parallel(used.to_h { |account| [account["id"].to_s, -> { catalog.clusters_for(account) }] }).values.flatten
     found.to_h { |cluster| [cluster["id"].to_s, cluster["name"].to_s] }
   end
 end
@@ -2157,11 +2168,17 @@ class Hatchbox::AppsInfo < Hatchbox::Command
 
   def call
     parse(name: "apps:info")
-    data = app.details
+    found = Hatchbox.parallel(
+      details: -> { app.details },
+      processes: -> { client.get("/apps/#{app_id}/processes").json || [] },
+      domains: -> { app.domains },
+      databases: -> { client.get("/apps/#{app_id}/databases").json || [] }
+    )
+    data = found[:details]
     cluster = Hatchbox.blank?(data["cluster_id"]) ? {} : client.get("/clusters/#{data["cluster_id"]}").json || {}
-    processes = client.get("/apps/#{app_id}/processes").json || []
-    domains = client.get("/apps/#{app_id}/domains").json || []
-    databases = client.get("/apps/#{app_id}/databases").json || []
+    processes = found[:processes]
+    domains = found[:domains]
+    databases = found[:databases]
 
     Hatchbox::Ui.header("#{data["name"]}, app #{data["id"]} on #{env}")
     rows = [
@@ -2374,7 +2391,8 @@ class Hatchbox::AppCatalog
   end
 
   def entries(filter: nil)
-    rows = accounts.map { |account| apps_for(account) }.flatten
+    jobs = accounts.to_h { |account| [account["id"].to_s, -> { apps_for(account) }] }
+    rows = Hatchbox.parallel(jobs).values.flatten
     return rows if Hatchbox.blank?(filter)
 
     wanted = filter.downcase
