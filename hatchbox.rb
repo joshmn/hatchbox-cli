@@ -2365,9 +2365,6 @@ end
 
 class Hatchbox::AppCatalog
 
-  CACHE = File.join(Dir.home, ".hatchbox-apps.json")
-  CACHE_SECONDS = 300
-
   def initialize(token:)
     @client = Hatchbox::Client.new(token: token)
   end
@@ -2377,7 +2374,7 @@ class Hatchbox::AppCatalog
   end
 
   def entries(filter: nil)
-    rows = cached || store(accounts.map { |account| apps_for(account) }.flatten)
+    rows = accounts.map { |account| apps_for(account) }.flatten
     return rows if Hatchbox.blank?(filter)
 
     wanted = filter.downcase
@@ -2391,21 +2388,6 @@ class Hatchbox::AppCatalog
   private
 
   attr_reader :client
-
-  def cached
-    return nil unless File.file?(CACHE) && Time.now - File.mtime(CACHE) < CACHE_SECONDS
-
-    JSON.parse(File.read(CACHE), symbolize_names: true)
-  rescue JSON::ParserError
-    nil
-  end
-
-  def store(rows)
-    File.write(CACHE, JSON.dump(rows))
-    rows
-  rescue SystemCallError
-    rows
-  end
 
   def apps_for(account)
     response = client.try_get("/accounts/#{account["id"]}/apps")
