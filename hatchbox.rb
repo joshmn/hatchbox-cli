@@ -1917,6 +1917,19 @@ class Hatchbox::ConfigShow < Hatchbox::Vars
   end
 end
 
+class Hatchbox::ConfigGet < Hatchbox::Command
+
+  def call
+    rest = parse(name: "config:get")
+    raise Hatchbox::Error, "config:get takes one name" unless rest.length == 1
+
+    key = rest.first.upcase
+    raise Hatchbox::Error, "#{key} is set on #{env}, but hatchbox never hands the value back" if app.env_var_names.include?(key)
+
+    raise Hatchbox::Error, "#{key} is not set on #{env}"
+  end
+end
+
 class Hatchbox::ConfigSet < Hatchbox::Vars
 
   def call
@@ -2595,6 +2608,7 @@ Hatchbox::USAGE = <<~USAGE
     releases:output deploy the most recent one started from here
 
     config                 the names of the env vars on the app
+    config:get FOO         whether FOO is set, which is all hatchbox will say
     config:set FOO=bar     set env vars on the app, one or many, then hatchbox
                            pushes them to the servers
     config:unset FOO       take env vars off the app
@@ -2726,6 +2740,7 @@ class Hatchbox::Cli
     "releases" => Hatchbox::Releases,
     "releases:output" => Hatchbox::ReleasesOutput,
     "config" => Hatchbox::ConfigShow,
+    "config:get" => Hatchbox::ConfigGet,
     "config:set" => Hatchbox::ConfigSet,
     "config:unset" => Hatchbox::ConfigUnset,
     "pg:psql" => Hatchbox::Psql,
