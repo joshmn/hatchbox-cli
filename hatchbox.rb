@@ -286,6 +286,10 @@ class Hatchbox::App
     @domains ||= client.get("/apps/#{app_id}/domains").json || []
   end
 
+  def env_var_names
+    @env_var_names ||= (client.get("/apps/#{app_id}/env_vars").json || []).map { |row| row["name"].to_s }
+  end
+
   def web_url
     found = domains.map { |row| row["name"].to_s }.reject { |host| host.start_with?("*") }.first
     found ? "https://#{found}/" : nil
@@ -1847,7 +1851,7 @@ class Hatchbox::Vars < Hatchbox::Command
   def call
     rest = parse(name: "vars", hint: HINT)
     action = rest.first
-    return explain if Hatchbox.blank?(action)
+    return list if Hatchbox.blank?(action)
     return set(rest.drop(1)) if action == "set"
     return unset(rest.drop(1)) if ["unset", "rm"].include?(action)
 
@@ -1892,16 +1896,15 @@ class Hatchbox::Vars < Hatchbox::Command
     cleaned
   end
 
-  def explain
-    puts([
-      "hatchbox has no endpoint that reads env vars back, and it never returns a value,",
-      "so there is nothing to list here. what is set is on the app's dashboard page.",
-      "",
-      "  hatchbox config:set FOO=bar BAZ=qux",
-      "  hatchbox config:unset FOO BAZ",
-      "",
-      "hatchbox uppercases the names, and a value you type here lands in your shell history."
-    ].join("\n"))
+  def list
+    names = app.env_var_names
+    if names.empty?
+      puts("no env vars on #{env}, set one with config:set FOO=bar")
+      return 0
+    end
+
+    puts("env vars on #{env.cyan}, names only since hatchbox never hands a value back")
+    names.each { |name| puts("  #{name}") }
     0
   end
 end
@@ -1910,7 +1913,7 @@ class Hatchbox::ConfigShow < Hatchbox::Vars
 
   def call
     parse(name: "config")
-    explain
+    list
   end
 end
 
@@ -2591,6 +2594,7 @@ Hatchbox::USAGE = <<~USAGE
     releases:output 4212   the output of one of them
     releases:output deploy the most recent one started from here
 
+    config                 the names of the env vars on the app
     config:set FOO=bar     set env vars on the app, one or many, then hatchbox
                            pushes them to the servers
     config:unset FOO       take env vars off the app
@@ -2692,11 +2696,11 @@ Hatchbox::USAGE = <<~USAGE
     ssh_port:production = 22
     app_dir:production = /home/deploy/fpd/current
 
-  env vars are write only here. hatchbox publishes no endpoint that lists them and
-  never returns a value, so config can set and unset but not read, and what is on the
-  app is on its dashboard page. names are uppercased for you, and hatchbox pushes the
-  change to the servers itself without handing back a log id to follow. a value typed
-  into config:set lands in your shell history like anything else on the command line.
+  env vars are write only here. hatchbox lists their names and never returns a value,
+  so config shows the names and config:set and config:unset change them. names are
+  uppercased for you, and hatchbox pushes the change to the servers itself without
+  handing back a log id to follow. a value typed into config:set lands in your shell
+  history like anything else on the command line.
 
   env
     HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
