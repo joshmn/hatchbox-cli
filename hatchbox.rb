@@ -1843,60 +1843,10 @@ class Hatchbox::Remotes < Hatchbox::Command
   end
 end
 
-class Hatchbox::Vars < Hatchbox::Command
-
-  USABLE = /\A[A-Z0-9_]+\z/.freeze
-  HINT = "vars set NAME=VALUE, or vars unset NAME"
+class Hatchbox::ConfigShow < Hatchbox::Command
 
   def call
-    rest = parse(name: "vars", hint: HINT)
-    action = rest.first
-    return list if Hatchbox.blank?(action)
-    return set(rest.drop(1)) if action == "set"
-    return unset(rest.drop(1)) if ["unset", "rm"].include?(action)
-
-    raise Hatchbox::Error, "no vars command called #{action}. #{HINT}"
-  end
-
-  private
-
-  def set(pairs)
-    raise Hatchbox::Error, "vars set takes NAME=VALUE, one or more of them" if pairs.empty?
-
-    vars = pairs.map { |pair| pair_for(pair) }
-    client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars })
-    report(verb: "set", names: vars.map { |var| var["name"] })
-  end
-
-  def unset(names)
-    raise Hatchbox::Error, "vars unset takes a name, one or more of them" if names.empty?
-
-    wanted = names.map { |name| usable(name) }
-    client.delete("/apps/#{app_id}/env_vars", body: { "env_vars" => wanted })
-    report(verb: "unset", names: wanted)
-  end
-
-  def report(verb:, names:)
-    puts("#{verb} #{names.join(", ").cyan} on #{env}")
-    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
-    0
-  end
-
-  def pair_for(text)
-    name, separator, value = text.partition("=")
-    raise Hatchbox::Error, "#{text} is not NAME=VALUE" if separator.empty?
-
-    { "name" => usable(name), "value" => value }
-  end
-
-  def usable(name)
-    cleaned = name.strip.upcase
-    raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers and underscores" unless cleaned =~ USABLE
-
-    cleaned
-  end
-
-  def list
+    parse(name: "config")
     names = app.env_var_names
     if names.empty?
       puts("no env vars on #{env}, set one with config:set FOO=bar")
@@ -1906,14 +1856,6 @@ class Hatchbox::Vars < Hatchbox::Command
     puts("env vars on #{env.cyan}, names only since hatchbox never hands a value back")
     names.each { |name| puts("  #{name}") }
     0
-  end
-end
-
-class Hatchbox::ConfigShow < Hatchbox::Vars
-
-  def call
-    parse(name: "config")
-    list
   end
 end
 
@@ -1930,17 +1872,49 @@ class Hatchbox::ConfigGet < Hatchbox::Command
   end
 end
 
-class Hatchbox::ConfigSet < Hatchbox::Vars
+class Hatchbox::ConfigSet < Hatchbox::Command
+
+  USABLE = /\A[A-Z0-9_]+\z/.freeze
+
+  def self.usable(name)
+    cleaned = name.strip.upcase
+    raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers and underscores" unless cleaned =~ USABLE
+
+    cleaned
+  end
 
   def call
-    set(parse(name: "config:set", hint: "config:set NAME=VALUE"))
+    pairs = parse(name: "config:set", hint: "config:set NAME=VALUE")
+    raise Hatchbox::Error, "config:set takes NAME=VALUE, one or more of them" if pairs.empty?
+
+    vars = pairs.map { |pair| pair_for(pair) }
+    client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars })
+    puts("set #{vars.map { |var| var["name"] }.join(", ").cyan} on #{env}")
+    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
+    0
+  end
+
+  private
+
+  def pair_for(text)
+    name, separator, value = text.partition("=")
+    raise Hatchbox::Error, "#{text} is not NAME=VALUE" if separator.empty?
+
+    { "name" => Hatchbox::ConfigSet.usable(name), "value" => value }
   end
 end
 
-class Hatchbox::ConfigUnset < Hatchbox::Vars
+class Hatchbox::ConfigUnset < Hatchbox::Command
 
   def call
-    unset(parse(name: "config:unset", hint: "config:unset NAME"))
+    names = parse(name: "config:unset", hint: "config:unset NAME")
+    raise Hatchbox::Error, "config:unset takes a name, one or more of them" if names.empty?
+
+    wanted = names.map { |name| Hatchbox::ConfigSet.usable(name) }
+    client.delete("/apps/#{app_id}/env_vars", body: { "env_vars" => wanted })
+    puts("unset #{wanted.join(", ").cyan} on #{env}")
+    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
+    0
   end
 end
 
@@ -2640,8 +2614,7 @@ Hatchbox::USAGE = <<~USAGE
 
     -e ENV, --env ENV      which environment to act on, anywhere in the command
 
-  the older names still work and do the same thing: restart, ssh, psql, vars, envs,
-  setup.
+  the older names still work and do the same thing: restart, ssh, psql, envs, setup.
 
   the app comes from the nearest .hatchbox, looked for in the working directory and
   then upward. an app is a bare line, written the way the dashboard url spells it,
@@ -2754,7 +2727,6 @@ class Hatchbox::Cli
     "restart" => Hatchbox::PsRestart,
     "ssh" => Hatchbox::Ssh,
     "psql" => Hatchbox::Psql,
-    "vars" => Hatchbox::Vars,
     "envs" => Hatchbox::Remotes
   }.freeze
 
@@ -2772,7 +2744,7 @@ class Hatchbox::Cli
     "apps:create" => Hatchbox::AppsCreate
   }.freeze
 
-  ALIASES = ["restart", "ssh", "psql", "vars", "envs", "setup"].freeze
+  ALIASES = ["restart", "ssh", "psql", "envs", "setup"].freeze
 
   class << self
 
