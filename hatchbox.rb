@@ -1918,6 +1918,36 @@ class Hatchbox::ConfigUnset < Hatchbox::Command
   end
 end
 
+class Hatchbox::Maintenance < Hatchbox::Command
+
+  def call
+    parse(name: "maintenance")
+    puts(app.details["maintenance"] ? "on" : "off")
+    0
+  end
+end
+
+class Hatchbox::MaintenanceOn < Hatchbox::Command
+
+  def call
+    parse(name: "maintenance:on")
+    client.post("/apps/#{app_id}/maintenance")
+    puts("maintenance mode on for #{env.cyan}")
+    puts("caddy serves the maintenance page, the processes keep running".dim)
+    0
+  end
+end
+
+class Hatchbox::MaintenanceOff < Hatchbox::Command
+
+  def call
+    parse(name: "maintenance:off")
+    client.delete("/apps/#{app_id}/maintenance")
+    puts("maintenance mode off for #{env.cyan}")
+    0
+  end
+end
+
 class Hatchbox::Run < Hatchbox::Command
 
   HINT = "quote the command, and put ssh's own flags after a --"
@@ -2587,6 +2617,10 @@ Hatchbox::USAGE = <<~USAGE
                            pushes them to the servers
     config:unset FOO       take env vars off the app
 
+    maintenance            whether the app is in maintenance mode
+    maintenance:on         serve the maintenance page instead of the app
+    maintenance:off        and back
+
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
     pg:psql                open a psql on the app's database, over an ssh tunnel
@@ -2716,6 +2750,9 @@ class Hatchbox::Cli
     "config:get" => Hatchbox::ConfigGet,
     "config:set" => Hatchbox::ConfigSet,
     "config:unset" => Hatchbox::ConfigUnset,
+    "maintenance" => Hatchbox::Maintenance,
+    "maintenance:on" => Hatchbox::MaintenanceOn,
+    "maintenance:off" => Hatchbox::MaintenanceOff,
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
     "apps:info" => Hatchbox::AppsInfo,
