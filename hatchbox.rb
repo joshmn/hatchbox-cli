@@ -2346,6 +2346,7 @@ class Hatchbox::AppsInfo < Hatchbox::Command
       ["processes", processes.map { |row| row["name"] }.join(", ")],
       ["domains", domains.map { |row| row["name"] }.join(", ")],
       ["databases", databases.map { |record| "#{record["name"]} (#{record["engine"]})" }.join(", ")],
+      ["git provider", git_provider(data)],
       ["health check", data["health_check_uri"]],
       ["last deploy", last_deploy(data)]
     ]
@@ -2360,6 +2361,20 @@ class Hatchbox::AppsInfo < Hatchbox::Command
     return nil if sha.empty?
 
     [sha[0, 7], data["last_deploy_at"]].compact.join(" at ")
+  end
+
+  def git_provider(data)
+    id = data["connected_account_id"]
+    return nil if Hatchbox.blank?(id)
+
+    catalog = Hatchbox::AppCatalog.new(token: context.token)
+    account = catalog.account_for(app_id)
+    return "provider #{id}" unless account
+
+    found = catalog.git_providers_for(account).find { |row| row["id"].to_s == id.to_s }
+    found ? "#{found["provider"]} #{found["name"]}" : "provider #{id}"
+  rescue Hatchbox::Error
+    "provider #{id}"
   end
 end
 
@@ -2535,6 +2550,31 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
   end
 end
 
+class Hatchbox::GitProviders < Hatchbox::Command
+
+  def call
+    parse(name: "git:providers")
+    catalog = Hatchbox::AppCatalog.new(token: Hatchbox::TokenStore.new.fetch(env: env))
+    catalog.accounts.each_with_index do |account, index|
+      puts if index.positive?
+      Hatchbox::Ui.header("git providers on #{account["name"]}")
+      show(catalog: catalog, account: account)
+    end
+    0
+  end
+
+  private
+
+  def show(catalog:, account:)
+    rows = catalog.git_providers_for(account)
+    return puts("  none connected") if rows.empty?
+
+    rows.each { |row| puts("  #{row["provider"].to_s.ljust(10)} #{row["name"].to_s.ljust(24)} #{row["id"]}") }
+  rescue Hatchbox::Error => e
+    warn("  skipping it, #{e.message}".yellow)
+  end
+end
+
 class Hatchbox::AppCatalog
 
   def initialize(token:)
@@ -2556,6 +2596,15 @@ class Hatchbox::AppCatalog
 
   def clusters_for(account)
     client.get("/accounts/#{account["id"]}/clusters").json || []
+  end
+
+  def git_providers_for(account)
+    client.get("/accounts/#{account["id"]}/git_providers").json || []
+  end
+
+  def account_for(app_id)
+    found = entries.find { |row| row[:id] == app_id.to_s[/\A[0-9]+/] }
+    found ? accounts.find { |account| account["id"].to_s == found[:account_id] } : nil
   end
 
   private
@@ -2763,6 +2812,7 @@ Hatchbox::USAGE = <<~USAGE
     git:remote             pick an app off your account and write it to .hatchbox
     git:remote fpd         same, narrowed to apps matching fpd
     git:remote --as qa     write it as qa instead of asking, same as -e qa
+    git:providers          the connected git accounts apps can deploy from
 
     auth:login             paste an api token, check it and save it to ~/.hatchbox
     auth:logout            take every saved token out of ~/.hatchbox
@@ -2907,7 +2957,8 @@ class Hatchbox::Cli
     "git:remote" => Hatchbox::GitRemote,
     "setup" => Hatchbox::GitRemote,
     "apps" => Hatchbox::AppsList,
-    "apps:create" => Hatchbox::AppsCreate
+    "apps:create" => Hatchbox::AppsCreate,
+    "git:providers" => Hatchbox::GitProviders
   }.freeze
 
   ALIASES = ["restart", "ssh", "psql", "envs", "setup"].freeze
