@@ -2028,6 +2028,42 @@ class Hatchbox::DomainsRemove < Hatchbox::Command
   end
 end
 
+class Hatchbox::DomainsUpdate < Hatchbox::Command
+
+  include Hatchbox::DomainPaths
+
+  def call
+    rest = parse(name: "domains:update")
+    raise Hatchbox::Error, "domains:update takes the domain and its new name, domains:update old.com new.com" unless rest.length == 2
+
+    old, name = rest
+    client.patch(domain_path(old), body: { "domain" => { "name" => name } })
+    puts("#{old} is #{name.cyan} on #{env} now")
+    0
+  end
+end
+
+class Hatchbox::DomainsClear < Hatchbox::Command
+
+  include Hatchbox::DomainPaths
+
+  def call
+    confirm = nil
+    parse(name: "domains:clear") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
+    rows = app.domains
+    if rows.empty?
+      puts("no domains on #{env}")
+      return 0
+    end
+
+    names = rows.map { |row| row["name"].to_s }
+    Hatchbox::Ui.confirm(expected: app.name, supplied: confirm, action: "this removes #{names.join(", ")} from #{app.name}")
+    names.each { |name| client.delete(domain_path(name)) }
+    puts("removed #{Hatchbox::Ui.list(names)} from #{env}")
+    0
+  end
+end
+
 class Hatchbox::Run < Hatchbox::Command
 
   HINT = "quote the command, and put ssh's own flags after a --"
@@ -2705,6 +2741,8 @@ Hatchbox::USAGE = <<~USAGE
     domains:info fpd.com   one of them
     domains:add fpd.com    add one
     domains:remove fpd.com take one off
+    domains:update fpd.com www.fpd.com
+    domains:clear          take every domain off, after you type the app's name back
 
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
@@ -2842,6 +2880,8 @@ class Hatchbox::Cli
     "domains:info" => Hatchbox::DomainsInfo,
     "domains:add" => Hatchbox::DomainsAdd,
     "domains:remove" => Hatchbox::DomainsRemove,
+    "domains:update" => Hatchbox::DomainsUpdate,
+    "domains:clear" => Hatchbox::DomainsClear,
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
     "apps:info" => Hatchbox::AppsInfo,
