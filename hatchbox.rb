@@ -1964,15 +1964,35 @@ class Hatchbox::Domains < Hatchbox::Command
   end
 end
 
+module Hatchbox::DomainPaths
+
+  private
+
+  def domain_path(name)
+    "/apps/#{app_id}/domains/#{URI.encode_www_form_component(name).gsub("+", "%20").gsub("%2A", "*")}"
+  end
+
+  def targets
+    servers = app.servers.select { |server| server["state"].to_s == "active" }
+    fronts = servers.select { |server| (server["roles"] || []).include?("load_balancer") }
+    fronts = servers.select { |server| (server["roles"] || []).include?("web") } if fronts.empty?
+    fronts.map { |server| server["public_ip"].to_s }.reject { |ip| ip.empty? }
+  rescue Hatchbox::Error
+    []
+  end
+end
+
 class Hatchbox::DomainsInfo < Hatchbox::Command
+
+  include Hatchbox::DomainPaths
 
   def call
     rest = parse(name: "domains:info")
     raise Hatchbox::Error, "domains:info takes one domain name" unless rest.length == 1
 
-    row = client.get("/apps/#{app_id}/domains/#{rest.first}").json || {}
+    row = client.get(domain_path(rest.first)).json || {}
     Hatchbox::Ui.header(row["name"].to_s)
-    rows = [["id", row["id"]], ["created", row["created_at"]], ["updated", row["updated_at"]]]
+    rows = [["id", row["id"]], ["created", row["created_at"]], ["updated", row["updated_at"]], ["points at", targets.join(", ")]]
     puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
     0
   end
@@ -1980,24 +2000,29 @@ end
 
 class Hatchbox::DomainsAdd < Hatchbox::Command
 
+  include Hatchbox::DomainPaths
+
   def call
     rest = parse(name: "domains:add")
     raise Hatchbox::Error, "domains:add takes one domain name" unless rest.length == 1
 
     client.post("/apps/#{app_id}/domains", body: { "domain" => { "name" => rest.first } })
     puts("added #{rest.first.cyan} to #{env}")
-    puts("point its dns at the app's servers, caddy gets the certificate once it resolves".dim)
+    ips = targets
+    puts("point its dns at #{Hatchbox::Ui.list(ips)}, caddy gets the certificate once it resolves".dim) if ips.any?
     0
   end
 end
 
 class Hatchbox::DomainsRemove < Hatchbox::Command
 
+  include Hatchbox::DomainPaths
+
   def call
     rest = parse(name: "domains:remove")
     raise Hatchbox::Error, "domains:remove takes one domain name" unless rest.length == 1
 
-    client.delete("/apps/#{app_id}/domains/#{rest.first}")
+    client.delete(domain_path(rest.first))
     puts("removed #{rest.first.cyan} from #{env}")
     0
   end
