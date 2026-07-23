@@ -1954,7 +1954,7 @@ class Hatchbox::Domains < Hatchbox::Command
     parse(name: "domains")
     rows = app.domains
     if rows.empty?
-      puts("no domains on #{env}")
+      puts("no domains on #{env}, add one with domains:add")
       return 0
     end
 
@@ -1974,6 +1974,31 @@ class Hatchbox::DomainsInfo < Hatchbox::Command
     Hatchbox::Ui.header(row["name"].to_s)
     rows = [["id", row["id"]], ["created", row["created_at"]], ["updated", row["updated_at"]]]
     puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
+    0
+  end
+end
+
+class Hatchbox::DomainsAdd < Hatchbox::Command
+
+  def call
+    rest = parse(name: "domains:add")
+    raise Hatchbox::Error, "domains:add takes one domain name" unless rest.length == 1
+
+    client.post("/apps/#{app_id}/domains", body: { "domain" => { "name" => rest.first } })
+    puts("added #{rest.first.cyan} to #{env}")
+    puts("point its dns at the app's servers, caddy gets the certificate once it resolves".dim)
+    0
+  end
+end
+
+class Hatchbox::DomainsRemove < Hatchbox::Command
+
+  def call
+    rest = parse(name: "domains:remove")
+    raise Hatchbox::Error, "domains:remove takes one domain name" unless rest.length == 1
+
+    client.delete("/apps/#{app_id}/domains/#{rest.first}")
+    puts("removed #{rest.first.cyan} from #{env}")
     0
   end
 end
@@ -2653,6 +2678,8 @@ Hatchbox::USAGE = <<~USAGE
 
     domains                the app's domains
     domains:info fpd.com   one of them
+    domains:add fpd.com    add one
+    domains:remove fpd.com take one off
 
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
@@ -2788,6 +2815,8 @@ class Hatchbox::Cli
     "maintenance:off" => Hatchbox::MaintenanceOff,
     "domains" => Hatchbox::Domains,
     "domains:info" => Hatchbox::DomainsInfo,
+    "domains:add" => Hatchbox::DomainsAdd,
+    "domains:remove" => Hatchbox::DomainsRemove,
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
     "apps:info" => Hatchbox::AppsInfo,
