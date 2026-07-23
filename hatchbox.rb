@@ -2389,6 +2389,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
       parser.on("-c", "--cluster CLUSTER") { |value| options[:cluster] = value }
       parser.on("--repo REPO") { |value| options[:repo] = value }
       parser.on("-b", "--branch BRANCH") { |value| options[:branch] = value }
+      parser.on("--git-provider PROVIDER") { |value| options[:git_provider] = value }
     end
     raise Hatchbox::Error, "apps:create needs a name. #{HINT}" if rest.empty?
     raise Hatchbox::Error, "one name at a time, apps:create got #{rest.join(" ")}" if rest.length > 1
@@ -2397,10 +2398,12 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless name =~ NAME
 
     token = Hatchbox::TokenStore.new.fetch(env: env)
-    cluster = pick_cluster(catalog: Hatchbox::AppCatalog.new(token: token), wanted: options[:cluster])
+    catalog = Hatchbox::AppCatalog.new(token: token)
+    cluster = pick_cluster(catalog: catalog, wanted: options[:cluster])
     body = { "cluster_id" => cluster["id"], "name" => name }
     body["branch"] = options[:branch] unless Hatchbox.blank?(options[:branch])
     body["repo_path"] = options[:repo] unless Hatchbox.blank?(options[:repo])
+    body["connected_account_id"] = pick_provider(catalog.git_providers_for(cluster["account"]), options[:git_provider])["id"] unless Hatchbox.blank?(options[:git_provider])
     created = Hatchbox::Client.new(token: token).post("/apps", body: { "app" => body }).json || {}
     slug = "#{created["id"]}-#{created["name"] || name}"
     puts("created #{slug.cyan} on #{cluster["name"]}, auto deploy is off")
@@ -2411,7 +2414,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
   private
 
   def pick_cluster(catalog:, wanted:)
-    clusters = catalog.accounts.map { |account| catalog.clusters_for(account) }.flatten
+    clusters = catalog.accounts.map { |account| catalog.clusters_for(account).map { |row| row.merge("account" => account) } }.flatten
     raise Hatchbox::Error, "the token reaches no clusters, make one on the dashboard first" if clusters.empty?
     if Hatchbox.blank?(wanted)
       return clusters.first if clusters.length == 1
@@ -2427,6 +2430,16 @@ class Hatchbox::AppsCreate < Hatchbox::Command
 
   def listing(clusters)
     clusters.map { |row| "  #{row["name"]}, cluster #{row["id"]}" }.join("\n")
+  end
+
+  def pick_provider(providers, wanted)
+    found = providers.select { |row| row["id"].to_s == wanted || row["name"].to_s.casecmp?(wanted) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted) }
+    return found.first if found.length == 1
+
+    listing = providers.map { |row| "  #{row["provider"]}:#{row["name"]}, provider #{row["id"]}" }.join("\n")
+    raise Hatchbox::Error, "more than one git provider is called #{wanted}, so use provider:name or the id\n\n#{listing}" if found.length > 1
+
+    raise Hatchbox::Error, "no git provider called #{wanted}\n\n#{listing}"
   end
 
   def remember(slug)
@@ -2508,9 +2521,11 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
 
   def call
     body = {}
+    provider = nil
     parse(name: "apps:update", hint: HINT) do |parser|
       parser.on("-b", "--branch BRANCH") { |value| body["branch"] = value }
       parser.on("--repo REPO") { |value| body["repo_path"] = value }
+      parser.on("--git-provider PROVIDER") { |value| provider = value }
       parser.on("--pre-build-script SCRIPT") { |value| body["pre_build_script"] = expand(value) }
       parser.on("--build-script SCRIPT") { |value| body["build_script"] = expand(value) }
       parser.on("--post-build-script SCRIPT") { |value| body["post_build_script"] = expand(value) }
@@ -2522,6 +2537,7 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
       parser.on("--dns-api-user USER") { |value| body["dns_api_user"] = value }
       parser.on("--dns-access-token TOKEN") { |value| body["dns_access_token"] = value }
     end
+    body["connected_account_id"] = provider_id(provider) unless provider.nil?
     raise Hatchbox::Error, "apps:update needs something to change. #{HINT}" if body.empty?
     raise Hatchbox::Error, "--health-check takes a relative path like /up" if body.key?("health_check_uri") && !body["health_check_uri"].start_with?("/")
 
@@ -2547,6 +2563,18 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
     File.read(path)
   rescue Errno::ENOENT
     raise Hatchbox::Error, "no file at #{path}"
+  end
+
+  def provider_id(wanted)
+    catalog = Hatchbox::AppCatalog.new(token: context.token)
+    account = catalog.account_for(app_id)
+    raise Hatchbox::Error, "could not tell which account #{env} is on" unless account
+
+    providers = catalog.git_providers_for(account)
+    found = providers.select { |row| row["id"].to_s == wanted || row["name"].to_s.casecmp?(wanted) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted) }
+    return found.first["id"] if found.length == 1
+
+    raise Hatchbox::Error, "could not pick a git provider from #{wanted}\n\n#{providers.map { |row| "  #{row["provider"]}:#{row["name"]}, provider #{row["id"]}" }.join("\n")}"
   end
 end
 
@@ -2802,7 +2830,7 @@ Hatchbox::USAGE = <<~USAGE
 
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
-    apps:create my-app --cluster netcup --repo myuser/my-app
+    apps:create my-app --cluster netcup --repo myuser/my-app --git-provider joshmn
     apps:open              the app's first domain, in a browser
     apps:open /admin       a path on it
     apps:update --branch main --build-script @bin/hatchbox-build
