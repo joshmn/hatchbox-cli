@@ -323,6 +323,13 @@ class Hatchbox::Config
     "# then the environment each one is. run hatchbox git:remote to add another."
   ].freeze
 
+  class << self
+
+    def repo_root
+      Pathname.new(Dir.pwd).ascend { |dir| break dir.to_s if dir.join(".git").exist? }
+    end
+  end
+
   attr_reader :path
 
   def initialize(path)
@@ -2390,6 +2397,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
       parser.on("--repo REPO") { |value| options[:repo] = value }
       parser.on("-b", "--branch BRANCH") { |value| options[:branch] = value }
       parser.on("--git-provider PROVIDER") { |value| options[:git_provider] = value }
+      parser.on("--no-remote") { options[:no_remote] = true }
     end
     raise Hatchbox::Error, "apps:create needs a name. #{HINT}" if rest.empty?
     raise Hatchbox::Error, "one name at a time, apps:create got #{rest.join(" ")}" if rest.length > 1
@@ -2407,7 +2415,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     created = Hatchbox::Client.new(token: token).post("/apps", body: { "app" => body }).json || {}
     slug = "#{created["id"]}-#{created["name"] || name}"
     puts("created #{slug.cyan} on #{cluster["name"]}, auto deploy is off")
-    remember(slug)
+    remember(slug) unless options[:no_remote]
     0
   end
 
@@ -2443,7 +2451,8 @@ class Hatchbox::AppsCreate < Hatchbox::Command
   end
 
   def remember(slug)
-    found = Hatchbox::Context.find_config
+    root = Hatchbox::Config.repo_root
+    found = Hatchbox::Context.find_config || (root && File.join(root, ".hatchbox"))
     return puts("add it to a .hatchbox with hatchbox git:remote --app #{slug}".dim) unless found
 
     file = Hatchbox::Config.new(found)
@@ -2831,6 +2840,8 @@ Hatchbox::USAGE = <<~USAGE
     apps                   every app on every account the token reaches
     apps:info              the app's branch, cluster, servers, processes and domains
     apps:create my-app --cluster netcup --repo myuser/my-app --git-provider joshmn
+                           and add it to .hatchbox as production, or -e, unless
+                           --no-remote
     apps:open              the app's first domain, in a browser
     apps:open /admin       a path on it
     apps:update --branch main --build-script @bin/hatchbox-build
