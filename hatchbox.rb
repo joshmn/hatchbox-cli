@@ -2683,7 +2683,7 @@ class Hatchbox::GitRemote < Hatchbox::Command
 
     slug = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: rest.first) : options[:app]
     name = options[:env] || env
-    name = ask_env if Hatchbox.blank?(name)
+    name = ask_env(guess_remote(slug)) if Hatchbox.blank?(name)
     validate(name)
     return 1 unless confirm(env: name, app: slug)
 
@@ -2748,9 +2748,14 @@ class Hatchbox::GitRemote < Hatchbox::Command
     Hatchbox.blank?(filter) ? "the token can see no apps at all" : "no app matches #{filter}"
   end
 
-  def ask_env
-    answer = prompt.ask(question: "call it what, here? [production] ")
-    Hatchbox.blank?(answer) ? "production" : answer
+  def guess_remote(slug)
+    found = slug.to_s.sub(/\A[0-9]+-?/, "")[/[-_](production|prod|staging|stage|qa|dev|development|test|demo|preview)\z/i, 1].to_s.downcase
+    { "" => "production", "prod" => "production", "stage" => "staging", "dev" => "development" }.fetch(found, found)
+  end
+
+  def ask_env(suggested)
+    answer = prompt.ask(question: "call it what, here? [#{suggested}] ")
+    Hatchbox.blank?(answer) ? suggested : answer
   end
 
   def validate(env)
