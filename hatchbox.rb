@@ -1948,6 +1948,36 @@ class Hatchbox::MaintenanceOff < Hatchbox::Command
   end
 end
 
+class Hatchbox::Domains < Hatchbox::Command
+
+  def call
+    parse(name: "domains")
+    rows = app.domains
+    if rows.empty?
+      puts("no domains on #{env}")
+      return 0
+    end
+
+    Hatchbox::Ui.header("domains on #{env}")
+    rows.each { |row| puts("  #{row["name"]}") }
+    0
+  end
+end
+
+class Hatchbox::DomainsInfo < Hatchbox::Command
+
+  def call
+    rest = parse(name: "domains:info")
+    raise Hatchbox::Error, "domains:info takes one domain name" unless rest.length == 1
+
+    row = client.get("/apps/#{app_id}/domains/#{rest.first}").json || {}
+    Hatchbox::Ui.header(row["name"].to_s)
+    rows = [["id", row["id"]], ["created", row["created_at"]], ["updated", row["updated_at"]]]
+    puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
+    0
+  end
+end
+
 class Hatchbox::Run < Hatchbox::Command
 
   HINT = "quote the command, and put ssh's own flags after a --"
@@ -2621,6 +2651,9 @@ Hatchbox::USAGE = <<~USAGE
     maintenance:on         serve the maintenance page instead of the app
     maintenance:off        and back
 
+    domains                the app's domains
+    domains:info fpd.com   one of them
+
     run "rails db:migrate" run a command on the server, in the app's release
     run "bundle exec rake" anything that is not rails runs from the same place
     pg:psql                open a psql on the app's database, over an ssh tunnel
@@ -2753,6 +2786,8 @@ class Hatchbox::Cli
     "maintenance" => Hatchbox::Maintenance,
     "maintenance:on" => Hatchbox::MaintenanceOn,
     "maintenance:off" => Hatchbox::MaintenanceOff,
+    "domains" => Hatchbox::Domains,
+    "domains:info" => Hatchbox::DomainsInfo,
     "pg:psql" => Hatchbox::Psql,
     "run" => Hatchbox::Run,
     "apps:info" => Hatchbox::AppsInfo,
