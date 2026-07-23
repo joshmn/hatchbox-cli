@@ -12,6 +12,7 @@ require "tmpdir"
 require "fileutils"
 require "io/console"
 require "rbconfig"
+require "open3"
 
 class String
 
@@ -2661,6 +2662,7 @@ class Hatchbox::AppCatalog
         slug: "#{app["id"]}-#{app["name"]}",
         name: app["name"].to_s,
         cluster_id: app["cluster_id"].to_s,
+        repo_path: app["repo_path"].to_s,
         account: account["name"].to_s,
         account_id: account["id"].to_s
       }
@@ -2706,16 +2708,40 @@ class Hatchbox::GitRemote < Hatchbox::Command
   end
 
   def choose_app(token:, filter:)
-    raise Hatchbox::Error, "git:remote needs a terminal, or pass --app and --as" unless prompt.available?
-
     rows = Hatchbox::AppCatalog.new(token: token).entries(filter: filter)
     raise Hatchbox::Error, empty_message(filter) if rows.empty?
 
+    matched = rows.select { |row| repos.include?(normalize(row[:repo_path])) }
+    if matched.length == 1
+      puts("found #{matched.first[:slug]}, which deploys #{matched.first[:repo_path]}")
+      return matched.first[:slug]
+    end
+    raise Hatchbox::Error, "git:remote needs a terminal, or pass --app and --as" unless prompt.available?
+
+    pool = matched.any? ? matched : rows
     puts
-    puts("apps this token can see")
-    rows.each_with_index { |row, index| puts(format("  %2d  %-34s %s", index + 1, row[:slug], row[:account])) }
+    puts(matched.any? ? "apps that deploy this repo" : "apps this token can see")
+    pool.each_with_index { |row, index| puts(format("  %2d  %-34s %s", index + 1, row[:slug], row[:account])) }
     puts
-    rows[prompt.ask_number(question: "which one? ", count: rows.length) - 1][:slug]
+    pool[prompt.ask_number(question: "which one? ", count: pool.length) - 1][:slug]
+  end
+
+  def repos
+    @repos ||= begin
+      output, status = Open3.capture2("git", "config", "--get-regexp", "^remote\\..*\\.url$", err: File::NULL)
+      status.success? ? output.lines.map { |line| normalize(line.split(" ", 2).last) }.compact.uniq : []
+    rescue Errno::ENOENT
+      []
+    end
+  end
+
+  def normalize(url)
+    text = url.to_s.strip.sub(/\.git\z/, "").sub(%r{/+\z}, "")
+    text = text.sub(%r{\A[a-z][a-z0-9+.-]*://}i, "")
+    text = text.sub(%r{\A[^@/]+@}, "")
+    text = text.sub(%r{\A[^/:]*\.[^/:]*(:[0-9]+)?[:/]}, "")
+    text = text.sub(%r{\A/}, "")
+    text.empty? ? nil : text.downcase
   end
 
   def empty_message(filter)
@@ -2848,7 +2874,8 @@ Hatchbox::USAGE = <<~USAGE
     apps:rename fpd-new    rename it, which takes it down while it moves
     apps:destroy           destroy the app, after you type its name back
     remotes                the apps in .hatchbox, and which one is in use
-    git:remote             pick an app off your account and write it to .hatchbox
+    git:remote             pick an app off your account and write it to .hatchbox,
+                           or take the one app that deploys this repo's git remote
     git:remote fpd         same, narrowed to apps matching fpd
     git:remote --as qa     write it as qa instead of asking, same as -e qa
     git:providers          the connected git accounts apps can deploy from
