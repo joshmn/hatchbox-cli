@@ -577,6 +577,10 @@ class Hatchbox::AppCatalog
     rows.select { |row| row[:slug].downcase.include?(wanted) || row[:name].downcase.include?(wanted) }
   end
 
+  def named(name)
+    entries.select { |row| row[:name].casecmp?(name.to_s) }
+  end
+
   def account_for(app_id)
     found = entries.find { |row| row[:id] == app_id.to_s }
     found ? found[:account_record] : nil
@@ -666,6 +670,7 @@ class Hatchbox::Target
     return self if @resolved
 
     @resolved = true
+    return by_app(session.app_flag) unless Hatchbox.blank?(session.app_flag)
     return by_remote(session.remote_flag) unless Hatchbox.blank?(session.remote_flag)
     return by_remote(ENV["HATCHBOX_ENV"]) unless Hatchbox.blank?(ENV["HATCHBOX_ENV"])
 
@@ -674,7 +679,7 @@ class Hatchbox::Target
 
   def app_id
     resolve
-    @app_id
+    @app_id ||= lookup
   end
 
   private
@@ -683,6 +688,28 @@ class Hatchbox::Target
 
   def config
     session.config
+  end
+
+  def by_app(value)
+    text = value.to_s.strip
+    match = text.match(/\A([0-9]+)(?:-(.+))?\z/)
+    if match
+      @app_id = match[1]
+      entry = config.apps.find { |_env, slug| Hatchbox.slug_id(slug) == @app_id }
+      @env = entry ? entry.first : nil
+      @slug = match[2] ? text : (entry ? entry.last : text)
+      return self
+    end
+
+    known = config.apps.select { |_env, slug| Hatchbox.slug_name(slug).casecmp?(text) }
+    if known.map { |_env, slug| slug }.uniq.length == 1
+      @env, @slug = known.first
+      @app_id = Hatchbox.slug_id(@slug)
+      return self
+    end
+
+    @wanted = text
+    self
   end
 
   def by_remote(name)
@@ -709,12 +736,24 @@ class Hatchbox::Target
     by_remote(name)
   end
 
+  def lookup
+    found = Hatchbox::AppCatalog.new(client: session.client).named(@wanted)
+    raise Hatchbox::Error, "no app called #{@wanted} on any account the token reaches" if found.empty?
+    if found.length > 1
+      rows = found.map { |row| "  #{row[:slug]}, #{row[:account]}" }.join("\n")
+      raise Hatchbox::Error, "more than one app is called #{@wanted}, so use its id with -a\n\n#{rows}"
+    end
+
+    @slug = found.first[:slug]
+    found.first[:id]
+  end
+
   def no_app_message
-    "no .hatchbox here or above #{Dir.pwd} names an app. add one with hatchbox git:remote"
+    "no .hatchbox here or above #{Dir.pwd} names an app. pass -a APP, or add one with hatchbox git:remote"
   end
 
   def multiple_message
-    "#{config.path} has more than one remote and no default line, so pick one with -r\n\n#{remotes_line}"
+    "#{config.path} has more than one remote and no default line, so pick one with -a or -r\n\n#{remotes_line}"
   end
 
   def remotes_line
@@ -725,9 +764,10 @@ class Hatchbox::Target
 end
 
 class Hatchbox::Session
-  attr_reader :remote_flag
+  attr_reader :app_flag, :remote_flag
 
-  def initialize(remote_flag: nil)
+  def initialize(app_flag: nil, remote_flag: nil)
+    @app_flag = app_flag
     @remote_flag = remote_flag
   end
 
@@ -1037,9 +1077,9 @@ class Hatchbox::SshTarget
 
   def enter_or_stop
     dir = app_dir
-    raise Hatchbox::Error, "no release directory to run rails in. set app_dir:#{session.env} in #{session.config.path}" if Hatchbox.blank?(dir)
+    raise Hatchbox::Error, "no release directory to run rails in. set app_dir:#{session.env || "ENV"} in #{session.config.path}" if Hatchbox.blank?(dir)
 
-    complaint = "#{dir} is not there, so nothing is deployed yet. set app_dir:#{session.env} in .hatchbox if the app lives somewhere else"
+    complaint = "#{dir} is not there, so nothing is deployed yet. set app_dir:#{session.env || "ENV"} in .hatchbox if the app lives somewhere else"
     "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
   end
 
@@ -1070,10 +1110,12 @@ class Hatchbox::SshTarget
     @port ||= server["ssh_port"].to_s unless Hatchbox.blank?(server["ssh_port"])
     return unless Hatchbox.blank?(host)
 
-    raise Hatchbox::Error, "#{server_label} has no public ip. set ssh_host:#{session.env} in #{session.config.path}"
+    raise Hatchbox::Error, "#{server_label} has no public ip. set ssh_host:#{session.env || "ENV"} in #{session.config.path}"
   end
 
   def setting(key)
+    return nil if session.env.nil?
+
     session.config.get("#{key}:#{session.env}")
   end
 end
@@ -1087,7 +1129,7 @@ class Hatchbox::DatabasePicker
     servers = session.app.servers
     found = servers.find { |server| (server["roles"] || []).include?("postgresql") }
     found = servers.first if found.nil? && servers.length == 1
-    raise Hatchbox::Error, "could not tell which server holds the database. set ssh_host:#{session.env} in #{session.config.path}" unless found
+    raise Hatchbox::Error, "could not tell which server holds the database. set ssh_host:#{session.env || "ENV"} in #{session.config.path}" unless found
 
     found
   end
@@ -1186,7 +1228,7 @@ class Hatchbox::Tunnel
 
   def failure_message
     "could not open an ssh tunnel. hatchbox puts your key on the deploy user, so\n" \
-      "check that ssh #{target.address} works, or set ssh_user:#{session.env} in #{session.config.path}"
+      "check that ssh #{target.address} works, or set ssh_user:#{session.env || "ENV"} in #{session.config.path}"
   end
 
   def free_port
@@ -1200,10 +1242,9 @@ end
 class Hatchbox::LogStream
   ENDED = ["completed", "failed", "aborted"].freeze
 
-  def initialize(client:, app:, env:, log_id:)
+  def initialize(client:, app:, log_id:)
     @client = client
     @app = app
-    @env = env
     @log_id = log_id
     @seen = {}
     @headers = {}
@@ -1236,7 +1277,7 @@ class Hatchbox::LogStream
 
   private
 
-  attr_reader :client, :app, :env, :log_id, :seen, :headers
+  attr_reader :client, :app, :log_id, :seen, :headers
 
   def fetch
     client.get("/logs/#{log_id}").json || {}
@@ -1286,7 +1327,7 @@ class Hatchbox::LogStream
   def give_up(state)
     puts
     puts("gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}".yellow)
-    puts("pick it back up with: hatchbox -r #{env} logs #{log_id}".dim)
+    puts("pick it back up with hatchbox releases:output #{log_id}".dim)
     false
   end
 end
@@ -1461,6 +1502,7 @@ end
 
 class Hatchbox::Command
   APP_FLAGS = [
+    ["-a", "--app APP", "app to run command against"],
     ["-r", "--remote REMOTE", "environment in .hatchbox to run command against"]
   ].freeze
 
@@ -1599,7 +1641,7 @@ class Hatchbox::Command
   end
 
   def stream_for(log_id)
-    Hatchbox::LogStream.new(client: client, app: app, env: env, log_id: log_id)
+    Hatchbox::LogStream.new(client: client, app: app, log_id: log_id)
   end
 
   def follow_log(log_id)
@@ -1611,6 +1653,8 @@ class Hatchbox::Command
   end
 
   def remember_log(kind, log_id)
+    return if env.nil? || !config.exists?
+
     config.set(key: "last_#{kind}:#{env}", value: log_id)
   end
 
@@ -1656,7 +1700,13 @@ class Hatchbox::Command
   def prepare
     return unless meta[:app]
 
+    wanted = positional_app
+    @session = Hatchbox::Session.new(app_flag: wanted, remote_flag: session.remote_flag) if wanted && Hatchbox.blank?(session.app_flag)
     session.target
+  end
+
+  def positional_app
+    nil
   end
 
   def none!
@@ -1784,12 +1834,12 @@ class Hatchbox::AppsInfo < Hatchbox::Command
 
   describe "apps:info",
     summary: "show detailed app information",
-    usage: "apps:info",
+    usage: "apps:info [APP]",
     aliases: ["info"],
     flags: [["-x", "--extended", "show the deploy scripts, the caddyfile and the dns settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"]]
 
   def call
-    none!
+    usage_error("one app at a time") if positionals.length > 1
     data = gather
     return shell(data) if options[:shell]
 
@@ -1801,6 +1851,10 @@ class Hatchbox::AppsInfo < Hatchbox::Command
   end
 
   private
+
+  def positional_app
+    positionals.first
+  end
 
   def gather
     found = Hatchbox.parallel(
@@ -1905,7 +1959,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     ]
 
   def call
-    name = positionals.first
+    name = positionals.first || session.app_flag
     usage_error("apps:create needs a name") if Hatchbox.blank?(name)
     usage_error("one name at a time, apps:create got #{positionals.join(" ")}") if positionals.length > 1
     raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless name =~ NAME
@@ -1958,7 +2012,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
 
   def remember(slug)
     target = Hatchbox::Config.find || (Hatchbox::Config.repo_root && Hatchbox::Config.target)
-    return puts("add it to a .hatchbox with hatchbox git:remote --app #{slug}".dim) unless target
+    return puts("add it to a .hatchbox with hatchbox git:remote -a #{slug}".dim) unless target
 
     file = Hatchbox::Config.new(target)
     remote = Hatchbox.blank?(session.remote_flag) ? "production" : session.remote_flag
@@ -1984,11 +2038,12 @@ end
 class Hatchbox::AppsDestroy < Hatchbox::Command
   describe "apps:destroy",
     summary: "permanently destroy an app",
+    usage: "apps:destroy [APP]",
     aliases: ["destroy"],
     flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
 
   def call
-    none!
+    usage_error("one app at a time") if positionals.length > 1
     name = app.name
     confirm(expected: name, action: "this destroys #{name}, its folder and services on every server")
     client.delete("/apps/#{app_id}", body: { "name" => name })
@@ -1996,6 +2051,12 @@ class Hatchbox::AppsDestroy < Hatchbox::Command
     gone = config.remove_app_id(app_id)
     puts("took #{ui.list(gone)} out of #{config.path}".dim) if gone.any?
     0
+  end
+
+  private
+
+  def positional_app
+    positionals.first
   end
 end
 
@@ -2148,13 +2209,13 @@ class Hatchbox::GitRemote < Hatchbox::Command
     usage: "git:remote [FILTER]",
     aliases: ["setup"],
     app: false,
-    flags: [[nil, "--app APP", "the app to write, instead of picking one"], [nil, "--as REMOTE", "the remote name, same as -r"]]
+    flags: [[nil, "--as REMOTE", "the remote name, same as -r"]]
 
   def call
     usage_error("one filter at a time") if positionals.length > 1
     Hatchbox::TokenStore.new(prompt: prompt).ensure_token
     @file = Hatchbox::Config.new(Hatchbox::Config.target)
-    slug = Hatchbox.blank?(options[:app]) ? choose_app(positionals.first) : options[:app]
+    slug = Hatchbox.blank?(session.app_flag) ? choose_app(positionals.first) : resolve(session.app_flag)
     remote = options[:as] || session.remote_flag
     remote = ask_remote(guess_remote(slug)) if Hatchbox.blank?(remote)
     validate(remote)
@@ -2168,6 +2229,11 @@ class Hatchbox::GitRemote < Hatchbox::Command
 
   attr_reader :file
 
+  def resolve(value)
+    lookup = Hatchbox::Session.new(app_flag: value)
+    "#{lookup.app_id}-#{lookup.app.name}"
+  end
+
   def choose_app(filter)
     rows = session.catalog.entries(filter: filter)
     raise Hatchbox::Error, empty_message(filter) if rows.empty?
@@ -2178,9 +2244,9 @@ class Hatchbox::GitRemote < Hatchbox::Command
       return matched.first[:slug]
     end
     unless prompt.available?
-      raise Hatchbox::Error, "more than one app deploys this repo, so pick one with --app\n\n#{matched.map { |row| "  #{row[:slug]}" }.join("\n")}" if matched.any?
+      raise Hatchbox::Error, "more than one app deploys this repo, so pick one with -a\n\n#{matched.map { |row| "  #{row[:slug]}" }.join("\n")}" if matched.any?
 
-      raise Hatchbox::Error, "git:remote needs a terminal, or pass --app and --as"
+      raise Hatchbox::Error, "git:remote needs a terminal, or pass -a APP and -r REMOTE"
     end
 
     pool = matched.any? ? matched : rows
@@ -2751,7 +2817,7 @@ class Hatchbox::Status < Hatchbox::Command
     puts("#{label.cyan}, app #{app_id}")
     report_deploy
     puts
-    log_id = config.get("last_deploy:#{env}")
+    log_id = env ? config.get("last_deploy:#{env}") : nil
     return show_log(log_id) unless Hatchbox.blank?(log_id)
 
     puts(no_log_help.dim)
@@ -2863,7 +2929,7 @@ class Hatchbox::ReleasesOutput < Hatchbox::Command
     kind = KINDS[wanted]
     raise Hatchbox::Error, "no log type called #{wanted}, releases:output takes a log id, deploy or restart" unless kind
 
-    found = config.get("last_#{kind}:#{env}")
+    found = env ? config.get("last_#{kind}:#{env}") : nil
     raise Hatchbox::Error, "no #{kind} has been started from here for #{label}, so there is no log id to fetch. releases lists what hatchbox has" if Hatchbox.blank?(found)
 
     found
@@ -3106,7 +3172,7 @@ class Hatchbox::Cli
 
     command = Hatchbox::Registry.find(name)
     unknown(name) unless command
-    command.call(session: Hatchbox::Session.new(remote_flag: @remote), args: rest)
+    command.call(session: Hatchbox::Session.new(app_flag: @app, remote_flag: @remote), args: rest)
   end
 
   private
@@ -3125,6 +3191,9 @@ class Hatchbox::Cli
       end
 
       case token
+      when "-a", "--app" then @app = value(token, tokens)
+      when /\A--app=(.*)\z/ then @app = Regexp.last_match(1)
+      when /\A-a(.+)\z/ then @app = Regexp.last_match(1)
       when "-r", "--remote" then @remote = value(token, tokens)
       when /\A--remote=(.*)\z/ then @remote = Regexp.last_match(1)
       when /\A-r(.+)\z/ then @remote = Regexp.last_match(1)
@@ -3151,7 +3220,7 @@ class Hatchbox::Cli
   end
 
   def listing
-    puts("usage: hatchbox COMMAND [-r REMOTE] [options]")
+    puts("usage: hatchbox COMMAND [-a APP] [-r REMOTE] [options]")
     puts
     rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }
     width = rows.map { |klass| klass.meta[:name].length }.max
