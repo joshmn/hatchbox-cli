@@ -1047,6 +1047,10 @@ class Hatchbox::App
     @databases ||= client.get("/apps/#{id}/databases").json || []
   end
 
+  def formation
+    @formation ||= Hatchbox::Formation.new(processes: processes, servers: servers)
+  end
+
   def server_name(server_id)
     match = servers.find { |server| server["id"].to_s == server_id.to_s }
     return "server #{server_id}" if match.nil? || Hatchbox.blank?(match["name"])
@@ -1066,47 +1070,93 @@ class Hatchbox::App
   attr_reader :client
 end
 
-class Hatchbox::ProcessCatalog
-  def self.where(row)
-    pinned = row["server_id"]
-    return "server #{pinned}" unless Hatchbox.blank?(pinned)
+class Hatchbox::Formation
+  Dyno = Struct.new(:process, :server, :index) do
+    def name
+      "#{type}.#{index}"
+    end
 
-    roles = Array(row["roles"]).map { |role| role.to_s }
+    def type
+      process["name"].to_s
+    end
+  end
+
+  def initialize(processes:, servers:)
+    @processes = processes
+    @servers = servers
+  end
+
+  attr_reader :processes, :servers
+
+  def servers_for(process)
+    pinned = process["server_id"]
+    return servers.select { |server| server["id"].to_s == pinned.to_s } unless Hatchbox.blank?(pinned)
+
+    roles = Array(process["roles"]).map { |role| role.to_s }
+    servers.select { |server| active?(server) && (Array(server["roles"]).map { |role| role.to_s } & roles).any? }.sort_by { |server| server["name"].to_s }
+  end
+
+  def dynos(process = nil)
+    pool = process ? [process] : processes
+    pool.flat_map { |row| servers_for(row).each_with_index.map { |server, index| Dyno.new(row, server, index + 1) } }
+  end
+
+  def where(process)
+    pinned = process["server_id"]
+    return "server #{server_label(pinned)}" unless Hatchbox.blank?(pinned)
+
+    roles = Array(process["roles"]).map { |role| role.to_s }
     roles.empty? ? "nowhere" : "#{roles.length == 1 ? "role" : "roles"} #{roles.join(", ")}"
   end
 
-  def initialize(client:, app_id:)
-    @client = client
-    @app_id = app_id
-  end
-
-  def all
-    @all ||= client.get("/apps/#{app_id}/processes").json || []
-  end
-
-  def find(wanted)
+  def find_process(wanted)
     raise Hatchbox::Error, "Which process?\n#{names_line}" if Hatchbox.blank?(wanted)
-    raise Hatchbox::Error, "This app has no processes." if all.empty?
+    raise Hatchbox::Error, "This app has no processes." if processes.empty?
 
     text = wanted.to_s.downcase
-    exact = all.find { |row| row["name"].to_s.downcase == text || row["id"].to_s == text }
+    exact = processes.find { |row| row["name"].to_s.downcase == text || row["id"].to_s == text }
     return exact if exact
 
-    near = all.select { |row| row["name"].to_s.downcase.include?(text) }
+    near = processes.select { |row| row["name"].to_s.downcase.include?(text) }
     return near.first if near.length == 1
     raise Hatchbox::Error, "#{wanted} matches more than one process: #{near.map { |row| row["name"] }.join(", ")}." if near.length > 1
 
     raise Hatchbox::Error, "No process named #{wanted}.\n#{names_line}"
   end
 
+  def find_dyno(wanted)
+    type, _dot, number = wanted.to_s.rpartition(".")
+    type, number = wanted.to_s, nil if type.empty? || number !~ /\A[0-9]+\z/
+    process = find_process(type)
+    pool = dynos(process)
+    raise Hatchbox::Error, "#{process["name"]} runs on no active server, #{where(process)}." if pool.empty?
+    return pool.first if number.nil?
+
+    found = pool.find { |dyno| dyno.index == number.to_i }
+    raise Hatchbox::Error, "There is no #{wanted}. #{process["name"]} runs as #{pool.map { |dyno| dyno.name }.join(", ")}." unless found
+
+    found
+  end
+
+  def server_listing
+    "Servers: #{servers.map { |server| "#{server["name"]} (#{Array(server["roles"]).join(", ")})" }.join(", ")}"
+  end
+
   private
 
-  attr_reader :client, :app_id
+  def active?(server)
+    server["state"].to_s == "active"
+  end
+
+  def server_label(id)
+    found = servers.find { |server| server["id"].to_s == id.to_s }
+    found ? found["name"].to_s : id.to_s
+  end
 
   def names_line
-    return "This app has no processes." if all.empty?
+    return "This app has no processes." if processes.empty?
 
-    "Processes: #{all.map { |row| row["name"] }.join(", ")}"
+    "Processes: #{processes.map { |row| row["name"] }.join(", ")}"
   end
 end
 
@@ -2028,7 +2078,7 @@ class Hatchbox::AppsInfo < Hatchbox::Command
       ["Id", data["id"].to_s],
       ["Last Deploy", last_deploy(data)],
       ["Maintenance", ui.yes_no(data["maintenance"])],
-      ["Processes", data["processes"].map { |row| "#{row["name"]} (#{Hatchbox::ProcessCatalog.where(row)})#{row["active"] ? "" : ", disabled"}" }],
+      ["Processes", data["processes"].map { |row| "#{row["name"]} (#{app.formation.where(row)})#{row["active"] ? "" : ", disabled"}" }],
       ["Repo", data["repo_path"]],
       ["Servers", data["servers"].map { |server| "#{server["name"]} (#{Array(server["roles"]).join(", ")})" }],
       ["Team", data["team"]],
@@ -2584,55 +2634,49 @@ class Hatchbox::GitProviders < Hatchbox::Command
   end
 end
 
-class Hatchbox::PsCommand < Hatchbox::Command
-  private
-
-  def catalog
-    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
-  end
-
-  def process_path(process, suffix = nil)
-    base = "/apps/#{app_id}/processes/#{process["id"]}"
-    suffix ? "#{base}/#{suffix}" : base
-  end
-end
-
-class Hatchbox::Ps < Hatchbox::PsCommand
+class Hatchbox::Ps < Hatchbox::Command
   describe "ps",
     summary: "list processes for an app",
     usage: "ps [TYPE [TYPE ...]]"
 
   def call
-    pool = positionals.empty? ? catalog.all : positionals.map { |name| catalog.find(name) }
+    formation = app.formation
+    pool = positionals.empty? ? app.processes : positionals.map { |name| formation.find_process(name) }
+    pool = pool.sort_by { |row| row["name"].to_s }
+
     if pool.empty?
       puts("No processes on #{label}. Add one with hatchbox ps:create.")
       return 0
     end
 
-    ui.header("#{label} Processes")
-    ui.table(pool.sort_by { |row| row["name"].to_s }, [
-      ["Name", ->(row) { row["name"] }],
-      ["State", ->(row) { row["active"] ? "enabled".green : "disabled".yellow }],
-      ["Runs On", ->(row) { Hatchbox::ProcessCatalog.where(row) }],
-      ["Command", ->(row) { row["start_command"] }]
-    ])
+    pool.each_with_index do |process, index|
+      puts if index.positive?
+      dynos = formation.dynos(process)
+      ui.header("#{process["name"]} (#{formation.where(process)}): #{process["start_command"]} (#{dynos.length})")
+      state = process["active"] ? "enabled".green : "disabled".yellow
+      rows = dynos.map { |dyno| ["#{dyno.name}:", state, dyno.server["name"], dyno.server["public_ip"]] }
+      ui.columns(rows)
+      puts("No active server carries #{formation.where(process)}.".dim) if dynos.empty?
+    end
     0
   end
+
 end
 
-class Hatchbox::PsInfo < Hatchbox::PsCommand
+class Hatchbox::PsInfo < Hatchbox::Command
   describe "ps:info",
     summary: "show everything about one process",
     usage: "ps:info TYPE"
 
   def call
-    process = catalog.find(one_positional("TYPE"))
+    process = app.formation.find_process(one_positional("TYPE"))
 
     ui.header("#{process["name"]} on #{label}")
     ui.styled_hash([
       ["Id", process["id"].to_s],
       ["State", process["active"] ? "enabled" : "disabled"],
-      ["Runs On", Hatchbox::ProcessCatalog.where(process)],
+      ["Runs On", app.formation.where(process)],
+      ["Dynos", app.formation.dynos(process).map { |dyno| "#{dyno.name} #{dyno.server["name"]}" }],
       ["Start", process["start_command"]],
       ["Stop", process["stop_command"]],
       ["Reload", process["reload_command"]],
@@ -2649,7 +2693,7 @@ class Hatchbox::PsInfo < Hatchbox::PsCommand
   end
 end
 
-class Hatchbox::PsRestart < Hatchbox::PsCommand
+class Hatchbox::PsRestart < Hatchbox::Command
   describe "ps:restart",
     summary: "restart every process, or one process type",
     usage: "ps:restart [TYPE]",
@@ -2662,33 +2706,33 @@ class Hatchbox::PsRestart < Hatchbox::PsCommand
       return settle("Restarting all processes on #{label}", log_id, kind: "restart")
     end
 
-    process = catalog.find(positionals.first)
-    log_id = (client.post(process_path(process, "restart")).json || {})["id"]
+    process = app.formation.find_process(positionals.first.sub(/\.[0-9]+\z/, ""))
+    log_id = (client.post("/apps/#{app_id}/processes/#{process["id"]}/restart").json || {})["id"]
     settle("Restarting #{process["name"]} on #{label}", log_id, kind: "restart")
   end
 end
 
-class Hatchbox::PsStop < Hatchbox::PsCommand
+class Hatchbox::PsStop < Hatchbox::Command
   describe "ps:stop",
     summary: "turn a process off and leave it off",
     usage: "ps:stop TYPE",
     aliases: ["ps:kill"]
 
   def call
-    process = catalog.find(one_positional("TYPE"))
-    data = client.delete(process_path(process, "activation")).json || {}
+    process = app.formation.find_process(one_positional("TYPE").sub(/\.[0-9]+\z/, ""))
+    data = client.delete("/apps/#{app_id}/processes/#{process["id"]}/activation").json || {}
     settle("Stopping #{process["name"]} on #{label}", data["log_id"])
   end
 end
 
-class Hatchbox::PsStart < Hatchbox::PsCommand
+class Hatchbox::PsStart < Hatchbox::Command
   describe "ps:start",
     summary: "turn a stopped process back on",
     usage: "ps:start TYPE"
 
   def call
-    process = catalog.find(one_positional("TYPE"))
-    data = client.post(process_path(process, "activation")).json || {}
+    process = app.formation.find_process(one_positional("TYPE").sub(/\.[0-9]+\z/, ""))
+    data = client.post("/apps/#{app_id}/processes/#{process["id"]}/activation").json || {}
     settle("Starting #{process["name"]} on #{label}", data["log_id"])
   end
 end
@@ -2739,7 +2783,7 @@ module Hatchbox::ProcessFields
     return wanted if wanted.to_s =~ /\A[0-9]+\z/
 
     found = app.servers.find { |server| server["name"].to_s.casecmp?(wanted.to_s) }
-    raise Hatchbox::Error, "No server called #{wanted} on #{label}'s cluster.\nServers: #{app.servers.map { |server| server["name"] }.join(", ")}" unless found
+    raise Hatchbox::Error, "No server called #{wanted} on #{label}'s cluster.\n#{app.formation.server_listing}" unless found
 
     found["id"]
   end
@@ -2747,7 +2791,7 @@ module Hatchbox::ProcessFields
   def show(process)
     ui.styled_hash([
       ["Id", process["id"].to_s],
-      ["Runs On", Hatchbox::ProcessCatalog.where(process)],
+      ["Runs On", app.formation.where(process)],
       ["Start", process["start_command"]],
       ["Stop", process["stop_command"]],
       ["Reload", process["reload_command"]],
@@ -2757,7 +2801,7 @@ module Hatchbox::ProcessFields
   end
 end
 
-class Hatchbox::PsCreate < Hatchbox::PsCommand
+class Hatchbox::PsCreate < Hatchbox::Command
   include Hatchbox::ProcessFields
 
   describe "ps:create",
@@ -2781,7 +2825,7 @@ class Hatchbox::PsCreate < Hatchbox::PsCommand
   end
 end
 
-class Hatchbox::PsUpdate < Hatchbox::PsCommand
+class Hatchbox::PsUpdate < Hatchbox::Command
   include Hatchbox::ProcessFields
 
   describe "ps:update",
@@ -2790,26 +2834,26 @@ class Hatchbox::PsUpdate < Hatchbox::PsCommand
     flags: Hatchbox::ProcessFields::FLAGS
 
   def call
-    process = catalog.find(one_positional("TYPE"))
+    process = app.formation.find_process(one_positional("TYPE"))
     body = process_body
     usage_error("Nothing to change. See hatchbox help ps:update.") if body.empty?
 
-    data = client.patch(process_path(process), body: { "process" => body }).json || {}
+    data = client.patch("/apps/#{app_id}/processes/#{process["id"]}", body: { "process" => body }).json || {}
     settle("Updating #{process["name"]} on #{label}", data["log_id"])
   end
 end
 
-class Hatchbox::PsDestroy < Hatchbox::PsCommand
+class Hatchbox::PsDestroy < Hatchbox::Command
   describe "ps:destroy",
     summary: "stop a process and delete it from every server",
     usage: "ps:destroy TYPE",
     flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"]]
 
   def call
-    process = catalog.find(one_positional("TYPE"))
+    process = app.formation.find_process(one_positional("TYPE"))
     name = process["name"].to_s
     confirm(expected: name, lines: ["This command will stop #{name} and remove its systemd unit from every server on #{label}."])
-    log_id = (client.delete(process_path(process)).json || {})["id"]
+    log_id = (client.delete("/apps/#{app_id}/processes/#{process["id"]}").json || {})["id"]
     settle("Destroying #{name} on #{label}", log_id)
   end
 end
@@ -2834,7 +2878,7 @@ class Hatchbox::Logs < Hatchbox::Command
     raise Hatchbox::Error, "logs reads the running app. A Hatchbox log id goes to hatchbox releases:output #{wanted}" if wanted.to_s =~ /\A[0-9]+\z/
 
     type = options[:process_type] || options[:ps] || wanted
-    process = Hatchbox.blank?(type) ? nil : catalog.find(type)
+    process = Hatchbox.blank?(type) ? nil : app.formation.find_process(type)
     target = Hatchbox::ProcessTarget.resolve(session: session, process: process, filter: options[:server])
     ui.note("#{process ? process["name"] : "Every process"} on #{target.label}")
     Hatchbox.run(target.ssh(command: target.login_shell(journal(process)), tty: $stdout.tty?))
@@ -2851,10 +2895,6 @@ class Hatchbox::Logs < Hatchbox::Command
       since: options[:since],
       units_only: options[:units]
     ).script
-  end
-
-  def catalog
-    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
   end
 end
 
