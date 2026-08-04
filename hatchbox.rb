@@ -64,6 +64,7 @@ module Hatchbox
   MAX_WAIT_SECONDS = 3600
   DEFAULT_SSH_USER = "deploy"
   DEFAULT_SSH_PORT = "22"
+  APP_ROLES = ["web", "worker", "cron", "app"].freeze
 
   class Error < StandardError; end
 
@@ -1138,6 +1139,33 @@ class Hatchbox::Formation
     found
   end
 
+  def app_servers
+    live = servers.select { |server| active?(server) }
+    coded = live.select { |server| (Array(server["roles"]).map { |role| role.to_s } & Hatchbox::APP_ROLES).any? }
+    return coded.sort_by { |server| server["name"].to_s } if coded.any?
+    return live if live.any?
+
+    servers
+  end
+
+  def find_server(wanted)
+    raise Hatchbox::Error, "That cluster has no servers." if servers.empty?
+    return app_servers.first if Hatchbox.blank?(wanted)
+
+    text = wanted.to_s.downcase
+    exact = servers.find { |server| server["name"].to_s.downcase == text || server["id"].to_s == text }
+    return exact if exact
+
+    roled = app_servers.select { |server| Array(server["roles"]).map { |role| role.to_s.downcase }.include?(text) }
+    roled = servers.select { |server| Array(server["roles"]).map { |role| role.to_s.downcase }.include?(text) } if roled.empty?
+    return roled.first if roled.any?
+
+    near = servers.select { |server| server["name"].to_s.downcase.include?(text) }
+    return near.first if near.length == 1
+
+    raise Hatchbox::Error, "No server called #{wanted}, and none with that role.\n#{server_listing}"
+  end
+
   def server_listing
     "Servers: #{servers.map { |server| "#{server["name"]} (#{Array(server["roles"]).join(", ")})" }.join(", ")}"
   end
@@ -1160,78 +1188,24 @@ class Hatchbox::Formation
   end
 end
 
-class Hatchbox::ServerPicker
-  def initialize(app:, prompt:)
-    @app = app
-    @prompt = prompt
-  end
-
-  def pick(filter)
-    pool = Hatchbox.blank?(filter) ? app.servers : matching(filter)
-    raise Hatchbox::Error, "#{nothing_message(filter)}\n#{listing(app.servers)}" if pool.empty?
-    return pool.first if pool.length == 1
-    raise Hatchbox::Error, "That cluster has more than one server, so name one with --server:\n#{listing(pool)}" unless prompt.available?
-
-    choose(pool)
-  end
-
-  private
-
-  attr_reader :app, :prompt
-
-  def matching(filter)
-    wanted = filter.downcase
-    app.servers.select { |server| roles(server).map { |role| role.downcase }.include?(wanted) || label(server).downcase.include?(wanted) }
-  end
-
-  def nothing_message(filter)
-    return "That cluster has no servers." if Hatchbox.blank?(filter)
-
-    "No server called #{filter}, and none with that role."
-  end
-
-  def listing(pool)
-    pool.map { |server| "#{label(server)} (#{roles(server).join(", ")})" }.join("\n")
-  end
-
-  def label(server)
-    Hatchbox.blank?(server["name"]) ? "unnamed" : server["name"]
-  end
-
-  def roles(server)
-    Array(server["roles"]).map { |role| role.to_s }
-  end
-
-  def choose(pool)
-    $stderr.puts
-    pool.each_with_index { |server, index| $stderr.puts(format("%3d  %s (%s)", index + 1, label(server), roles(server).join(", "))) }
-    $stderr.puts
-    pool[prompt.ask_number(question: "Which server? ", count: pool.length) - 1]
-  end
-end
-
 class Hatchbox::SshTarget
-  class << self
-    def resolve(session:, filter: nil, picker: nil)
-      new(session: session, filter: filter, picker: picker).resolve
-    end
-  end
-
   attr_reader :host, :user, :port, :server
 
-  def initialize(session:, filter: nil, picker: nil)
+  def initialize(session:, server: nil)
     @session = session
-    @filter = filter
-    @picker = picker
+    @server = server
+    @host = setting("ssh_host") || (server ? server["public_ip"].to_s : "")
+    @user = setting("ssh_user") || Hatchbox::DEFAULT_SSH_USER
+    @port = setting("ssh_port") || (server && !Hatchbox.blank?(server["ssh_port"]) ? server["ssh_port"].to_s : Hatchbox::DEFAULT_SSH_PORT)
+    return unless Hatchbox.blank?(host)
+
+    raise Hatchbox::Error, "#{label} has no public IP.\nSet ssh_host:#{session.env || "ENV"} in #{session.config.path}."
   end
 
-  def resolve
-    @host = setting("ssh_host")
-    @user = setting("ssh_user") || Hatchbox::DEFAULT_SSH_USER
-    @port = setting("ssh_port")
-    from_cluster if Hatchbox.blank?(host)
-    @port ||= Hatchbox::DEFAULT_SSH_PORT
-    self
+  def self.pinned?(session)
+    return false if session.env.nil?
+
+    !Hatchbox.blank?(session.config.get("ssh_host:#{session.env}"))
   end
 
   def address
@@ -1286,20 +1260,7 @@ class Hatchbox::SshTarget
 
   private
 
-  attr_reader :session, :filter
-
-  def picker
-    @picker ||= Hatchbox::ServerPicker.new(app: session.app, prompt: session.prompt)
-  end
-
-  def from_cluster
-    @server = picker.pick(filter)
-    @host = server["public_ip"].to_s
-    @port ||= server["ssh_port"].to_s unless Hatchbox.blank?(server["ssh_port"])
-    return unless Hatchbox.blank?(host)
-
-    raise Hatchbox::Error, "#{label} has no public IP.\nSet ssh_host:#{session.env || "ENV"} in #{session.config.path}."
-  end
+  attr_reader :session
 
   def setting(key)
     return nil if session.env.nil?
@@ -1313,7 +1274,7 @@ class Hatchbox::DatabasePicker
     @session = session
   end
 
-  def pick(_filter)
+  def pick
     servers = session.app.servers
     found = servers.find { |server| (server["roles"] || []).include?("postgresql") }
     found = servers.first if found.nil? && servers.length == 1
@@ -1384,7 +1345,8 @@ class Hatchbox::Tunnel
   end
 
   def open
-    @target = Hatchbox::SshTarget.resolve(session: session, picker: Hatchbox::DatabasePicker.new(session: session))
+    server = Hatchbox::SshTarget.pinned?(session) ? nil : Hatchbox::DatabasePicker.new(session: session).pick
+    @target = Hatchbox::SshTarget.new(session: session, server: server)
     @local_port = free_port
     @dir = Dir.mktmpdir("hbx", "/tmp")
     Hatchbox::Ui.note("Tunnelling to #{host}:#{port} through #{target.address}")
@@ -1511,57 +1473,6 @@ class Hatchbox::LogStream
     puts
     Hatchbox::Ui.warning("Gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}.\nPick it back up with hatchbox releases:output #{log_id}")
     false
-  end
-end
-
-class Hatchbox::FixedPicker
-  def initialize(server)
-    @server = server
-  end
-
-  def pick(_filter)
-    @server
-  end
-end
-
-class Hatchbox::ProcessTarget
-  class << self
-    def resolve(session:, process:, filter: nil)
-      new(session: session, process: process, filter: filter).resolve
-    end
-  end
-
-  def initialize(session:, process:, filter: nil)
-    @session = session
-    @process = process
-    @filter = filter
-  end
-
-  def resolve
-    Hatchbox::SshTarget.resolve(session: session, filter: role_filter, picker: pinned)
-  end
-
-  private
-
-  attr_reader :session, :process, :filter
-
-  def role_filter
-    return filter unless Hatchbox.blank?(filter)
-    return nil if process.nil?
-
-    Array(process["roles"]).map { |role| role.to_s }.first
-  end
-
-  def pinned
-    return nil if process.nil? || !Hatchbox.blank?(filter)
-
-    id = process["server_id"]
-    return nil if Hatchbox.blank?(id)
-
-    found = session.app.servers.find { |server| server["id"].to_s == id.to_s }
-    raise Hatchbox::Error, "#{process["name"]} is pinned to server #{id}, which is not on #{session.app.label}'s cluster." if found.nil?
-
-    Hatchbox::FixedPicker.new(found)
   end
 end
 
@@ -2634,6 +2545,21 @@ class Hatchbox::GitProviders < Hatchbox::Command
   end
 end
 
+class Hatchbox::Command
+  private
+
+  def dyno_server(dyno:, server:)
+    return nil if Hatchbox::SshTarget.pinned?(session)
+    return app.formation.find_dyno(dyno).server unless Hatchbox.blank?(dyno)
+
+    app.formation.find_server(server)
+  end
+
+  def ssh_target(dyno: nil, server: nil)
+    Hatchbox::SshTarget.new(session: session, server: dyno_server(dyno: dyno, server: server))
+  end
+end
+
 class Hatchbox::Ps < Hatchbox::Command
   describe "ps",
     summary: "list processes for an app",
@@ -2865,9 +2791,10 @@ class Hatchbox::Logs < Hatchbox::Command
       ["-n", "--num NUM", "number of lines to display", Integer],
       ["-t", "--tail", "continually stream logs"],
       ["-f", "--follow", "same as --tail"],
+      ["-d", "--dyno DYNO", "only this process or copy of it, like sidekiq or server.2"],
       ["-p", "--process-type TYPE", "only this process type"],
       [nil, "--ps TYPE", "same as --process-type"],
-      ["-s", "--server SERVER", "the server to read, by name or role"],
+      ["-s", "--server SERVER", "the server to read, by name, id or role"],
       [nil, "--since WHEN", "only lines since this, anything journalctl --since takes, like '1 hour ago'"],
       [nil, "--units", "list the systemd units it would read, and stop"]
     ]
@@ -2877,9 +2804,11 @@ class Hatchbox::Logs < Hatchbox::Command
     wanted = positionals.first
     raise Hatchbox::Error, "logs reads the running app. A Hatchbox log id goes to hatchbox releases:output #{wanted}" if wanted.to_s =~ /\A[0-9]+\z/
 
-    type = options[:process_type] || options[:ps] || wanted
+    type = options[:process_type] || options[:ps] || wanted || options[:dyno].to_s.sub(/\.[0-9]+\z/, "")
     process = Hatchbox.blank?(type) ? nil : app.formation.find_process(type)
-    target = Hatchbox::ProcessTarget.resolve(session: session, process: process, filter: options[:server])
+    dyno = options[:dyno]
+    dyno = process["name"] if Hatchbox.blank?(dyno) && process && Hatchbox.blank?(options[:server])
+    target = ssh_target(dyno: dyno, server: options[:server])
     ui.note("#{process ? process["name"] : "Every process"} on #{target.label}")
     Hatchbox.run(target.ssh(command: target.login_shell(journal(process)), tty: $stdout.tty?))
   end
@@ -2903,13 +2832,16 @@ class Hatchbox::Run < Hatchbox::Command
     summary: "run a command on one of the app's servers",
     usage: "run COMMAND",
     lenient: true,
-    flags: [["-s", "--server SERVER", "the server to run on, by name or role"]]
+    flags: [
+      ["-s", "--server SERVER", "the server to run on, by name, id or role"],
+      ["-d", "--dyno DYNO", "run on the server this copy of a process is on, like sidekiq.2"]
+    ]
 
   def call
     command = (positionals + passthru).join(" ")
     usage_error("Must specify COMMAND.") if command.strip.empty?
 
-    target = Hatchbox::SshTarget.resolve(session: session, filter: options[:server])
+    target = ssh_target(dyno: options[:dyno], server: options[:server])
     ui.action("Running `#{command}` on #{label}") { |step| step.status = "up, #{target.label}" }
     Hatchbox.run(target.ssh(command: target.login_shell(script_for(command: command, target: target)), tty: $stdin.tty? && $stdout.tty?))
   end
@@ -2932,12 +2864,15 @@ class Hatchbox::Ssh < Hatchbox::Command
     summary: "open an SSH session on one of the app's servers",
     usage: "ps:exec [COMMAND]",
     aliases: ["ssh"],
-    flags: [["-s", "--server SERVER", "the server, by name or role"]]
+    flags: [
+      ["-d", "--dyno DYNO", "the server this copy of a process is on, like sidekiq.2"],
+      ["-s", "--server SERVER", "the server, by name, id or role"]
+    ]
 
   def call
     usage_error("Only one command at a time, quote it as one argument.") if positionals.length > 1
     command = positionals.first
-    target = Hatchbox::SshTarget.resolve(session: session, filter: options[:server])
+    target = ssh_target(dyno: options[:dyno], server: options[:server])
     $stderr.puts("Connecting to #{target.label} on #{label}...") if command.nil?
     Hatchbox.run(target.ssh(command: "#{target.enter(separator: "; ")}#{command || "exec ${SHELL:-/bin/bash} -l"}", tty: command.nil?, extra: passthru))
   end
