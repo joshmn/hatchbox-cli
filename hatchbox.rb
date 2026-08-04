@@ -750,7 +750,7 @@ class Hatchbox::Session
   def token
     @token ||= begin
       scope = @target ? @target.env : env_flag
-      found = Hatchbox::TokenStore.new.read(scope)
+      found = Hatchbox::TokenStore.new.read(env: scope)
       raise Hatchbox::Error, "no api token. run hatchbox auth:login or set HATCHBOX_API_TOKEN" if Hatchbox.blank?(found)
 
       found
