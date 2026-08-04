@@ -2878,6 +2878,33 @@ class Hatchbox::Ssh < Hatchbox::Command
   end
 end
 
+class Hatchbox::PsCopy < Hatchbox::Command
+  describe "ps:copy",
+    summary: "copy a file off one of the app's servers",
+    usage: "ps:copy FILE",
+    flags: [
+      ["-o", "--output FILE", "where to write it, the file's own name unless you say otherwise"],
+      ["-d", "--dyno DYNO", "the server this copy of a process is on"],
+      ["-s", "--server SERVER", "the server, by name, id or role"]
+    ]
+
+  def call
+    file = one_positional("FILE")
+    output = options[:output] || File.basename(file)
+    raise Hatchbox::Error, "#{output} already exists. Pick another name with --output." if File.exist?(output) && options[:output].nil?
+
+    target = ssh_target(dyno: options[:dyno], server: options[:server])
+    remote = file.start_with?("/") || target.app_dir.nil? ? file : File.join(target.app_dir, file)
+    argv = ["scp", "-q", "-P", target.port.to_s, "#{target.address}:#{Shellwords.escape(remote)}", output]
+    code = nil
+    ui.action("Copying #{file} to #{output}") do |step|
+      code = Hatchbox.run(argv)
+      step.status = code.zero? ? "done" : ui.paint("failed", 31)
+    end
+    code
+  end
+end
+
 class Hatchbox::Deploy < Hatchbox::Command
   describe "deploy",
     summary: "deploy the app's branch, or one commit",
