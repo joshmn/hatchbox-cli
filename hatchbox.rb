@@ -11,11 +11,10 @@ require "shellwords"
 require "tmpdir"
 require "fileutils"
 require "io/console"
-require "rbconfig"
 require "open3"
+require "rbconfig"
 
 class String
-
   def red
     ansi(31)
   end
@@ -46,7 +45,6 @@ class String
 end
 
 module Hatchbox
-
   API_BASE = ENV["HATCHBOX_API_BASE"] || "https://hatchbox.io/api/v1"
   GLOBAL_CONFIG = File.join(Dir.home, ".hatchbox")
   POLL_SECONDS = 3
@@ -57,7 +55,6 @@ module Hatchbox
   class Error < StandardError; end
 
   class << self
-
     def blank?(value)
       value.nil? || value.to_s.strip.empty?
     end
@@ -89,9 +86,7 @@ module Hatchbox
 end
 
 module Hatchbox::Ui
-
   class << self
-
     def header(text)
       puts(text.cyan)
     end
@@ -116,7 +111,6 @@ module Hatchbox::Ui
 end
 
 class Hatchbox::Http
-
   METHODS = {
     "GET" => Net::HTTP::Get,
     "POST" => Net::HTTP::Post,
@@ -126,7 +120,6 @@ class Hatchbox::Http
   }.freeze
 
   class Response
-
     attr_reader :code, :body, :json
 
     def initialize(code:, body:)
@@ -142,6 +135,8 @@ class Hatchbox::Http
     private
 
     def parse(text)
+      return nil if text.to_s.strip.empty?
+
       JSON.parse(text)
     rescue JSON::ParserError
       nil
@@ -155,7 +150,7 @@ class Hatchbox::Http
 
   def request(method:, path:, body: nil)
     uri = URI.parse("#{base}#{path}")
-    response = send_request(uri: uri, message: build(method: method, uri: uri, body: body))
+    response = perform(uri: uri, message: build(method: method, uri: uri, body: body))
     Response.new(code: response.code.to_i, body: response.body.to_s)
   end
 
@@ -174,7 +169,7 @@ class Hatchbox::Http
     message
   end
 
-  def send_request(uri:, message:)
+  def perform(uri:, message:)
     session(uri).request(message)
   rescue StandardError => e
     drop(uri)
@@ -205,33 +200,32 @@ class Hatchbox::Http
 end
 
 class Hatchbox::Client
-
   def initialize(token:)
     @http = Hatchbox::Http.new(base: Hatchbox::API_BASE, token: token)
   end
 
   def get(path)
-    ensure_ok(try_get(path))
+    ensure_ok(raw("GET", path))
   end
 
   def post(path, body: nil)
-    ensure_ok(http.request(method: "POST", path: path, body: body))
+    ensure_ok(raw("POST", path, body: body))
   end
 
   def put(path, body: nil)
-    ensure_ok(http.request(method: "PUT", path: path, body: body))
+    ensure_ok(raw("PUT", path, body: body))
   end
 
   def patch(path, body: nil)
-    ensure_ok(http.request(method: "PATCH", path: path, body: body))
+    ensure_ok(raw("PATCH", path, body: body))
   end
 
   def delete(path, body: nil)
-    ensure_ok(http.request(method: "DELETE", path: path, body: body))
+    ensure_ok(raw("DELETE", path, body: body))
   end
 
-  def try_get(path)
-    http.request(method: "GET", path: path)
+  def raw(method, path, body: nil)
+    http.request(method: method, path: path, body: body)
   end
 
   def error_message(response)
@@ -256,80 +250,11 @@ class Hatchbox::Client
   end
 end
 
-class Hatchbox::App
-
-  def initialize(client:, app_id:)
-    @client = client
-    @app_id = app_id
-  end
-
-  def details
-    @details ||= client.get("/apps/#{app_id}").json || {}
-  end
-
-  def name
-    details["name"].to_s
-  end
-
-  def last_deploy_sha
-    details["last_deploy_sha"].to_s
-  end
-
-  def last_deploy_at
-    details["last_deploy_at"].to_s
-  end
-
-  def servers
-    @servers ||= load_servers
-  end
-
-  def domains
-    @domains ||= client.get("/apps/#{app_id}/domains").json || []
-  end
-
-  def env_var_names
-    @env_var_names ||= (client.get("/apps/#{app_id}/env_vars").json || []).map { |row| row["name"].to_s }
-  end
-
-  def web_url
-    found = domains.map { |row| row["name"].to_s }.reject { |host| host.start_with?("*") }.first
-    found ? "https://#{found}/" : nil
-  end
-
-  def server_name(id)
-    match = servers.find { |server| server["id"].to_s == id.to_s }
-    return "server #{id}" if match.nil? || Hatchbox.blank?(match["name"])
-
-    match["name"]
-  rescue Hatchbox::Error
-    "server #{id}"
-  end
-
-  private
-
-  attr_reader :client, :app_id
-
-  def load_servers
-    cluster = details["cluster_id"]
-    raise Hatchbox::Error, "app #{app_id} is on no cluster, so there is no server to reach" if Hatchbox.blank?(cluster)
-
-    (client.get("/clusters/#{cluster}").json || {})["servers"] || []
-  end
-end
-
 class Hatchbox::Config
-
   HEADER = [
     "# the apps this repo deploys to, written the way the dashboard url spells them,",
     "# then the environment each one is. run hatchbox git:remote to add another."
   ].freeze
-
-  class << self
-
-    def repo_root
-      Pathname.new(Dir.pwd).ascend { |dir| break dir.to_s if dir.join(".git").exist? }
-    end
-  end
 
   attr_reader :path
 
@@ -342,7 +267,8 @@ class Hatchbox::Config
   end
 
   def get(key)
-    settings[key]
+    value = settings[key]
+    Hatchbox.blank?(value) ? nil : value
   end
 
   def set(key:, value:)
@@ -466,7 +392,6 @@ class Hatchbox::Config
 end
 
 class Hatchbox::Prompt
-
   def available?
     !tty.nil?
   end
@@ -513,7 +438,6 @@ class Hatchbox::Prompt
 end
 
 class Hatchbox::TokenStore
-
   def initialize(prompt: Hatchbox::Prompt.new)
     @prompt = prompt
     @global = Hatchbox::Config.new(Hatchbox::GLOBAL_CONFIG)
@@ -571,10 +495,10 @@ class Hatchbox::TokenStore
 
   def save(token)
     kept = lines.reject { |line| key_of(line) == "token" }
-    File.open(path, File::WRONLY | File::CREAT | File::TRUNC, 0600) do |file|
+    File.open(path, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |file|
       (kept + ["token = #{token}"]).each { |line| file.puts(line) }
     end
-    File.chmod(0600, path)
+    File.chmod(0o600, path)
   end
 
   def forget
@@ -582,7 +506,7 @@ class Hatchbox::TokenStore
     return 0 if found.empty?
 
     kept = lines.reject { |line| token_key?(key_of(line)) }
-    File.open(path, File::WRONLY | File::TRUNC, 0600) { |file| kept.each { |line| file.puts(line) } }
+    File.open(path, File::WRONLY | File::TRUNC, 0o600) { |file| kept.each { |line| file.puts(line) } }
     found.length
   end
 
@@ -608,14 +532,110 @@ class Hatchbox::TokenStore
   end
 end
 
-class Hatchbox::Context
+class Hatchbox::AppCatalog
+  def initialize(token:)
+    @client = Hatchbox::Client.new(token: token)
+    @apps = {}
+    @skipped = {}
+    @clusters = {}
+    @database_clusters = {}
+  end
 
-  class << self
+  def accounts
+    @accounts ||= client.get("/accounts").json || []
+  end
 
-    def load(env_name)
-      new(env_name).load
+  def entries(filter: nil)
+    load_apps
+    rows = accounts.flat_map do |account|
+      (@apps[account["id"].to_s] || []).map { |app| entry(account: account, app: app) }
+    end
+    return rows if Hatchbox.blank?(filter)
+
+    wanted = filter.downcase
+    rows.select { |row| row[:slug].downcase.include?(wanted) || row[:name].downcase.include?(wanted) }
+  end
+
+  def account_for(app_id)
+    found = entries.find { |row| row[:id] == app_id.to_s[/\A[0-9]+/] }
+    found ? found[:account_record] : nil
+  end
+
+  def skipped
+    load_apps
+    @skipped
+  end
+
+  def usable_accounts
+    load_apps
+    accounts.reject { |account| @skipped.key?(account["name"].to_s) }
+  end
+
+  def find_account(wanted)
+    pool = usable_accounts
+    if Hatchbox.blank?(wanted)
+      return pool.first if pool.length == 1
+      raise Hatchbox::Error, "the token reaches no account with an active subscription" if pool.empty?
+
+      raise Hatchbox::Error, "more than one account, so pick one with --account\n\n#{pool.map { |account| "  #{account["name"]}, account #{account["id"]}" }.join("\n")}"
     end
 
+    found = accounts.find do |account|
+      [account["id"].to_s, "acct_#{account["id"]}"].include?(wanted.to_s) || account["name"].to_s.casecmp?(wanted.to_s)
+    end
+    raise Hatchbox::Error, "no account called #{wanted}" unless found
+
+    found
+  end
+
+  def clusters_for(account)
+    key = account["id"].to_s
+    @clusters[key] ||= client.get("/accounts/#{key}/clusters").json || []
+  end
+
+  def database_clusters_for(account)
+    key = account["id"].to_s
+    @database_clusters[key] ||= client.get("/accounts/#{key}/database_clusters").json || []
+  end
+
+  def git_providers_for(account)
+    client.get("/accounts/#{account["id"]}/git_providers").json || []
+  end
+
+  private
+
+  attr_reader :client
+
+  def load_apps
+    return if @loaded
+
+    @loaded = true
+    jobs = accounts.to_h { |account| [account["id"].to_s, -> { client.raw("GET", "/accounts/#{account["id"]}/apps") }] }
+    Hatchbox.parallel(jobs).each do |key, response|
+      account = accounts.find { |row| row["id"].to_s == key }
+      if response.ok?
+        @apps[key] = response.json || []
+      else
+        @skipped[account["name"].to_s] = client.error_message(response)
+      end
+    end
+  end
+
+  def entry(account:, app:)
+    {
+      id: app["id"].to_s,
+      name: app["name"].to_s,
+      slug: "#{app["id"]}-#{app["name"]}",
+      cluster_id: app["cluster_id"].to_s,
+      account: account["name"].to_s,
+      account_record: account,
+      record: app
+    }
+  end
+end
+
+class Hatchbox::Context
+  class << self
     def find_config
       Pathname.new(Dir.pwd).ascend do |dir|
         candidate = dir.join(".hatchbox")
@@ -682,8 +702,153 @@ class Hatchbox::Context
   end
 end
 
-class Hatchbox::ServerPicker
+class Hatchbox::App
+  def initialize(client:, app_id:)
+    @client = client
+    @app_id = app_id
+  end
 
+  def details
+    @details ||= client.get("/apps/#{app_id}").json || {}
+  end
+
+  def name
+    details["name"].to_s
+  end
+
+  def cluster
+    @cluster ||= begin
+      cluster_id = details["cluster_id"]
+      raise Hatchbox::Error, "app #{app_id} is on no cluster, so there is no server to reach" if Hatchbox.blank?(cluster_id)
+
+      client.get("/clusters/#{cluster_id}").json || {}
+    end
+  end
+
+  def servers
+    cluster["servers"] || []
+  end
+
+  def processes
+    @processes ||= client.get("/apps/#{app_id}/processes").json || []
+  end
+
+  def domains
+    @domains ||= client.get("/apps/#{app_id}/domains").json || []
+  end
+
+  def env_var_names
+    @env_var_names ||= (client.get("/apps/#{app_id}/env_vars").json || []).map { |row| row["name"].to_s }
+  end
+
+  def databases
+    @databases ||= client.get("/apps/#{app_id}/databases").json || []
+  end
+
+  def server_name(server_id)
+    match = servers.find { |server| server["id"].to_s == server_id.to_s }
+    return "server #{server_id}" if match.nil? || Hatchbox.blank?(match["name"])
+
+    match["name"]
+  rescue Hatchbox::Error
+    "server #{server_id}"
+  end
+
+  def web_url
+    found = domains.map { |row| row["name"].to_s }.reject { |host| host.start_with?("*") }.first
+    found ? "https://#{found}/" : nil
+  end
+
+  private
+
+  attr_reader :client, :app_id
+end
+
+class Hatchbox::ProcessCatalog
+  NAME = /\A[A-Za-z0-9_-]+\z/.freeze
+
+  class << self
+    def label(row)
+      row["name"].to_s
+    end
+
+    def state(row)
+      row["active"] ? "on" : "off"
+    end
+
+    def where(row)
+      return "server #{row["server_id"]}" unless Hatchbox.blank?(row["server_id"])
+
+      roles = (row["roles"] || []).map { |role| role.to_s }
+      roles.empty? ? "nowhere" : roles.join(", ")
+    end
+
+    def detail(row)
+      [
+        ["state", row["active"] ? "on" : "off"],
+        ["runs on", where(row)],
+        ["start", row["start_command"]],
+        ["stop", row["stop_command"]],
+        ["reload", row["reload_command"]],
+        ["socket", row["socket"] ? "yes" : "no"],
+        ["systemd type", row["systemd_type"]],
+        ["on deploy", row["restart_on_deploy"] ? "restarts" : "left alone"],
+        ["appsignal", row["appsignal"]],
+        ["created", row["created_at"]],
+        ["updated", row["updated_at"]]
+      ].map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n")
+    end
+  end
+
+  def initialize(client:, app_id:)
+    @client = client
+    @app_id = app_id
+  end
+
+  def all
+    @all ||= client.get("/apps/#{app_id}/processes").json || []
+  end
+
+  def find(wanted)
+    raise Hatchbox::Error, "which process?\n\n#{listing}" if Hatchbox.blank?(wanted)
+    raise Hatchbox::Error, "this app has no processes yet" if all.empty?
+
+    exact = all.find { |row| self.class.label(row).downcase == wanted.to_s.downcase || row["id"].to_s == wanted.to_s }
+    return exact if exact
+
+    near = all.select { |row| self.class.label(row).downcase.include?(wanted.to_s.downcase) }
+    return near.first if near.length == 1
+    raise Hatchbox::Error, "#{wanted} matches more than one process, #{near.map { |row| self.class.label(row) }.join(" and ")}" if near.length > 1
+
+    raise Hatchbox::Error, "no process called #{wanted}\n\n#{listing}"
+  end
+
+  def table(rows = all)
+    return "  none" if rows.empty?
+
+    width = rows.map { |row| self.class.label(row).length }.max
+    place = rows.map { |row| self.class.where(row).length }.max
+    rows.map { |row| line(row: row, width: width, place: place) }.join("\n")
+  end
+
+  def listing
+    return "this app has no processes yet" if all.empty?
+
+    "processes on this app\n#{table}"
+  end
+
+  private
+
+  attr_reader :client, :app_id
+
+  def line(row:, width:, place:)
+    state = row["active"] ? "on ".green : "off".yellow
+    id = row["id"].to_s.rjust(6)
+    "  #{self.class.label(row).ljust(width)}  #{id}  #{state}  #{self.class.where(row).ljust(place)}  #{row["start_command"]}"
+  end
+end
+
+class Hatchbox::ServerPicker
   def initialize(app:, prompt: Hatchbox::Prompt.new)
     @app = app
     @prompt = prompt
@@ -735,8 +900,104 @@ class Hatchbox::ServerPicker
   end
 end
 
-class Hatchbox::DatabasePicker
+class Hatchbox::SshTarget
+  class << self
+    def resolve(context:, filter: nil, picker: nil)
+      new(context: context, filter: filter, picker: picker).resolve
+    end
+  end
 
+  attr_reader :host, :user, :port, :server
+
+  def initialize(context:, filter: nil, picker: nil)
+    @context = context
+    @filter = filter
+    @picker = picker
+  end
+
+  def resolve
+    @host = setting("ssh_host")
+    @user = setting("ssh_user") || Hatchbox::DEFAULT_SSH_USER
+    @port = setting("ssh_port")
+    from_cluster if Hatchbox.blank?(host)
+    @port ||= Hatchbox::DEFAULT_SSH_PORT
+    self
+  end
+
+  def address
+    "#{user}@#{host}"
+  end
+
+  def server_label
+    return nil unless server
+
+    Hatchbox.blank?(server["name"]) ? "server" : server["name"]
+  end
+
+  def app_dir
+    configured = setting("app_dir")
+    return configured if configured
+    return nil if app_name.empty?
+
+    "/home/#{user}/#{app_name}/current"
+  end
+
+  def app_name
+    name = context.app.name
+    name.empty? ? context.app_id.to_s.sub(/\A[0-9]+-/, "") : name
+  end
+
+  def enter(separator:)
+    dir = app_dir
+    return "" if Hatchbox.blank?(dir)
+
+    "cd #{Shellwords.escape(dir)} 2>/dev/null#{separator}"
+  end
+
+  def enter_or_stop
+    dir = app_dir
+    raise Hatchbox::Error, "no release directory to run rails in. set app_dir:#{context.env} in #{context.config.path}" if Hatchbox.blank?(dir)
+
+    complaint = "#{dir} is not there, so nothing is deployed yet. set app_dir:#{context.env} in .hatchbox if the app lives somewhere else"
+    "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
+  end
+
+  def ssh(command: nil, tty: false, extra: [])
+    argv = ["ssh", "-p", port.to_s]
+    argv << "-t" if tty
+    argv.concat(extra)
+    argv << address
+    argv << command if command
+    argv
+  end
+
+  def login_shell(script)
+    "bash -lc #{Shellwords.escape(script)}"
+  end
+
+  private
+
+  attr_reader :context, :filter
+
+  def picker
+    @picker ||= Hatchbox::ServerPicker.new(app: context.app)
+  end
+
+  def from_cluster
+    @server = picker.pick(filter)
+    @host = server["public_ip"].to_s
+    @port ||= server["ssh_port"].to_s unless Hatchbox.blank?(server["ssh_port"])
+    return unless Hatchbox.blank?(host)
+
+    raise Hatchbox::Error, "#{server_label} has no public ip. set ssh_host:#{context.env} in #{context.config.path}"
+  end
+
+  def setting(key)
+    context.config.get("#{key}:#{context.env}")
+  end
+end
+
+class Hatchbox::DatabasePicker
   def initialize(context:)
     @context = context
   end
@@ -755,91 +1016,7 @@ class Hatchbox::DatabasePicker
   attr_reader :context
 end
 
-class Hatchbox::SshTarget
-
-  class << self
-
-    def resolve(context:, filter: nil, picker: nil)
-      new(context: context, filter: filter, picker: picker).resolve
-    end
-  end
-
-  attr_reader :host, :user, :port, :server
-
-  def initialize(context:, filter: nil, picker: nil)
-    @context = context
-    @filter = filter
-    @picker = picker
-  end
-
-  def resolve
-    @host = config.get("ssh_host:#{env}")
-    @user = config.get("ssh_user:#{env}")
-    @port = config.get("ssh_port:#{env}")
-    from_cluster if Hatchbox.blank?(host)
-    @user = Hatchbox::DEFAULT_SSH_USER if Hatchbox.blank?(user)
-    @port = Hatchbox::DEFAULT_SSH_PORT if Hatchbox.blank?(port)
-    self
-  end
-
-  def address
-    "#{user}@#{host}"
-  end
-
-  def server_label
-    return nil unless server
-
-    Hatchbox.blank?(server["name"]) ? "server" : server["name"]
-  end
-
-  def app_dir
-    configured = config.get("app_dir:#{env}")
-    return configured unless Hatchbox.blank?(configured)
-    return nil if app_name.empty?
-
-    "/home/#{user}/#{app_name}/current"
-  end
-
-  def enter(separator:)
-    dir = app_dir
-    return "" if Hatchbox.blank?(dir)
-
-    "cd #{Shellwords.escape(dir)} 2>/dev/null#{separator}"
-  end
-
-  def app_name
-    name = context.app.name
-    name.empty? ? context.app_id.to_s.sub(/\A[0-9]+-/, "") : name
-  end
-
-  private
-
-  attr_reader :context, :filter
-
-  def config
-    context.config
-  end
-
-  def env
-    context.env
-  end
-
-  def picker
-    @picker ||= Hatchbox::ServerPicker.new(app: context.app)
-  end
-
-  def from_cluster
-    @server = picker.pick(filter)
-    @host = server["public_ip"].to_s
-    @port = server["ssh_port"].to_s if Hatchbox.blank?(port)
-    return unless Hatchbox.blank?(host)
-
-    raise Hatchbox::Error, "#{server_label} has no public ip. set ssh_host:#{env} in #{config.path}"
-  end
-end
-
 class Hatchbox::Database
-
   def initialize(text)
     @uri = URI.parse(text)
   rescue URI::InvalidURIError
@@ -881,9 +1058,7 @@ class Hatchbox::Database
 end
 
 class Hatchbox::Tunnel
-
   class << self
-
     def open(context:, host:, port:)
       new(context: context, host: host, port: port).open
     end
@@ -942,8 +1117,6 @@ class Hatchbox::Tunnel
 end
 
 class Hatchbox::LogStream
-
-
   ENDED = ["completed", "failed", "aborted"].freeze
 
   def initialize(client:, app:, env:, log_id:)
@@ -1037,94 +1210,7 @@ class Hatchbox::LogStream
   end
 end
 
-class Hatchbox::ProcessCatalog
-
-  NAME = /\A[A-Za-z0-9_-]+\z/.freeze
-
-  class << self
-
-    def label(row)
-      row["name"].to_s
-    end
-
-    def state(row)
-      row["active"] ? "on" : "off"
-    end
-
-    def where(row)
-      return "server #{row["server_id"]}" unless Hatchbox.blank?(row["server_id"])
-
-      roles = (row["roles"] || []).map { |role| role.to_s }
-      roles.empty? ? "nowhere" : roles.join(", ")
-    end
-
-    def detail(row)
-      [
-        ["state", row["active"] ? "on" : "off"],
-        ["runs on", where(row)],
-        ["start", row["start_command"]],
-        ["stop", row["stop_command"]],
-        ["reload", row["reload_command"]],
-        ["socket", row["socket"] ? "yes" : "no"],
-        ["systemd type", row["systemd_type"]],
-        ["on deploy", row["restart_on_deploy"] ? "restarts" : "left alone"],
-        ["appsignal", row["appsignal"]],
-        ["created", row["created_at"]],
-        ["updated", row["updated_at"]]
-      ].map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n")
-    end
-  end
-
-  def initialize(client:, app_id:)
-    @client = client
-    @app_id = app_id
-  end
-
-  def all
-    @all ||= client.get("/apps/#{app_id}/processes").json || []
-  end
-
-  def find(wanted)
-    raise Hatchbox::Error, "which process?\n\n#{listing}" if Hatchbox.blank?(wanted)
-    raise Hatchbox::Error, "this app has no processes yet" if all.empty?
-
-    exact = all.find { |row| self.class.label(row).downcase == wanted.to_s.downcase || row["id"].to_s == wanted.to_s }
-    return exact if exact
-
-    near = all.select { |row| self.class.label(row).downcase.include?(wanted.to_s.downcase) }
-    return near.first if near.length == 1
-    raise Hatchbox::Error, "#{wanted} matches more than one process, #{near.map { |row| self.class.label(row) }.join(" and ")}" if near.length > 1
-
-    raise Hatchbox::Error, "no process called #{wanted}\n\n#{listing}"
-  end
-
-  def table
-    return "  none" if all.empty?
-
-    width = all.map { |row| self.class.label(row).length }.max
-    place = all.map { |row| self.class.where(row).length }.max
-    all.map { |row| line(row: row, width: width, place: place) }.join("\n")
-  end
-
-  def listing
-    return "this app has no processes yet" if all.empty?
-
-    "processes on this app\n#{table}"
-  end
-
-  private
-
-  attr_reader :client, :app_id
-
-  def line(row:, width:, place:)
-    state = row["active"] ? "on ".green : "off".yellow
-    id = row["id"].to_s.rjust(6)
-    "  #{self.class.label(row).ljust(width)}  #{id}  #{state}  #{self.class.where(row).ljust(place)}  #{row["start_command"]}"
-  end
-end
-
 class Hatchbox::FixedPicker
-
   def initialize(server)
     @server = server
   end
@@ -1135,9 +1221,7 @@ class Hatchbox::FixedPicker
 end
 
 class Hatchbox::ProcessTarget
-
   class << self
-
     def resolve(context:, process:, filter: nil)
       new(context: context, process: process, filter: filter).resolve
     end
@@ -1178,7 +1262,6 @@ class Hatchbox::ProcessTarget
 end
 
 class Hatchbox::Journal
-
   META = /([\\^$.|?*+()\[\]{}])/.freeze
 
   def initialize(app_name:, process_name: nil, lines: 100, follow: false, since: nil, units_only: false)
@@ -1275,32 +1358,48 @@ class Hatchbox::Journal
   end
 end
 
-module Hatchbox::Options
+module Hatchbox::Registry
+  COMMANDS = {}
+  ALIASES = {}
 
-  def parse_args(list:, name:, hint: nil)
-    parser = OptionParser.new
-    parser.on("-h", "--help") do
-      puts(Hatchbox::USAGE)
-      exit(0)
+  class << self
+    def add(klass)
+      COMMANDS[klass.meta[:name]] = klass
+      klass.meta[:aliases].each { |name| ALIASES[name] = klass.meta[:name] }
     end
-    yield(parser) if block_given?
-    parser.parse!(list)
-    list
-  rescue OptionParser::InvalidOption => e
-    message = "unknown option for #{name}: #{e.args.join(" ")}"
-    raise Hatchbox::Error, hint ? "#{message}. #{hint}" : message
-  rescue OptionParser::MissingArgument => e
-    raise Hatchbox::Error, "#{e.args.join(" ")} needs a value"
-  rescue OptionParser::InvalidArgument => e
-    raise Hatchbox::Error, "#{e.args.join(" ")} is not a value #{name} takes there"
+
+    def find(name)
+      COMMANDS[name] || COMMANDS[ALIASES[name]]
+    end
+
+    def visible
+      COMMANDS.values.reject { |klass| klass.meta[:hidden] }
+    end
   end
 end
 
 class Hatchbox::Command
+  APP_FLAGS = [
+    ["-e", "--env ENV", "environment in .hatchbox to run command against"]
+  ].freeze
 
-  include Hatchbox::Options
 
   class << self
+    attr_reader :meta
+
+    def describe(name, summary:, usage: nil, flags: [], aliases: [], app: true, hidden: false, lenient: false)
+      @meta = {
+        name: name,
+        summary: summary,
+        usage: usage || name,
+        flags: flags,
+        aliases: aliases,
+        app: app,
+        hidden: hidden,
+        lenient: lenient
+      }
+      Hatchbox::Registry.add(self)
+    end
 
     def call(context:, args:)
       new(context: context, args: args).call
@@ -1316,8 +1415,74 @@ class Hatchbox::Command
 
   attr_reader :context, :args
 
-  def config
-    context.config
+  def meta
+    self.class.meta
+  end
+
+  def options
+    parse!
+    @options
+  end
+
+  def positionals
+    parse!
+    @positionals
+  end
+
+  def passthru
+    parse!
+    @passthru
+  end
+
+  def parse!
+    return if @parsed
+
+    @parsed = true
+    @options = {}
+    @positionals = []
+    cut = args.index("--")
+    head = cut ? args[0, cut] : args.dup
+    @passthru = cut ? args[(cut + 1)..-1] : []
+    parser = build_parser
+    until head.empty?
+      begin
+        parser.order!(head) { |arg| @positionals << arg }
+      rescue OptionParser::InvalidOption => e
+        raise Hatchbox::Error, "unknown option for #{meta[:name]}: #{e.args.join(" ")}, see hatchbox help #{meta[:name]}" unless meta[:lenient]
+
+        @positionals.concat(e.args)
+      end
+    end
+  rescue OptionParser::MissingArgument => e
+    raise Hatchbox::Error, "#{e.args.join(" ")} needs a value"
+  rescue OptionParser::ParseError => e
+    raise Hatchbox::Error, e.message
+  end
+
+  def build_parser
+    parser = OptionParser.new
+    parser.require_exact = true
+    meta[:flags].each do |short, long, _description, type|
+      key = flag_key(long)
+      spec = [short, long, type == :many ? nil : type].compact
+      negated = long.start_with?("--no-")
+      parser.on(*spec) do |value|
+        if type == :many
+          (@options[key] ||= []) << value
+        else
+          @options[key] = negated ? true : value
+        end
+      end
+    end
+    parser
+  end
+
+  def flag_key(long)
+    long.sub(/\A--(\[no-\])?/, "").split(/[ =]/).first.tr("-", "_").to_sym
+  end
+
+  def usage_error(message)
+    raise Hatchbox::Error, "#{message}\n\nusage: hatchbox #{meta[:usage]}"
   end
 
   def client
@@ -1328,931 +1493,105 @@ class Hatchbox::Command
     context.app
   end
 
-  def env
-    context.env
-  end
-
   def app_id
     context.app_id
   end
 
-  def follow(log_id)
-    stream(log_id).follow ? 0 : 1
+  def config
+    context.config
   end
 
-  def show(log_id)
-    stream(log_id).show ? 0 : 1
+  def env
+    context.env
   end
 
-  def stream(log_id)
+  def prompt
+    @prompt ||= Hatchbox::Prompt.new
+  end
+
+  def ui
+    Hatchbox::Ui
+  end
+
+  def stream_for(log_id)
     Hatchbox::LogStream.new(client: client, app: app, env: env, log_id: log_id)
   end
 
-  def queue(path:, kind:, body: nil)
-    response = client.post(path, body: body)
-    data = response.json || {}
-    log_id = data["id"]
-    raise Hatchbox::Error, "hatchbox accepted the #{kind} but returned no log id: #{response.body}" if Hatchbox.blank?(log_id)
+  def follow_log(log_id)
+    stream_for(log_id).follow ? 0 : 1
+  end
 
+  def show_log(log_id)
+    stream_for(log_id).show ? 0 : 1
+  end
+
+  def remember_log(kind, log_id)
     config.set(key: "last_#{kind}:#{env}", value: log_id)
-    data
   end
 
-  def passthru
-    cut = args.index("--")
-    cut ? args[(cut + 1)..-1] : []
-  end
-
-  def parse(name:, hint: nil, &block)
-    cut = args.index("--")
-    parse_args(list: cut ? args[0, cut] : args.dup, name: name, hint: hint, &block)
-  end
-end
-
-class Hatchbox::Deploy < Hatchbox::Command
-
-  def call
-    options = { watch: false }
-    rest = parse(name: "deploy") do |parser|
-      parser.on("--sha SHA") { |value| options[:sha] = value }
-      parser.on("--watch") { options[:watch] = true }
-      parser.on("--no-follow") { options[:watch] = false }
-      parser.on("--status") { options[:status] = true }
-    end
-    rest.each do |arg|
-      raise Hatchbox::Error, "unknown option for deploy: #{arg}" unless arg == "status"
-
-      options[:status] = true
-    end
-    return Hatchbox::Status.call(context: context, args: []) if options[:status]
-
-    start(options)
-  end
-
-  private
-
-  def start(options)
-    body = options[:sha] ? { "sha" => options[:sha] } : nil
-    data = queue(path: "/apps/#{app_id}/deploy", kind: "deploy", body: body)
-
-    unless options[:watch]
-      puts(JSON.pretty_generate(data))
+  def settle(message, log_id, kind: nil)
+    if Hatchbox.blank?(log_id)
+      puts(message)
       return 0
     end
 
-    log_id = data["id"]
-    puts("queued deploy to #{env.cyan}, log #{log_id.to_s.cyan}")
+    remember_log(kind, log_id) if kind
+    puts("#{message}, log #{log_id.to_s.cyan}")
     puts
-    follow(log_id)
+    follow_log(log_id)
+  end
+
+  def one_positional(what)
+    usage_error("#{meta[:name]} needs a #{what}") if positionals.empty?
+    usage_error("one #{what} at a time, #{meta[:name]} got #{positionals.join(" ")}") if positionals.length > 1
+
+    positionals.first
+  end
+
+  def confirm(expected:, action:)
+    ui.confirm(expected: expected, supplied: options[:confirm], action: action)
+  end
+
+  def ssh_run(argv)
+    Hatchbox.run(argv)
   end
 end
 
-class Hatchbox::Status < Hatchbox::Command
-
-  def call
-    parse(name: "status")
-    puts("#{env.cyan}, app #{app_id}")
-    report_deploy
-    puts
-
-    log_id = config.get("last_deploy:#{env}")
-    return show(log_id) unless Hatchbox.blank?(log_id)
-
-    puts(no_log_help.dim)
-    0
+class Hatchbox::Command
+  class << self
+    def call(context:, args:)
+      command = new(context: context, args: args)
+      command.send(:prepare)
+      command.call
+    end
   end
 
   private
 
-  def report_deploy
-    sha = app.last_deploy_sha
-    if sha.empty?
-      puts("no deploy recorded on this app yet")
-      return
-    end
+  def prepare
+    return unless meta[:app]
 
-    line = "last deploy #{sha[0, 7].cyan}"
-    line = "#{line} at #{app.last_deploy_at}" unless app.last_deploy_at.empty?
-    puts(line)
-    puts("full sha #{sha}".dim)
+    context.load
   end
 
-  def no_log_help
-    [
-      "no deploy log to stream",
-      "hatchbox only serves a log by its id and has no endpoint that lists them, so the",
-      "only ids around are the ones written back to",
-      "  #{config.path}",
-      "deploy from here and the next one is streamable, or pass an id off the dashboard",
-      "url to hatchbox logs"
-    ].join("\n")
-  end
-end
-
-module Hatchbox::ProcessFields
-
-  def self.attach(parser, fields)
-    parser.on("--name NAME") { |value| fields["name"] = value }
-    parser.on("--start COMMAND") { |value| fields["start_command"] = value }
-    parser.on("--stop COMMAND") { |value| fields["stop_command"] = value }
-    parser.on("--reload COMMAND") { |value| fields["reload_command"] = value }
-    parser.on("--roles LIST") { |value| fields["roles"] = value.split(",").map { |role| role.strip }.reject { |role| role.empty? } }
-    parser.on("--server NAME") { |value| fields["server"] = value }
-    parser.on("--systemd-type TYPE") { |value| fields["systemd_type"] = value }
-    parser.on("--[no-]socket") { |value| fields["socket"] = value }
-    parser.on("--[no-]restart-on-deploy") { |value| fields["restart_on_deploy"] = value }
-    parser.on("--appsignal NAME") { |value| fields["appsignal"] = value }
-    parser.on("--appsignal-options JSON") { |value| fields["appsignal_options"] = value }
-  end
-end
-
-class Hatchbox::PsCommand < Hatchbox::Command
-
-  private
-
-  def catalog
-    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
-  end
-
-  def one(rest, name:)
-    raise Hatchbox::Error, "#{name} needs a process name\n\n#{catalog.listing}" if rest.empty?
-    raise Hatchbox::Error, "one process at a time, #{name} got #{rest.join(" ")}" if rest.length > 1
-
-    catalog.find(rest.first)
-  end
-
-  def path_for(process, suffix = nil)
-    base = "/apps/#{app_id}/processes/#{process["id"]}"
-    suffix ? "#{base}/#{suffix}" : base
-  end
-
-  def label(process)
-    Hatchbox::ProcessCatalog.label(process)
-  end
-
-  def settle(response, note, kind: nil)
-    data = response.json
-    id = log_id_in(data)
-    unless id
-      puts(note)
-      return 0
-    end
-
-    config.set(key: "last_#{kind}:#{env}", value: id) if kind
-    puts("#{note}, log #{id.to_s.cyan}")
-    puts
-    follow(id)
-  end
-
-  def log_id_in(data)
-    return nil unless data.is_a?(Hash)
-    return nil unless data.key?("state") || data.key?("child_logs") || data.key?("loggable_type")
-
-    id = data["id"]
-    Hatchbox.blank?(id) ? nil : id
-  end
-
-  def server_id_for(name)
-    return name if name.to_s =~ /\A[0-9]+\z/
-
-    found = app.servers.find do |server|
-      server["name"].to_s.downcase == name.to_s.downcase || (server["roles"] || []).map { |role| role.to_s.downcase }.include?(name.to_s.downcase)
-    end
-    raise Hatchbox::Error, "no server called #{name} on this app's cluster" if found.nil?
-
-    found["id"]
-  end
-
-  def body_from(fields)
-    body = fields.dup
-    server = body.delete("server")
-    body["server_id"] = server_id_for(server) unless Hatchbox.blank?(server)
-    body
-  end
-end
-
-class Hatchbox::Ps < Hatchbox::PsCommand
-
-  def call
-    rest = parse(name: "ps")
-    return Hatchbox::PsInfo.call(context: context, args: rest) if rest.any?
-
-    rows = catalog.all
-    if rows.empty?
-      puts("no processes on #{env}, add one with ps:create")
-      return 0
-    end
-
-    puts("processes on #{env.cyan}, app #{app_id}")
-    puts
-    puts(catalog.table)
-    0
-  end
-end
-
-class Hatchbox::PsInfo < Hatchbox::PsCommand
-
-  def call
-    process = one(parse(name: "ps:info"), name: "ps:info")
-    puts("#{label(process).cyan}, process #{process["id"]} on #{env}")
-    puts
-    puts(Hatchbox::ProcessCatalog.detail(process))
-    0
-  end
-end
-
-class Hatchbox::PsRestart < Hatchbox::PsCommand
-
-  def call
-    rest = parse(name: "ps:restart")
-    return whole_app if rest.empty?
-
-    process = one(rest, name: "ps:restart")
-    settle(client.post(path_for(process, "restart")), "queued restart of #{label(process).cyan} on #{env}", kind: "restart")
-  end
-
-  private
-
-  def whole_app
-    log_id = queue(path: "/apps/#{app_id}/restart", kind: "restart")["id"]
-    puts("queued restart of every process on #{env.cyan}, log #{log_id.to_s.cyan}")
-    puts
-
-    follow(log_id)
-  end
-end
-
-class Hatchbox::PsStart < Hatchbox::PsCommand
-
-  def call
-    process = one(parse(name: "ps:start"), name: "ps:start")
-    settle(client.post(path_for(process, "activation")), "enabled #{label(process).cyan} on #{env}")
-  end
-end
-
-class Hatchbox::PsStop < Hatchbox::PsCommand
-
-  def call
-    process = one(parse(name: "ps:stop"), name: "ps:stop")
-    settle(client.delete(path_for(process, "activation")), "disabled #{label(process).cyan} on #{env}")
-  end
-end
-
-class Hatchbox::PsCreate < Hatchbox::PsCommand
-
-  HINT = "ps:create --name worker --start 'bundle exec sidekiq' --roles worker"
-
-  def call
-    fields = {}
-    rest = parse(name: "ps:create", hint: HINT) { |parser| Hatchbox::ProcessFields.attach(parser, fields) }
-    fields["name"] = rest.first if rest.length == 1 && Hatchbox.blank?(fields["name"])
-    raise Hatchbox::Error, "ps:create takes one name. #{HINT}" if rest.length > 1
-
-    check(fields)
-    body = body_from(fields)
-    data = client.post("/apps/#{app_id}/processes", body: { "process" => body }).json || {}
-    puts("created #{fields["name"].to_s.cyan} on #{env}, process #{data["id"]}")
-    puts
-    puts(Hatchbox::ProcessCatalog.detail(data))
-    puts
-    puts("it is written to the servers on the next deploy or restart".dim)
-    0
-  end
-
-  private
-
-  def check(fields)
-    raise Hatchbox::Error, "ps:create needs --name. #{HINT}" if Hatchbox.blank?(fields["name"])
-    raise Hatchbox::Error, "#{fields["name"]} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless fields["name"] =~ Hatchbox::ProcessCatalog::NAME
-    raise Hatchbox::Error, "ps:create needs --start, the command that runs. #{HINT}" if Hatchbox.blank?(fields["start_command"])
-    raise Hatchbox::Error, "ps:create needs --roles or --server, so hatchbox knows where to run it. #{HINT}" if Hatchbox.blank?(fields["roles"]) && Hatchbox.blank?(fields["server"])
-  end
-end
-
-class Hatchbox::PsUpdate < Hatchbox::PsCommand
-
-  HINT = "ps:update worker --start 'bundle exec sidekiq -c 10'"
-
-  def call
-    fields = {}
-    rest = parse(name: "ps:update", hint: HINT) { |parser| Hatchbox::ProcessFields.attach(parser, fields) }
-    process = one(rest, name: "ps:update")
-    raise Hatchbox::Error, "ps:update needs something to change. #{HINT}" if fields.empty?
-
-    body = body_from(fields)
-    client.patch(path_for(process), body: { "process" => body })
-    puts("updated #{label(process).cyan} on #{env}, #{body.keys.join(", ")}")
-    puts("it is written to the servers on the next deploy or restart".dim)
-    0
-  end
-end
-
-class Hatchbox::PsDestroy < Hatchbox::PsCommand
-
-  def call
-    confirm = nil
-    rest = parse(name: "ps:destroy") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
-    process = one(rest, name: "ps:destroy")
-    agreed(process: process, confirm: confirm)
-    client.delete(path_for(process))
-    puts("deleted #{label(process).cyan} on #{env}")
-    puts("the unit comes off the servers on the next deploy or restart".dim)
-    0
-  end
-
-  private
-
-  def agreed(process:, confirm:)
-    name = label(process)
-    return if confirm == name
-
-    prompt = Hatchbox::Prompt.new
-    raise Hatchbox::Error, "this deletes #{name} on #{env}. run it again with --confirm #{name}" unless prompt.available?
-
-    answer = prompt.ask(question: "delete #{name} on #{env}? type the name to confirm: ", io: $stderr)
-    raise Hatchbox::Error, "left #{name} alone" unless answer == name
-  end
-end
-
-class Hatchbox::Logs < Hatchbox::Command
-
-  HINT = "logs --ps sidekiq --tail, and ssh's own flags after a --"
-
-  def call
-    options = { lines: 100, follow: false }
-    rest = parse(name: "logs", hint: HINT) do |parser|
-      parser.on("-p", "--ps NAME") { |value| options[:process] = value }
-      parser.on("-d", "--dyno NAME") { |value| options[:process] = value }
-      parser.on("-n", "--num LINES", Integer) { |value| options[:lines] = value }
-      parser.on("-t", "--tail") { options[:follow] = true }
-      parser.on("-f", "--follow") { options[:follow] = true }
-      parser.on("-s", "--server NAME") { |value| options[:server] = value }
-      parser.on("--since WHEN") { |value| options[:since] = value }
-      parser.on("--units") { options[:units] = true }
-    end
-    raise Hatchbox::Error, "one process at a time. #{HINT}" if rest.length > 1
-    raise Hatchbox::Error, "logs reads the running app now. a hatchbox log id goes to releases:output #{rest.first}" if rest.first =~ /\A[0-9]+\z/
-
-    options[:process] = rest.first if rest.any? && Hatchbox.blank?(options[:process])
-    tail(options)
-  end
-
-  private
-
-  def tail(options)
-    process = options[:process] ? catalog.find(options[:process]) : nil
-    target = Hatchbox::ProcessTarget.resolve(context: context, process: process, filter: options[:server])
-    warn(heading(process: process, target: target).dim)
-    Hatchbox.run(command_line(target: target, script: script(process: process, target: target, options: options)))
-  end
-
-  def catalog
-    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
-  end
-
-  def script(process:, target:, options:)
-    Hatchbox::Journal.new(
-      app_name: target.app_name,
-      process_name: process ? process["name"] : nil,
-      lines: options[:lines],
-      follow: options[:follow],
-      since: options[:since],
-      units_only: options[:units]
-    ).script
-  end
-
-  def command_line(target:, script:)
-    argv = ["ssh", "-p", target.port.to_s]
-    argv.concat(passthru)
-    argv << "-t" if $stdout.tty?
-    argv << target.address
-    argv << "bash -lc #{Shellwords.escape(script)}"
-    argv
-  end
-
-  def heading(process:, target:)
-    who = process ? Hatchbox::ProcessCatalog.label(process) : "every process"
-    where = target.server_label || target.host
-    "#{who} on #{where}, journal on the server, hatchbox stores none of this"
-  end
-end
-
-class Hatchbox::Releases < Hatchbox::Command
-
-  NAMES = {
-    "Apps::Deploy" => "deploy",
-    "Apps::Restart" => "restart",
-    "Apps::EnvVars" => "config",
-    "Apps::Maintenance" => "maintenance"
-  }.freeze
-
-  def call
-    options = { limit: 20, page: 1 }
-    parse(name: "releases") do |parser|
-      parser.on("-n", "--num COUNT", Integer) { |value| options[:limit] = value }
-      parser.on("--page PAGE", Integer) { |value| options[:page] = value }
-    end
-    rows = client.get("/apps/#{app_id}/logs?page=#{options[:page]}&limit=#{options[:limit]}").json || []
-    if rows.empty?
-      puts("nothing on record for #{env}")
-      return 0
-    end
-
-    puts("#{env.cyan}, app #{app_id}")
-    puts
-    rows.each { |row| puts(line(row)) }
-    puts
-    puts("the output of one of these is releases:output ID".dim)
-    0
-  end
-
-  private
-
-  def line(row)
-    id = row["id"].to_s.ljust(9)
-    kind = (NAMES[row["name"].to_s] || row["name"].to_s).ljust(11)
-    sha = row["commit_sha"].to_s
-    sha = sha.empty? ? "".ljust(7) : sha[0, 7]
-    "  #{id}#{kind}#{state(row)}#{sha}  #{when_for(row)}  #{row["description"]}"
-  end
-
-  def state(row)
-    raw = row["state"].to_s
-    text = raw.ljust(11)
-    return text.green if raw == "completed"
-    return text.red if ["failed", "aborted"].include?(raw)
-
-    text.yellow
-  end
-
-  def when_for(row)
-    stamp = row["created_at"].to_s
-    stamp.empty? ? "" : stamp[0, 16].sub("T", " ")
-  end
-end
-
-class Hatchbox::ReleasesOutput < Hatchbox::Command
-
-  KINDS = {
-    "deploy" => "deploy",
-    "deploys" => "deploy",
-    "restart" => "restart",
-    "restarts" => "restart"
-  }.freeze
-
-  def call
-    rest = parse(name: "releases:output")
-    wanted = rest.first
-    if Hatchbox.blank?(wanted)
-      puts(kinds_report)
-      return 0
-    end
-
-    show(wanted =~ /\A[0-9]+\z/ ? wanted : id_for(wanted))
-  end
-
-  private
-
-  def id_for(wanted)
-    kind = KINDS[wanted]
-    raise Hatchbox::Error, "no log type called #{wanted}\n\n#{kinds_report}" unless kind
-
-    found = config.get("last_#{kind}:#{env}")
-    raise Hatchbox::Error, "no #{kind} has been started from here for #{env}, so there is no log id to fetch. releases lists what hatchbox has" if Hatchbox.blank?(found)
-
-    found
-  end
-
-  def kinds_report
-    [
-      "releases:output takes a log id, which releases lists for you",
-      "",
-      "  releases:output 4212",
-      "  releases:output deploy     #{recorded(config.get("last_deploy:#{env}"))}",
-      "  releases:output restart    #{recorded(config.get("last_restart:#{env}"))}"
-    ].join("\n")
-  end
-
-  def recorded(id)
-    Hatchbox.blank?(id) ? "nothing started from here yet" : "the one started from here, log #{id}"
-  end
-end
-
-class Hatchbox::Remotes < Hatchbox::Command
-
-  def call
-    parse(name: "remotes")
-    puts("remotes in #{config.path}")
-    config.apps.each do |name, slug|
-      current = name == env ? " (in use)".green : ""
-      puts("  #{name}, app #{slug}#{current}")
-    end
-    0
-  end
-end
-
-class Hatchbox::ConfigShow < Hatchbox::Command
-
-  def call
-    parse(name: "config")
-    names = app.env_var_names
-    if names.empty?
-      puts("no env vars on #{env}, set one with config:set FOO=bar")
-      return 0
-    end
-
-    puts("env vars on #{env.cyan}, names only since hatchbox never hands a value back")
-    names.each { |name| puts("  #{name}") }
-    0
-  end
-end
-
-class Hatchbox::ConfigGet < Hatchbox::Command
-
-  def call
-    rest = parse(name: "config:get")
-    raise Hatchbox::Error, "config:get takes one name" unless rest.length == 1
-
-    key = rest.first.upcase
-    raise Hatchbox::Error, "#{key} is set on #{env}, but hatchbox never hands the value back" if app.env_var_names.include?(key)
-
-    raise Hatchbox::Error, "#{key} is not set on #{env}"
-  end
-end
-
-class Hatchbox::ConfigSet < Hatchbox::Command
-
-  USABLE = /\A[A-Z0-9_]+\z/.freeze
-
-  def self.usable(name)
-    cleaned = name.strip.upcase
-    raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers and underscores" unless cleaned =~ USABLE
-
-    cleaned
-  end
-
-  def call
-    pairs = parse(name: "config:set", hint: "config:set NAME=VALUE")
-    raise Hatchbox::Error, "config:set takes NAME=VALUE, one or more of them" if pairs.empty?
-
-    vars = pairs.map { |pair| pair_for(pair) }
-    client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars })
-    puts("set #{vars.map { |var| var["name"] }.join(", ").cyan} on #{env}")
-    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
-    0
-  end
-
-  private
-
-  def pair_for(text)
-    name, separator, value = text.partition("=")
-    raise Hatchbox::Error, "#{text} is not NAME=VALUE" if separator.empty?
-
-    { "name" => Hatchbox::ConfigSet.usable(name), "value" => value }
-  end
-end
-
-class Hatchbox::ConfigUnset < Hatchbox::Command
-
-  def call
-    names = parse(name: "config:unset", hint: "config:unset NAME")
-    raise Hatchbox::Error, "config:unset takes a name, one or more of them" if names.empty?
-
-    wanted = names.map { |name| Hatchbox::ConfigSet.usable(name) }
-    client.delete("/apps/#{app_id}/env_vars", body: { "env_vars" => wanted })
-    puts("unset #{wanted.join(", ").cyan} on #{env}")
-    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
-    0
-  end
-end
-
-class Hatchbox::Maintenance < Hatchbox::Command
-
-  def call
-    parse(name: "maintenance")
-    puts(app.details["maintenance"] ? "on" : "off")
-    0
-  end
-end
-
-class Hatchbox::MaintenanceOn < Hatchbox::Command
-
-  def call
-    parse(name: "maintenance:on")
-    client.post("/apps/#{app_id}/maintenance")
-    puts("maintenance mode on for #{env.cyan}")
-    puts("caddy serves the maintenance page, the processes keep running".dim)
-    0
-  end
-end
-
-class Hatchbox::MaintenanceOff < Hatchbox::Command
-
-  def call
-    parse(name: "maintenance:off")
-    client.delete("/apps/#{app_id}/maintenance")
-    puts("maintenance mode off for #{env.cyan}")
-    0
-  end
-end
-
-class Hatchbox::Domains < Hatchbox::Command
-
-  def call
-    parse(name: "domains")
-    rows = app.domains
-    if rows.empty?
-      puts("no domains on #{env}, add one with domains:add")
-      return 0
-    end
-
-    Hatchbox::Ui.header("domains on #{env}")
-    rows.each { |row| puts("  #{row["name"]}") }
-    0
-  end
-end
-
-module Hatchbox::DomainPaths
-
-  private
-
-  def domain_path(name)
-    "/apps/#{app_id}/domains/#{URI.encode_www_form_component(name).gsub("+", "%20").gsub("%2A", "*")}"
-  end
-
-  def targets
-    servers = app.servers.select { |server| server["state"].to_s == "active" }
-    fronts = servers.select { |server| (server["roles"] || []).include?("load_balancer") }
-    fronts = servers.select { |server| (server["roles"] || []).include?("web") } if fronts.empty?
-    fronts.map { |server| server["public_ip"].to_s }.reject { |ip| ip.empty? }
-  rescue Hatchbox::Error
-    []
-  end
-end
-
-class Hatchbox::DomainsInfo < Hatchbox::Command
-
-  include Hatchbox::DomainPaths
-
-  def call
-    rest = parse(name: "domains:info")
-    raise Hatchbox::Error, "domains:info takes one domain name" unless rest.length == 1
-
-    row = client.get(domain_path(rest.first)).json || {}
-    Hatchbox::Ui.header(row["name"].to_s)
-    rows = [["id", row["id"]], ["created", row["created_at"]], ["updated", row["updated_at"]], ["points at", targets.join(", ")]]
-    puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
-    0
-  end
-end
-
-class Hatchbox::DomainsAdd < Hatchbox::Command
-
-  include Hatchbox::DomainPaths
-
-  def call
-    rest = parse(name: "domains:add")
-    raise Hatchbox::Error, "domains:add takes one domain name" unless rest.length == 1
-
-    client.post("/apps/#{app_id}/domains", body: { "domain" => { "name" => rest.first } })
-    puts("added #{rest.first.cyan} to #{env}")
-    ips = targets
-    puts("point its dns at #{Hatchbox::Ui.list(ips)}, caddy gets the certificate once it resolves".dim) if ips.any?
-    0
-  end
-end
-
-class Hatchbox::DomainsRemove < Hatchbox::Command
-
-  include Hatchbox::DomainPaths
-
-  def call
-    rest = parse(name: "domains:remove")
-    raise Hatchbox::Error, "domains:remove takes one domain name" unless rest.length == 1
-
-    client.delete(domain_path(rest.first))
-    puts("removed #{rest.first.cyan} from #{env}")
-    0
-  end
-end
-
-class Hatchbox::DomainsUpdate < Hatchbox::Command
-
-  include Hatchbox::DomainPaths
-
-  def call
-    rest = parse(name: "domains:update")
-    raise Hatchbox::Error, "domains:update takes the domain and its new name, domains:update old.com new.com" unless rest.length == 2
-
-    old, name = rest
-    client.patch(domain_path(old), body: { "domain" => { "name" => name } })
-    puts("#{old} is #{name.cyan} on #{env} now")
-    0
-  end
-end
-
-class Hatchbox::DomainsClear < Hatchbox::Command
-
-  include Hatchbox::DomainPaths
-
-  def call
-    confirm = nil
-    parse(name: "domains:clear") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
-    rows = app.domains
-    if rows.empty?
-      puts("no domains on #{env}")
-      return 0
-    end
-
-    names = rows.map { |row| row["name"].to_s }
-    Hatchbox::Ui.confirm(expected: app.name, supplied: confirm, action: "this removes #{names.join(", ")} from #{app.name}")
-    names.each { |name| client.delete(domain_path(name)) }
-    puts("removed #{Hatchbox::Ui.list(names)} from #{env}")
-    0
-  end
-end
-
-class Hatchbox::Run < Hatchbox::Command
-
-  HINT = "quote the command, and put ssh's own flags after a --"
-
-  def call
-    wanted = nil
-    rest = parse(name: "run", hint: HINT) do |parser|
-      parser.on("-s", "--server NAME") { |value| wanted = value }
-    end
-    raise Hatchbox::Error, "run needs a command, quoted as one argument" if rest.empty?
-
-    target = Hatchbox::SshTarget.resolve(context: context, filter: wanted)
-    Hatchbox.run(command_line(script: script_for(command: rest.join(" "), target: target), target: target))
-  end
-
-  private
-
-  def command_line(script:, target:)
-    argv = ["ssh", "-p", target.port.to_s]
-    argv.concat(passthru)
-    argv << "-t" if $stdout.tty?
-    argv << target.address
-    argv << "bash -lc #{Shellwords.escape(script)}"
-    argv
-  end
-
-  def rails?(command)
-    ["rails", "bin/rails"].include?(command) || command.start_with?("rails ", "bin/rails ")
-  end
-
-  def script_for(command:, target:)
-    return "#{target.enter(separator: "\n")}#{command}" unless rails?(command)
-
-    dir = target.app_dir
-    raise Hatchbox::Error, "no release directory to run rails in. set app_dir:#{env} in #{config.path}" if Hatchbox.blank?(dir)
-
-    "#{enter_or_stop(dir)}\nexec bin/rails #{command.sub(%r{\Abin/}, "").sub(/\Arails/, "").strip}"
-  end
-
-  def enter_or_stop(dir)
-    complaint = "#{dir} is not there, so nothing is deployed yet. set app_dir:#{env} in .hatchbox if the app lives somewhere else"
-    "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
-  end
-end
-
-class Hatchbox::Ssh < Hatchbox::Command
-
-  HINT = "put ssh's own flags after a --"
-
-  def call
-    wanted = nil
-    rest = parse(name: "ssh", hint: HINT) do |parser|
-      parser.on("-s", "--server NAME") { |value| wanted = value }
-    end
-    raise Hatchbox::Error, "only one command at a time, quote it as one argument" if rest.length > 1
-
-    target = Hatchbox::SshTarget.resolve(context: context, filter: wanted)
-    warn("#{target.server_label}, #{target.host}".dim) if target.server && rest.empty?
-    Hatchbox.run(command_line(command: rest.first, target: target))
-  end
-
-  private
-
-  def command_line(command:, target:)
-    argv = ["ssh"]
-    argv << "-t" if command.nil?
-    argv.concat(["-p", target.port.to_s])
-    argv.concat(passthru)
-    argv << target.address
-    argv << "#{target.enter(separator: "; ")}#{command || "exec ${SHELL:-/bin/bash} -l"}"
-    argv
-  end
-end
-
-class Hatchbox::Psql < Hatchbox::Command
-
-  HINT = "put psql's own flags after a --"
-
-  def call
-    options = {}
-    rest = parse(name: "psql", hint: HINT) do |parser|
-      parser.on("-c", "--command SQL") { |value| options[:sql] = value.sub(/\A=/, "") }
-      parser.on("-d", "--database NAME") { |value| options[:database] = value }
-      parser.on("--url") { options[:url] = true }
-      parser.on("--direct") { options[:direct] = true }
-      parser.on("--dangerous") { options[:dangerous] = true }
-    end
-    raise Hatchbox::Error, "only one statement at a time, quote it as one argument" if rest.length > 1 || (rest.any? && options[:sql])
-
-    options[:sql] = rest.first if rest.any?
-    connect(options)
-  end
-
-  private
-
-  def connect(options)
-    record = choose(options[:database])
-    public_uri = record["public_connection_uri"].to_s
-    text = Hatchbox.blank?(public_uri) ? record["private_connection_uri"].to_s : public_uri
-    raise Hatchbox::Error, "that database has no connection uri, which happens on sqlite" if Hatchbox.blank?(text)
-    return print_url(text: text, public_uri: public_uri) if options[:url]
-
-    open_psql(database: Hatchbox::Database.new(text), tunnelled: Hatchbox.blank?(public_uri) && !options[:direct], options: options)
-  end
-
-  def databases
-    @databases ||= client.get("/apps/#{app_id}/databases").json || []
-  end
-
-  def choose(wanted)
-    pool = databases.select { |record| record["engine"] == "postgresql" }
-    pool = pool.select { |record| record["name"] == wanted } unless Hatchbox.blank?(wanted)
-    raise Hatchbox::Error, none_message(wanted) if pool.empty?
-    raise Hatchbox::Error, "#{env} has more than one postgresql database, so pick one with --database\n\n#{names(pool)}" if pool.length > 1
-
-    pool.first
-  end
-
-  def none_message(wanted)
-    head = Hatchbox.blank?(wanted) ? "no postgresql database is attached to #{env}" : "no postgresql database called #{wanted} is attached to #{env}"
-    return head if databases.empty?
-
-    "#{head}\n\nwhat is attached:\n#{attached}"
-  end
-
-  def attached
-    databases.map do |record|
-      var = (record["app_attachments"] || []).map { |item| item["env_var"] }.first
-      "  #{record["name"]}, #{record["engine"]}, reachable as #{var || "nothing"}"
-    end.join("\n")
-  end
-
-  def names(pool)
-    pool.map { |record| "  #{record["name"]}" }.join("\n")
-  end
-
-  def print_url(text:, public_uri:)
-    puts(text)
-    warn("that host is the database's own machine, so the uri only works from the server".yellow) if Hatchbox.blank?(public_uri)
-    0
-  end
-
-  def open_psql(database:, tunnelled:, options:)
-    tunnel = tunnelled ? Hatchbox::Tunnel.open(context: context, host: database.host, port: database.port) : nil
-    host = tunnel ? "127.0.0.1" : database.host
-    port = tunnel ? tunnel.local_port.to_s : database.port
-
-    warn(options[:dangerous] ? "read write session".yellow : "read only session, pass --dangerous to write".dim)
-    begin
-      Hatchbox.run(psql_command(database: database, host: host, port: port, sql: options[:sql]), env: environment(database: database, dangerous: options[:dangerous]))
-    ensure
-      tunnel.close if tunnel
-    end
-  end
-
-  def psql_command(database:, host:, port:, sql:)
-    argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
-    argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
-    argv.concat(passthru)
-    argv
-  end
-
-  def environment(database:, dangerous:)
-    env = { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
-    return env if dangerous
-
-    extra = [ENV["PGOPTIONS"], "-c default_transaction_read_only=on"].reject { |part| Hatchbox.blank?(part) }
-    env.merge("PGOPTIONS" => extra.join(" "))
+  def none!
+    usage_error("#{meta[:name]} takes no arguments, got #{positionals.join(" ")}") if positionals.any?
   end
 end
 
 class Hatchbox::AuthLogin < Hatchbox::Command
+  describe "auth:login",
+    summary: "log in with a hatchbox api token",
+    aliases: ["login"],
+    app: false,
+    flags: [[nil, "--token TOKEN", "use this token instead of asking for one, which puts it in your shell history"]]
 
   def call
-    token = nil
-    parse(name: "auth:login") { |parser| parser.on("--token TOKEN") { |value| token = value } }
+    none!
     store = Hatchbox::TokenStore.new
-    token = store.ask if Hatchbox.blank?(token)
-
+    token = Hatchbox.blank?(options[:token]) ? store.ask : options[:token]
     probe = Hatchbox::Client.new(token: token)
-    response = probe.try_get("/accounts")
+    response = probe.raw("GET", "/accounts")
     raise Hatchbox::Error, probe.error_message(response) unless response.ok?
 
     store.save(token)
@@ -2265,9 +1604,13 @@ class Hatchbox::AuthLogin < Hatchbox::Command
 end
 
 class Hatchbox::AuthLogout < Hatchbox::Command
+  describe "auth:logout",
+    summary: "clear the saved api token",
+    aliases: ["logout"],
+    app: false
 
   def call
-    parse(name: "auth:logout")
+    none!
     store = Hatchbox::TokenStore.new
     removed = store.forget
     puts(removed.zero? ? "no token saved in #{store.path}, nothing to do" : "took the token out of #{store.path}")
@@ -2276,10 +1619,26 @@ class Hatchbox::AuthLogout < Hatchbox::Command
   end
 end
 
-class Hatchbox::AuthWhoami < Hatchbox::Command
+class Hatchbox::AuthToken < Hatchbox::Command
+  describe "auth:token",
+    summary: "display the api token in use",
+    app: false
 
   def call
-    parse(name: "auth:whoami")
+    none!
+    puts(Hatchbox::TokenStore.new.fetch(env: env))
+    0
+  end
+end
+
+class Hatchbox::AuthWhoami < Hatchbox::Command
+  describe "auth:whoami",
+    summary: "display the accounts the api token can reach",
+    aliases: ["whoami"],
+    app: false
+
+  def call
+    none!
     store = Hatchbox::TokenStore.new
     accounts = Hatchbox::Client.new(token: store.fetch(env: env)).get("/accounts").json || []
     puts("the token reaches")
@@ -2289,80 +1648,132 @@ class Hatchbox::AuthWhoami < Hatchbox::Command
   end
 end
 
-class Hatchbox::AuthToken < Hatchbox::Command
-
-  def call
-    parse(name: "auth:token")
-    puts(Hatchbox::TokenStore.new.fetch(env: env))
-    0
-  end
-end
-
 class Hatchbox::AppsList < Hatchbox::Command
+  describe "apps",
+    summary: "list your apps",
+    usage: "apps",
+    aliases: ["apps:list", "list"],
+    app: false
 
   def call
-    parse(name: "apps")
+    none!
     catalog = Hatchbox::AppCatalog.new(token: Hatchbox::TokenStore.new.fetch(env: env))
+    accounts = catalog.accounts
     rows = catalog.entries
-    if rows.empty?
-      puts("no apps on any account the token reaches")
-      return 0
-    end
 
-    clusters = cluster_names(catalog: catalog, rows: rows)
-    rows.group_by { |row| row[:account] }.each_with_index do |(account, mine), index|
-      puts if index.positive?
-      Hatchbox::Ui.header("apps on #{account}")
+    clusters = cluster_names(accounts: accounts, catalog: catalog)
+    shown = 0
+    accounts.each do |account|
+      mine = rows.select { |row| row[:account_record]["id"].to_s == account["id"].to_s }
+      next if mine.empty?
+
+      puts if shown.positive?
+      ui.header("apps on #{account["name"]}")
       mine.each { |row| puts("  #{row[:slug].ljust(34)} #{clusters[row[:cluster_id]] || "cluster #{row[:cluster_id]}"}") }
+      shown += 1
     end
+    puts("no apps on any account the token reaches") if shown.zero?
+    catalog.skipped.each { |name, message| warn("skipping #{name}, #{message}".yellow) }
     0
   end
 
   private
 
-  def cluster_names(catalog:, rows:)
-    used = catalog.accounts.select { |account| rows.any? { |row| row[:account_id] == account["id"].to_s } }
-    found = Hatchbox.parallel(used.to_h { |account| [account["id"].to_s, -> { catalog.clusters_for(account) }] }).values.flatten
-    found.to_h { |cluster| [cluster["id"].to_s, cluster["name"].to_s] }
+  def cluster_names(accounts:, catalog:)
+    usable = accounts.reject { |account| catalog.skipped.key?(account["name"].to_s) }
+    found = Hatchbox.parallel(usable.to_h { |account| [account["id"].to_s, -> { catalog.clusters_for(account) }] })
+    found.values.flatten.to_h { |cluster| [cluster["id"].to_s, cluster["name"].to_s] }
   end
 end
 
 class Hatchbox::AppsInfo < Hatchbox::Command
+  EXTENDED = [
+    ["pre build script", "pre_build_script"],
+    ["build script", "build_script"],
+    ["post build script", "post_build_script"],
+    ["post deploy script", "post_deploy_script"],
+    ["failed deploy script", "failed_deploy_script"],
+    ["caddyfile", "caddyfile"],
+    ["dns provider", "dns_provider"],
+    ["dns api user", "dns_api_user"]
+  ].freeze
+
+  describe "apps:info",
+    summary: "show detailed app information",
+    usage: "apps:info",
+    aliases: ["info"],
+    flags: [["-x", "--extended", "show the deploy scripts, the caddyfile and the dns settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"]]
 
   def call
-    parse(name: "apps:info")
+    none!
+    data = gather
+    return shell(data) if options[:shell]
+
+    ui.header("#{data["name"]}, app #{data["id"]}")
+    rows = pairs(data)
+    width = [rows.map { |key, _value| key.length }.max + 2, 14].max
+    puts(rows.map { |key, value| "  #{key.ljust(width)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
+    0
+  end
+
+  private
+
+  def gather
     found = Hatchbox.parallel(
       details: -> { app.details },
-      processes: -> { client.get("/apps/#{app_id}/processes").json || [] },
+      cluster: -> { app.cluster },
+      processes: -> { app.processes },
       domains: -> { app.domains },
-      databases: -> { client.get("/apps/#{app_id}/databases").json || [] }
+      databases: -> { app.databases },
+      account: -> { catalog.account_for(app_id) }
     )
-    data = found[:details]
-    cluster = Hatchbox.blank?(data["cluster_id"]) ? {} : client.get("/clusters/#{data["cluster_id"]}").json || {}
-    processes = found[:processes]
-    domains = found[:domains]
-    databases = found[:databases]
+    provider = git_provider(account: found[:account], id: found[:details]["connected_account_id"])
+    found[:details].merge(
+      "cluster" => found[:cluster].reject { |key, _value| key == "servers" },
+      "servers" => found[:cluster]["servers"] || [],
+      "processes" => found[:processes],
+      "domains" => found[:domains].map { |row| row["name"] },
+      "databases" => found[:databases].map { |record| record.slice("id", "name", "engine", "database_cluster_id").merge("as" => (record["app_attachments"] || []).select { |row| row["app_id"].to_s == app_id.to_s[/\A[0-9]+/] }.map { |row| row["env_var"].to_s }) },
+      "team" => found[:account] ? found[:account]["name"] : nil,
+      "git_provider" => provider,
+      "web_url" => app.web_url
+    )
+  end
 
-    Hatchbox::Ui.header("#{data["name"]}, app #{data["id"]} on #{env}")
+  def git_provider(account:, id:)
+    return nil if account.nil? || Hatchbox.blank?(id)
+
+    found = catalog.git_providers_for(account).find { |row| row["id"].to_s == id.to_s }
+    found ? "#{found["provider"]} #{found["name"]}" : "provider #{id}"
+  rescue Hatchbox::Error
+    "provider #{id}"
+  end
+
+  def catalog
+    @catalog ||= Hatchbox::AppCatalog.new(token: context.token)
+  end
+
+  def pairs(data)
+    cluster = data["cluster"] || {}
     rows = [
       ["branch", data["branch"]],
       ["repo", data["repo_path"]],
       ["auto deploy", data["auto_deploy"] ? "on" : "off"],
       ["maintenance", data["maintenance"] ? "on" : "off"],
+      ["team", data["team"]],
       ["cluster", cluster["name"]],
-      ["servers", (cluster["servers"] || []).map { |server| server["name"] }.join(", ")],
-      ["processes", processes.map { |row| row["name"] }.join(", ")],
-      ["domains", domains.map { |row| row["name"] }.join(", ")],
-      ["databases", databases.map { |record| "#{record["name"]} (#{record["engine"]})" }.join(", ")],
-      ["git provider", git_provider(data)],
+      ["servers", data["servers"].map { |server| server["name"] }.join(", ")],
+      ["processes", data["processes"].map { |row| row["name"] }.join(", ")],
+      ["domains", data["domains"].join(", ")],
+      ["web url", data["web_url"]],
+      ["databases", data["databases"].map { |record| "#{record["name"]} (#{record["engine"]})#{record["as"].empty? ? "" : " as #{record["as"].join(", ")}"}" }.join(", ")],
+      ["git provider", data["git_provider"]],
       ["health check", data["health_check_uri"]],
       ["last deploy", last_deploy(data)]
     ]
-    puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
-    0
+    rows.concat(EXTENDED.map { |title, key| [title, data[key]] }) if options[:extended]
+    rows
   end
-
-  private
 
   def last_deploy(data)
     sha = data["last_deploy_sha"].to_s
@@ -2371,48 +1782,62 @@ class Hatchbox::AppsInfo < Hatchbox::Command
     [sha[0, 7], data["last_deploy_at"]].compact.join(" at ")
   end
 
-  def git_provider(data)
-    id = data["connected_account_id"]
-    return nil if Hatchbox.blank?(id)
-
-    catalog = Hatchbox::AppCatalog.new(token: context.token)
-    account = catalog.account_for(app_id)
-    return "provider #{id}" unless account
-
-    found = catalog.git_providers_for(account).find { |row| row["id"].to_s == id.to_s }
-    found ? "#{found["provider"]} #{found["name"]}" : "provider #{id}"
-  rescue Hatchbox::Error
-    "provider #{id}"
+  def shell(data)
+    flat = {
+      "databases" => data["databases"].map { |record| record["name"] }.join(","),
+      "auto_deploy" => data["auto_deploy"],
+      "branch" => data["branch"],
+      "cluster" => (data["cluster"] || {})["name"],
+      "domains" => data["domains"].join(","),
+      "git_provider" => data["git_provider"],
+      "health_check_uri" => data["health_check_uri"],
+      "id" => data["id"],
+      "last_deploy_at" => data["last_deploy_at"],
+      "last_deploy_sha" => data["last_deploy_sha"],
+      "maintenance" => data["maintenance"],
+      "name" => data["name"],
+      "processes" => data["processes"].map { |row| row["name"] }.join(","),
+      "repo_path" => data["repo_path"],
+      "servers" => data["servers"].map { |server| server["name"] }.join(","),
+      "team" => data["team"],
+      "web_url" => data["web_url"]
+    }
+    flat.each { |key, value| puts("#{key}=#{value}") }
+    0
   end
 end
 
 class Hatchbox::AppsCreate < Hatchbox::Command
-
   NAME = /\A[A-Za-z0-9_-]+\z/.freeze
-  HINT = "apps:create my-app --cluster netcup --repo myuser/my-app"
+
+  describe "apps:create",
+    summary: "create a new app on a cluster",
+    usage: "apps:create NAME",
+    aliases: ["create"],
+    app: false,
+    flags: [
+      ["-c", "--cluster CLUSTER", "cluster to create the app on, by name or id"],
+      [nil, "--account ACCOUNT", "account the cluster belongs to, by name or id"],
+      [nil, "--repo REPO", "repository to deploy, e.g. myuser/my-app"],
+      ["-b", "--branch BRANCH", "branch to deploy, main unless you say otherwise"],
+      [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
+      [nil, "--no-remote", "do not add the app to .hatchbox"]
+    ]
 
   def call
-    options = {}
-    rest = parse(name: "apps:create", hint: HINT) do |parser|
-      parser.on("-c", "--cluster CLUSTER") { |value| options[:cluster] = value }
-      parser.on("--repo REPO") { |value| options[:repo] = value }
-      parser.on("-b", "--branch BRANCH") { |value| options[:branch] = value }
-      parser.on("--git-provider PROVIDER") { |value| options[:git_provider] = value }
-      parser.on("--no-remote") { options[:no_remote] = true }
-    end
-    raise Hatchbox::Error, "apps:create needs a name. #{HINT}" if rest.empty?
-    raise Hatchbox::Error, "one name at a time, apps:create got #{rest.join(" ")}" if rest.length > 1
-
-    name = rest.first
+    name = positionals.first
+    usage_error("apps:create needs a name") if Hatchbox.blank?(name)
+    usage_error("one name at a time, apps:create got #{positionals.join(" ")}") if positionals.length > 1
     raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless name =~ NAME
 
     token = Hatchbox::TokenStore.new.fetch(env: env)
     catalog = Hatchbox::AppCatalog.new(token: token)
-    cluster = pick_cluster(catalog: catalog, wanted: options[:cluster])
+    account = catalog.find_account(options[:account])
+    cluster = pick_cluster(catalog.clusters_for(account))
     body = { "cluster_id" => cluster["id"], "name" => name }
     body["branch"] = options[:branch] unless Hatchbox.blank?(options[:branch])
     body["repo_path"] = options[:repo] unless Hatchbox.blank?(options[:repo])
-    body["connected_account_id"] = pick_provider(catalog.git_providers_for(cluster["account"]), options[:git_provider])["id"] unless Hatchbox.blank?(options[:git_provider])
+    body["connected_account_id"] = pick_provider(catalog.git_providers_for(account))["id"] unless Hatchbox.blank?(options[:git_provider])
     created = Hatchbox::Client.new(token: token).post("/apps", body: { "app" => body }).json || {}
     slug = "#{created["id"]}-#{created["name"] || name}"
     puts("created #{slug.cyan} on #{cluster["name"]}, auto deploy is off")
@@ -2422,11 +1847,11 @@ class Hatchbox::AppsCreate < Hatchbox::Command
 
   private
 
-  def pick_cluster(catalog:, wanted:)
-    clusters = catalog.accounts.map { |account| catalog.clusters_for(account).map { |row| row.merge("account" => account) } }.flatten
-    raise Hatchbox::Error, "the token reaches no clusters, make one on the dashboard first" if clusters.empty?
+  def pick_cluster(clusters)
+    wanted = options[:cluster]
     if Hatchbox.blank?(wanted)
       return clusters.first if clusters.length == 1
+      raise Hatchbox::Error, "that account has no clusters, make one on the dashboard first" if clusters.empty?
 
       raise Hatchbox::Error, "more than one cluster, so pick one with --cluster\n\n#{listing(clusters)}"
     end
@@ -2441,7 +1866,8 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     clusters.map { |row| "  #{row["name"]}, cluster #{row["id"]}" }.join("\n")
   end
 
-  def pick_provider(providers, wanted)
+  def pick_provider(providers)
+    wanted = options[:git_provider].to_s
     found = providers.select { |row| row["id"].to_s == wanted || row["name"].to_s.casecmp?(wanted) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted) }
     return found.first if found.length == 1
 
@@ -2459,66 +1885,77 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     file = Hatchbox::Config.new(found)
     remote = Hatchbox.blank?(env) ? "production" : env
     existing = file.app_for(remote)
-    return puts("#{remote} is already #{existing} in #{file.path}, so it was left alone".yellow) unless Hatchbox.blank?(existing)
+    unless Hatchbox.blank?(existing)
+      puts("#{remote} is already #{existing} in #{file.path}, so it was left alone".yellow)
+      return
+    end
 
     file.set_app(env: remote, app: slug)
     puts("#{slug} is #{remote} in #{file.path}".green)
   end
 end
 
+class Hatchbox::Config
+  class << self
+    def repo_root
+      Pathname.new(Dir.pwd).ascend { |dir| break dir.to_s if dir.join(".git").exist? }
+    end
+  end
+end
+
 class Hatchbox::AppsDestroy < Hatchbox::Command
+  describe "apps:destroy",
+    summary: "permanently destroy an app",
+    aliases: ["destroy"],
+    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
 
   def call
-    confirm = nil
-    parse(name: "apps:destroy") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
+    none!
     name = app.name
-    Hatchbox::Ui.confirm(expected: name, supplied: confirm, action: "this destroys #{name}, its folder and services on every server")
-    data = client.delete("/apps/#{app_id}", body: { "name" => name }).json || {}
+    confirm(expected: name, action: "this destroys #{name}, its folder and services on every server")
+    client.delete("/apps/#{app_id}", body: { "name" => name })
     puts("destroying #{name.cyan}, its databases are detached, not deleted")
     gone = config.remove_app_id(app_id)
-    puts("took #{Hatchbox::Ui.list(gone)} out of #{config.path}".dim) if gone.any?
-    return 0 if Hatchbox.blank?(data["id"])
-
-    puts
-    follow(data["id"])
+    puts("took #{ui.list(gone)} out of #{config.path}".dim) if gone.any?
+    0
   end
 end
 
 class Hatchbox::AppsRename < Hatchbox::Command
+  describe "apps:rename",
+    summary: "rename an app, which takes it down while it moves",
+    usage: "apps:rename NEWNAME",
+    aliases: ["rename"],
+    flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"]]
 
   def call
-    confirm = nil
-    rest = parse(name: "apps:rename") { |parser| parser.on("--confirm NAME") { |value| confirm = value } }
-    raise Hatchbox::Error, "apps:rename takes the new name, and only that" unless rest.length == 1
-
-    new_name = rest.first
+    new_name = one_positional("new name")
     raise Hatchbox::Error, "#{new_name} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless new_name =~ Hatchbox::AppsCreate::NAME
 
     old = app.name
     raise Hatchbox::Error, "#{old} is already called that" if new_name == old
 
-    Hatchbox::Ui.confirm(expected: old, supplied: confirm, action: "renaming #{old} stops its processes and moves its folder, so it is down until it finishes")
-    data = client.post("/apps/#{app_id}/rename", body: { "app" => { "name" => new_name } }).json || {}
+    confirm(expected: old, action: "renaming #{old} stops its processes and moves its folder, so it is down until it finishes")
+    client.post("/apps/#{app_id}/rename", body: { "app" => { "name" => new_name } })
     puts("renaming #{old.cyan} to #{new_name.cyan}")
     moved = config.rename_app_id(app_id: app_id, slug: "#{app_id.to_s[/\A[0-9]+/]}-#{new_name}")
     moved.each { |remote| puts("#{remote} in #{config.path} follows it".dim) }
-    return 0 if Hatchbox.blank?(data["id"])
-
-    puts
-    follow(data["id"])
+    0
   end
 end
 
 class Hatchbox::AppsOpen < Hatchbox::Command
+  describe "apps:open",
+    summary: "open the app in a web browser",
+    usage: "apps:open [PATH]",
+    aliases: ["open"]
 
   def call
-    rest = parse(name: "apps:open")
-    raise Hatchbox::Error, "one path at a time, apps:open got #{rest.join(" ")}" if rest.length > 1
-
+    usage_error("one path at a time, apps:open got #{positionals.join(" ")}") if positionals.length > 1
     base = app.web_url
     raise Hatchbox::Error, "#{env} has no domains, so there is nothing to open. add one on the dashboard" unless base
 
-    url = "#{base.chomp("/")}/#{rest.first.to_s.sub(%r{\A/}, "")}"
+    url = "#{base.chomp("/")}/#{positionals.first.to_s.sub(%r{\A/}, "")}"
     opener = RbConfig::CONFIG["host_os"] =~ /darwin/ ? "open" : "xdg-open"
     warn("opening #{url}".dim)
     Hatchbox.run([opener, url])
@@ -2526,30 +1963,46 @@ class Hatchbox::AppsOpen < Hatchbox::Command
 end
 
 class Hatchbox::AppsUpdate < Hatchbox::Command
+  FIELDS = {
+    branch: "branch",
+    repo: "repo_path",
+    pre_build_script: "pre_build_script",
+    build_script: "build_script",
+    post_build_script: "post_build_script",
+    post_deploy_script: "post_deploy_script",
+    failed_deploy_script: "failed_deploy_script",
+    health_check: "health_check_uri",
+    dns_provider: "dns_provider",
+    dns_api_user: "dns_api_user",
+    dns_access_token: "dns_access_token"
+  }.freeze
 
-  HINT = "apps:update --branch main, or --build-script @bin/hatchbox-build to read it from a file"
+  describe "apps:update",
+    summary: "change an app's branch, repo, deploy scripts or caddy settings",
+    flags: [
+      ["-b", "--branch BRANCH", "branch to deploy"],
+      [nil, "--repo REPO", "repository to deploy, e.g. myuser/my-app"],
+      [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
+      [nil, "--pre-build-script SCRIPT", "script run before the build, or @FILE to read it from a file"],
+      [nil, "--build-script SCRIPT", "build script, or @FILE"],
+      [nil, "--post-build-script SCRIPT", "script run after the build, or @FILE"],
+      [nil, "--post-deploy-script SCRIPT", "script run after the deploy, or @FILE"],
+      [nil, "--failed-deploy-script SCRIPT", "script run once when a deploy fails, or @FILE"],
+      [nil, "--health-check PATH", "relative path for caddy to health check, e.g. /up"],
+      [nil, "--caddyfile FILE", "caddyfile to apply, or - to read it from stdin"],
+      [nil, "--dns-provider PROVIDER", "dns provider for certificates"],
+      [nil, "--dns-api-user USER", "dns api user"],
+      [nil, "--dns-access-token TOKEN", "dns access token, which hatchbox never returns"]
+    ]
 
   def call
+    none!
     body = {}
-    provider = nil
-    parse(name: "apps:update", hint: HINT) do |parser|
-      parser.on("-b", "--branch BRANCH") { |value| body["branch"] = value }
-      parser.on("--repo REPO") { |value| body["repo_path"] = value }
-      parser.on("--git-provider PROVIDER") { |value| provider = value }
-      parser.on("--pre-build-script SCRIPT") { |value| body["pre_build_script"] = expand(value) }
-      parser.on("--build-script SCRIPT") { |value| body["build_script"] = expand(value) }
-      parser.on("--post-build-script SCRIPT") { |value| body["post_build_script"] = expand(value) }
-      parser.on("--post-deploy-script SCRIPT") { |value| body["post_deploy_script"] = expand(value) }
-      parser.on("--failed-deploy-script SCRIPT") { |value| body["failed_deploy_script"] = expand(value) }
-      parser.on("--health-check PATH") { |value| body["health_check_uri"] = value }
-      parser.on("--caddyfile FILE") { |value| body["caddyfile"] = caddyfile(value) }
-      parser.on("--dns-provider PROVIDER") { |value| body["dns_provider"] = value }
-      parser.on("--dns-api-user USER") { |value| body["dns_api_user"] = value }
-      parser.on("--dns-access-token TOKEN") { |value| body["dns_access_token"] = value }
-    end
-    body["connected_account_id"] = provider_id(provider) unless provider.nil?
-    raise Hatchbox::Error, "apps:update needs something to change. #{HINT}" if body.empty?
-    raise Hatchbox::Error, "--health-check takes a relative path like /up" if body.key?("health_check_uri") && !body["health_check_uri"].start_with?("/")
+    FIELDS.each { |flag, field| body[field] = expand(options[flag]) if options.key?(flag) }
+    body["caddyfile"] = caddyfile(options[:caddyfile]) if options.key?(:caddyfile)
+    body["connected_account_id"] = provider_id(options[:git_provider]) if options.key?(:git_provider)
+    usage_error("apps:update needs something to change") if body.empty?
+    raise Hatchbox::Error, "--health-check takes a relative path like /up" if body.key?("health_check_uri") && !body["health_check_uri"].to_s.start_with?("/")
 
     client.patch("/apps/#{app_id}", body: { "app" => body })
     puts("updated #{env.cyan}, #{body.keys.join(", ")}")
@@ -2560,11 +2013,12 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
   private
 
   def expand(value)
-    return value unless value.start_with?("@")
+    text = value.to_s
+    return text unless text.start_with?("@")
 
-    File.read(value[1..-1])
+    File.read(text[1..-1])
   rescue Errno::ENOENT
-    raise Hatchbox::Error, "no file at #{value[1..-1]}"
+    raise Hatchbox::Error, "no file at #{text[1..-1]}"
   end
 
   def caddyfile(path)
@@ -2581,111 +2035,46 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
     raise Hatchbox::Error, "could not tell which account #{env} is on" unless account
 
     providers = catalog.git_providers_for(account)
-    found = providers.select { |row| row["id"].to_s == wanted || row["name"].to_s.casecmp?(wanted) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted) }
+    found = providers.select { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted.to_s) }
     return found.first["id"] if found.length == 1
 
     raise Hatchbox::Error, "could not pick a git provider from #{wanted}\n\n#{providers.map { |row| "  #{row["provider"]}:#{row["name"]}, provider #{row["id"]}" }.join("\n")}"
   end
 end
 
-class Hatchbox::GitProviders < Hatchbox::Command
+class Hatchbox::Remotes < Hatchbox::Command
+  describe "remotes",
+    summary: "list the apps named in .hatchbox",
+    aliases: ["envs", "git:remotes"]
 
   def call
-    parse(name: "git:providers")
-    catalog = Hatchbox::AppCatalog.new(token: Hatchbox::TokenStore.new.fetch(env: env))
-    catalog.accounts.each_with_index do |account, index|
-      puts if index.positive?
-      Hatchbox::Ui.header("git providers on #{account["name"]}")
-      show(catalog: catalog, account: account)
+    none!
+    puts("remotes in #{config.path}")
+    config.apps.each do |name, slug|
+      current = name == env ? " (in use)".green : ""
+      puts("  #{name}, app #{slug}#{current}")
     end
     0
-  end
-
-  private
-
-  def show(catalog:, account:)
-    rows = catalog.git_providers_for(account)
-    return puts("  none connected") if rows.empty?
-
-    rows.each { |row| puts("  #{row["provider"].to_s.ljust(10)} #{row["name"].to_s.ljust(24)} #{row["id"]}") }
-  rescue Hatchbox::Error => e
-    warn("  skipping it, #{e.message}".yellow)
-  end
-end
-
-class Hatchbox::AppCatalog
-
-  def initialize(token:)
-    @client = Hatchbox::Client.new(token: token)
-  end
-
-  def accounts
-    @accounts ||= client.get("/accounts").json || []
-  end
-
-  def entries(filter: nil)
-    jobs = accounts.to_h { |account| [account["id"].to_s, -> { apps_for(account) }] }
-    rows = Hatchbox.parallel(jobs).values.flatten
-    return rows if Hatchbox.blank?(filter)
-
-    wanted = filter.downcase
-    rows.select { |row| row[:slug].downcase.include?(wanted) || row[:name].downcase.include?(wanted) }
-  end
-
-  def clusters_for(account)
-    client.get("/accounts/#{account["id"]}/clusters").json || []
-  end
-
-  def git_providers_for(account)
-    client.get("/accounts/#{account["id"]}/git_providers").json || []
-  end
-
-  def account_for(app_id)
-    found = entries.find { |row| row[:id] == app_id.to_s[/\A[0-9]+/] }
-    found ? accounts.find { |account| account["id"].to_s == found[:account_id] } : nil
-  end
-
-  private
-
-  attr_reader :client
-
-  def apps_for(account)
-    response = client.try_get("/accounts/#{account["id"]}/apps")
-    unless response.ok?
-      warn("skipping #{account["name"]}, #{client.error_message(response)}".yellow)
-      return []
-    end
-
-    (response.json || []).map do |app|
-      {
-        id: app["id"].to_s,
-        slug: "#{app["id"]}-#{app["name"]}",
-        name: app["name"].to_s,
-        cluster_id: app["cluster_id"].to_s,
-        repo_path: app["repo_path"].to_s,
-        account: account["name"].to_s,
-        account_id: account["id"].to_s
-      }
-    end
   end
 end
 
 class Hatchbox::GitRemote < Hatchbox::Command
+  describe "git:remote",
+    summary: "add an app to .hatchbox, the way heroku adds a git remote",
+    usage: "git:remote [FILTER]",
+    aliases: ["setup"],
+    app: false,
+    flags: [[nil, "--app APP", "the app to write, instead of picking one"], [nil, "--as ENV", "the environment name, same as -e"]]
 
   def call
-    options = {}
-    rest = parse(name: "git:remote") do |parser|
-      parser.on("--app APP") { |value| options[:app] = value }
-      parser.on("--as ENV") { |value| options[:env] = value }
-    end
+    usage_error("one filter at a time") if positionals.length > 1
     token = Hatchbox::TokenStore.new(prompt: prompt).ensure_token
     @file = Hatchbox::Config.new(target_path)
-
-    slug = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: rest.first) : options[:app]
-    name = options[:env] || env
+    slug = Hatchbox.blank?(options[:app]) ? choose_app(token: token, filter: positionals.first) : options[:app]
+    name = options[:as] || env
     name = ask_env(guess_remote(slug)) if Hatchbox.blank?(name)
     validate(name)
-    return 1 unless confirm(env: name, app: slug)
+    return 1 unless replace?(env: name, app: slug)
 
     write(env: name, app: slug)
     0
@@ -2694,10 +2083,6 @@ class Hatchbox::GitRemote < Hatchbox::Command
   private
 
   attr_reader :file
-
-  def prompt
-    @prompt ||= Hatchbox::Prompt.new
-  end
 
   def target_path
     found = Hatchbox::Context.find_config
@@ -2711,12 +2096,16 @@ class Hatchbox::GitRemote < Hatchbox::Command
     rows = Hatchbox::AppCatalog.new(token: token).entries(filter: filter)
     raise Hatchbox::Error, empty_message(filter) if rows.empty?
 
-    matched = rows.select { |row| repos.include?(normalize(row[:repo_path])) }
+    matched = rows.select { |row| repos.include?(normalize(row[:record]["repo_path"])) }
     if matched.length == 1
-      puts("found #{matched.first[:slug]}, which deploys #{matched.first[:repo_path]}")
+      puts("found #{matched.first[:slug]}, which deploys #{matched.first[:record]["repo_path"]}")
       return matched.first[:slug]
     end
-    raise Hatchbox::Error, "git:remote needs a terminal, or pass --app and --as" unless prompt.available?
+    unless prompt.available?
+      raise Hatchbox::Error, "more than one app deploys this repo, so pick one with --app\n\n#{matched.map { |row| "  #{row[:slug]}" }.join("\n")}" if matched.any?
+
+      raise Hatchbox::Error, "git:remote needs a terminal, or pass --app and --as"
+    end
 
     pool = matched.any? ? matched : rows
     puts
@@ -2764,7 +2153,7 @@ class Hatchbox::GitRemote < Hatchbox::Command
     raise Hatchbox::Error, "an environment name cannot hold a colon, an equals or a space"
   end
 
-  def confirm(env:, app:)
+  def replace?(env:, app:)
     existing = file.exists? ? file.app_for(env) : nil
     return true if Hatchbox.blank?(existing) || existing == app
 
@@ -2812,230 +2201,816 @@ class Hatchbox::GitRemote < Hatchbox::Command
   end
 end
 
-Hatchbox::USAGE = <<~USAGE
-  hatchbox, talks to the hatchbox api for the app you are standing in
+class Hatchbox::ConfigShow < Hatchbox::Command
+  describe "config",
+    summary: "display the config vars set on an app",
+    aliases: ["config:list"]
 
-    deploy                 queue a deploy and print the json hatchbox hands back
-    deploy --watch         queue it and stream the log until it lands
-    deploy --sha SHA       deploy one commit instead of the tip of the branch
-    deploy status          last deployed sha, then stream the most recent deploy log
-    status                 the same thing
+  def call
+    none!
+    names = app.env_var_names
+    if names.empty?
+      puts("no env vars on #{env}, set one with config:set FOO=bar")
+      return 0
+    end
 
-    ps                     the processes on the app, what they run, where they run
-    ps sidekiq             one of them in full
-    ps:info sidekiq        the same thing
-    ps:restart             restart every process and stream it
-    ps:restart sidekiq     restart one of them
-    ps:stop sidekiq        turn a process off, leaving it defined
-    ps:start sidekiq       turn it back on
-    ps:create --name worker --start "bundle exec sidekiq" --roles worker
-    ps:update worker --start "bundle exec sidekiq -c 10"
-    ps:destroy worker      delete it, after you type the name back
-    ps:exec                a shell on the server, in the app's current release
-    ps:exec "df -h"        run one command there and come back
+    puts("env vars on #{env.cyan}, names only since hatchbox never hands a value back")
+    names.each { |name| puts("  #{name}") }
+    0
+  end
+end
 
-    logs                   the last 100 journal lines from every process
-    logs --ps sidekiq      just that one
-    logs --ps sidekiq -t   follow it
-    logs -n 500 --since "1 hour ago"
-    logs --ps sidekiq --units   which systemd units it would read, and stop there
+class Hatchbox::ConfigGet < Hatchbox::Command
+  describe "config:get",
+    summary: "check whether a config var is set",
+    usage: "config:get KEY"
 
-    releases               deploys, restarts and config changes hatchbox has on record
-    releases:output 4212   the output of one of them
-    releases:output deploy the most recent one started from here
+  def call
+    key = one_positional("name").upcase
+    raise Hatchbox::Error, "#{key} is set on #{env}, but hatchbox never hands the value back" if app.env_var_names.include?(key)
 
-    config                 the names of the env vars on the app
-    config:get FOO         whether FOO is set, which is all hatchbox will say
-    config:set FOO=bar     set env vars on the app, one or many, then hatchbox
-                           pushes them to the servers
-    config:unset FOO       take env vars off the app
+    raise Hatchbox::Error, "#{key} is not set on #{env}"
+  end
+end
 
-    maintenance            whether the app is in maintenance mode
-    maintenance:on         serve the maintenance page instead of the app
-    maintenance:off        and back
+class Hatchbox::ConfigSet < Hatchbox::Command
+  USABLE = /\A[A-Z0-9_]+\z/.freeze
 
-    domains                the app's domains
-    domains:info fpd.com   one of them
-    domains:add fpd.com    add one
-    domains:remove fpd.com take one off
-    domains:update fpd.com www.fpd.com
-    domains:clear          take every domain off, after you type the app's name back
+  describe "config:set",
+    summary: "set one or more config vars",
+    usage: "config:set KEY1=VALUE1 [KEY2=VALUE2 ...]"
 
-    run "rails db:migrate" run a command on the server, in the app's release
-    run "bundle exec rake" anything that is not rails runs from the same place
-    pg:psql                open a psql on the app's database, over an ssh tunnel
-    pg:psql "select 1"     run one statement and print the result
-    pg:psql --url          print the connection uri instead of connecting
-    pg:psql --dangerous    a session that can write, which it cannot by default
+  def call
+    usage_error("config:set takes NAME=VALUE, one or more of them") if positionals.empty?
+    vars = positionals.map { |pair| pair_for(pair) }
+    names = vars.map { |var| var["name"] }
+    client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars })
+    puts("set #{names.join(", ").cyan} on #{env}")
+    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
+    0
+  end
 
-    apps                   every app on every account the token reaches
-    apps:info              the app's branch, cluster, servers, processes and domains
-    apps:create my-app --cluster netcup --repo myuser/my-app --git-provider joshmn
-                           and add it to .hatchbox as production, or -e, unless
-                           --no-remote
-    apps:open              the app's first domain, in a browser
-    apps:open /admin       a path on it
-    apps:update --branch main --build-script @bin/hatchbox-build
-    apps:rename fpd-new    rename it, which takes it down while it moves
-    apps:destroy           destroy the app, after you type its name back
-    remotes                the apps in .hatchbox, and which one is in use
-    git:remote             pick an app off your account and write it to .hatchbox,
-                           or take the one app that deploys this repo's git remote
-    git:remote fpd         same, narrowed to apps matching fpd
-    git:remote --as qa     write it as qa instead of asking, same as -e qa
-    git:providers          the connected git accounts apps can deploy from
+  private
 
-    auth:login             paste an api token, check it and save it to ~/.hatchbox
-    auth:logout            take every saved token out of ~/.hatchbox
-    auth:whoami            the accounts the token reaches, and where it came from
-    auth:token             print the token in use, for curl and the like
+  def pair_for(text)
+    name, separator, value = text.partition("=")
+    usage_error("#{text} is not NAME=VALUE") if separator.empty? || name.empty?
 
-    -e ENV, --env ENV      which environment to act on, anywhere in the command
+    { "name" => Hatchbox::ConfigSet.usable(name), "value" => value }
+  end
 
-  the older names still work and do the same thing: restart, ssh, psql, envs, setup.
+  def self.usable(name)
+    cleaned = name.strip.upcase
+    raise Hatchbox::Error, "#{name} is not a name hatchbox takes, which is letters, numbers and underscores" unless cleaned =~ USABLE
 
-  the app comes from the nearest .hatchbox, looked for in the working directory and
-  then upward. an app is a bare line, written the way the dashboard url spells it,
-  followed by the environment it is:
+    cleaned
+  end
+end
 
-    13673-fpd:production
-    20001-fpd-qa:qa
-    default = production
+class Hatchbox::ConfigUnset < Hatchbox::Command
+  describe "config:unset",
+    summary: "unset one or more config vars",
+    usage: "config:unset KEY1 [KEY2 ...]",
+    aliases: ["config:remove"]
 
-  only the leading number is read by hatchbox, so the rest is there to tell you
-  which app you are looking at. hatchbox git:remote writes those lines for you, into
-  the nearest .hatchbox or, failing that, one at the root of the repo you are in.
+  def call
+    usage_error("config:unset takes a name, one or more of them") if positionals.empty?
+    names = positionals.map { |name| Hatchbox::ConfigSet.usable(name) }
+    client.delete("/apps/#{app_id}/env_vars", body: { "env_vars" => names })
+    puts("unset #{names.join(", ").cyan} on #{env}")
+    puts("hatchbox pushes that to the servers itself and hands back no log id, so there is nothing to follow".dim)
+    0
+  end
+end
 
-  with one environment it is used automatically, otherwise default decides and -e
-  beats it.
+class Hatchbox::Maintenance < Hatchbox::Command
+  describe "maintenance",
+    summary: "display the current maintenance status of an app"
 
-  the api token is a secret and stays out of the repo. it is read from
-  HATCHBOX_API_TOKEN, then from ~/.hatchbox, which is the token file and is never
-  read as an app config. it takes token:ENV or a plain token:
+  def call
+    none!
+    puts(app.details["maintenance"] ? "on" : "off")
+    0
+  end
+end
 
-    token = your-api-token
+class Hatchbox::MaintenanceOn < Hatchbox::Command
+  describe "maintenance:on",
+    summary: "put the app into maintenance mode"
 
-  processes are systemd services on the servers. one is defined by a start command
-  and either a list of roles, meaning every server holding that role runs it, or one
-  server id, meaning only that machine does. a change made here is recorded on the
-  app straight away and written to the servers on the next deploy or restart, which
-  is why ps:create and ps:update say so and then stop.
+  def call
+    none!
+    client.post("/apps/#{app_id}/maintenance")
+    puts("maintenance mode on for #{env.cyan}")
+    puts("caddy serves the maintenance page, the processes keep running".dim)
+    0
+  end
+end
 
-  logs is the odd one out, because it does not use the api. hatchbox stores no
-  runtime output and publishes no endpoint that serves any: /apps/ID/logs returns
-  the transcripts of its own deploys and restarts, which is what releases reads, and
-  there is nothing under a process at all. so logs goes to the server over ssh,
-  finds the systemd units whose names hold the app and the process, and runs
-  journalctl on them. --units prints what it matched without reading anything, which
-  is worth doing once if you have a process whose name is a common word. it reaches
-  for sudo only when journalctl says the deploy user cannot read the journal, and it
-  falls back to user units if there are no system ones.
+class Hatchbox::MaintenanceOff < Hatchbox::Command
+  describe "maintenance:off",
+    summary: "take the app out of maintenance mode"
 
-  because it is ssh, logs picks a server the same way ssh does: a process pinned to a
-  server_id goes to that machine, one with roles goes to a server holding the first
-  role, and --server names one yourself.
+  def call
+    none!
+    client.delete("/apps/#{app_id}/maintenance")
+    puts("maintenance mode off for #{env.cyan}")
+    0
+  end
+end
 
-  releases lists what hatchbox does keep. the id of every deploy and restart started
-  from here is still written back to .hatchbox, so releases:output deploy works
-  without looking an id up:
+class Hatchbox::GitProviders < Hatchbox::Command
+  describe "git:providers",
+    summary: "list the connected git accounts apps can deploy from",
+    app: false
 
-    last_deploy:production = 4212
-    last_restart:production = 4213
+  def call
+    none!
+    catalog = Hatchbox::AppCatalog.new(token: Hatchbox::TokenStore.new.fetch(env: env))
+    accounts = catalog.usable_accounts
+    found = accounts.to_h { |account| [account, catalog.git_providers_for(account)] }
 
-  the database pg:psql connects to is whichever postgresql one is attached to the
-  app. unmanaged clusters listen on their own machine's loopback, so psql goes
-  through an ssh tunnel to the server holding the database, as the deploy user
-  hatchbox sets up. ps:exec lands in /home/deploy/<app>/current, the release that is
-  live, where <app> is the name the api has for it, and falls back to the home
-  directory when that is not there yet. run does the same, through a login shell so
-  the app's environment is loaded, and it returns whatever the command returned. a
-  command starting with rails runs as bin/rails from that same release directory and
-  stops if it is not there, rather than running somewhere else. app_dir settles it
-  when the release lives anywhere but the usual place. quote the whole command as one
-  argument, or -e in it is read as hatchbox's own environment flag and taken away.
-  ps:exec, run, logs and pg:psql take the same per environment overrides in the same
-  file:
+    found.each_with_index do |(account, rows), index|
+      puts if index.positive?
+      ui.header("git providers on #{account["name"]}")
+      next puts("  none connected") if rows.empty?
 
-    ssh_user:production = deploy
-    ssh_host:production = 203.0.113.10
-    ssh_port:production = 22
-    app_dir:production = /home/deploy/fpd/current
+      rows.each { |row| puts("  #{row["provider"].to_s.ljust(10)} #{row["name"].to_s.ljust(24)} #{row["id"]}") }
+    end
+    0
+  end
+end
 
-  env vars are write only here. hatchbox lists their names and never returns a value,
-  so config shows the names and config:set and config:unset change them. names are
-  uppercased for you, and hatchbox pushes the change to the servers itself without
-  handing back a log id to follow. a value typed into config:set lands in your shell
-  history like anything else on the command line.
+class Hatchbox::PsCommand < Hatchbox::Command
+  private
 
-  env
-    HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox
-    HATCHBOX_ENV           default environment, still beaten by -e
-    HATCHBOX_API_BASE      defaults to https://hatchbox.io/api/v1
-USAGE
+  def catalog
+    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
+  end
+
+  def process_path(process, suffix = nil)
+    base = "/apps/#{app_id}/processes/#{process["id"]}"
+    suffix ? "#{base}/#{suffix}" : base
+  end
+end
+
+class Hatchbox::Ps < Hatchbox::PsCommand
+  describe "ps",
+    summary: "list processes for an app",
+    usage: "ps [TYPE [TYPE ...]]"
+
+  def call
+    pool = positionals.empty? ? catalog.all : positionals.map { |name| catalog.find(name) }
+    if pool.empty?
+      puts("no processes on #{env}, add one with ps:create")
+      return 0
+    end
+
+    puts("processes on #{env.cyan}, app #{app_id}")
+    puts
+    puts(catalog.table(pool.sort_by { |row| row["name"].to_s }))
+    0
+  end
+end
+
+class Hatchbox::PsInfo < Hatchbox::PsCommand
+  describe "ps:info",
+    summary: "show everything about one process",
+    usage: "ps:info TYPE"
+
+  def call
+    process = catalog.find(one_positional("process"))
+
+    puts("#{process["name"].to_s.cyan}, process #{process["id"]} on #{env}")
+    puts
+    puts(Hatchbox::ProcessCatalog.detail(process))
+    0
+  end
+end
+
+class Hatchbox::PsRestart < Hatchbox::PsCommand
+  describe "ps:restart",
+    summary: "restart every process, or one process type",
+    usage: "ps:restart [TYPE]",
+    aliases: ["restart"]
+
+  def call
+    usage_error("one process at a time, ps:restart got #{positionals.join(" ")}") if positionals.length > 1
+    if positionals.empty?
+      log_id = (client.post("/apps/#{app_id}/restart").json || {})["id"]
+      return settle("queued restart of every process on #{env.cyan}", log_id, kind: "restart")
+    end
+
+    process = catalog.find(positionals.first)
+    log_id = (client.post(process_path(process, "restart")).json || {})["id"]
+    settle("queued restart of #{process["name"].to_s.cyan} on #{env}", log_id, kind: "restart")
+  end
+end
+
+class Hatchbox::PsStop < Hatchbox::PsCommand
+  describe "ps:stop",
+    summary: "turn a process off and leave it off",
+    usage: "ps:stop TYPE",
+    aliases: ["ps:kill"]
+
+  def call
+    process = catalog.find(one_positional("process"))
+    data = client.delete(process_path(process, "activation")).json || {}
+    settle("disabled #{process["name"].to_s.cyan} on #{env}", data["log_id"])
+  end
+end
+
+class Hatchbox::PsStart < Hatchbox::PsCommand
+  describe "ps:start",
+    summary: "turn a stopped process back on",
+    usage: "ps:start TYPE"
+
+  def call
+    process = catalog.find(one_positional("process"))
+    data = client.post(process_path(process, "activation")).json || {}
+    settle("enabled #{process["name"].to_s.cyan} on #{env}", data["log_id"])
+  end
+end
+
+module Hatchbox::ProcessFields
+  FLAGS = [
+    [nil, "--name NAME", "process name, letters, numbers, hyphens and underscores"],
+    [nil, "--start COMMAND", "the command that runs"],
+    [nil, "--stop COMMAND", "command systemd runs to stop it"],
+    [nil, "--reload COMMAND", "command systemd runs to reload it"],
+    [nil, "--roles LIST", "comma separated roles, it runs on every server holding one"],
+    [nil, "--server SERVER", "one server to run on instead of roles, by name or id"],
+    [nil, "--systemd-type TYPE", "simple or oneshot"],
+    [nil, "--[no-]socket", "systemd socket activation, at most one process per app"],
+    [nil, "--[no-]restart-on-deploy", "restart it on every deploy, which is the default"],
+    [nil, "--[no-]appsignal", "run it under appsignal-wrap, which needs appsignal connected"],
+    [nil, "--appsignal-options OPTIONS", "extra flags for appsignal-wrap"]
+  ].freeze
+
+  MAP = {
+    name: "name",
+    start: "start_command",
+    stop: "stop_command",
+    reload: "reload_command",
+    systemd_type: "systemd_type",
+    socket: "socket",
+    restart_on_deploy: "restart_on_deploy",
+    appsignal: "appsignal",
+    appsignal_options: "appsignal_options"
+  }.freeze
+
+  private
+
+  def process_body
+    body = {}
+    MAP.each { |flag, field| body[field] = options[flag] if options.key?(flag) }
+    body["roles"] = options[:roles].split(",").map { |role| role.strip }.reject { |role| role.empty? } if options.key?(:roles)
+    body["server_id"] = server_id_for(options[:server]) if options.key?(:server)
+    raise Hatchbox::Error, "a process runs on --roles or on one --server, not both" if body.key?("roles") && body.key?("server_id") && body["roles"].any?
+    raise Hatchbox::Error, "#{body["name"]} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" if body.key?("name") && body["name"] !~ Hatchbox::ProcessCatalog::NAME
+
+    body
+  end
+
+  def server_id_for(wanted)
+    return wanted if wanted.to_s =~ /\A[0-9]+\z/
+
+    found = app.servers.find { |server| server["name"].to_s.casecmp?(wanted.to_s) }
+    raise Hatchbox::Error, "no server called #{wanted} on this app's cluster" unless found
+
+    found["id"]
+  end
+
+  def show(process)
+    puts(Hatchbox::ProcessCatalog.detail(process))
+  end
+end
+
+class Hatchbox::PsCreate < Hatchbox::PsCommand
+  include Hatchbox::ProcessFields
+
+  describe "ps:create",
+    summary: "add a process to the app",
+    usage: "ps:create NAME --start COMMAND (--roles LIST | --server SERVER)",
+    flags: Hatchbox::ProcessFields::FLAGS
+
+  def call
+    usage_error("ps:create takes one name") if positionals.length > 1
+    body = process_body
+    body["name"] = positionals.first if positionals.any? && Hatchbox.blank?(body["name"])
+    usage_error("ps:create needs --name") if Hatchbox.blank?(body["name"])
+    usage_error("ps:create needs --start, the command that runs") if Hatchbox.blank?(body["start_command"])
+    usage_error("ps:create needs --roles or --server, so hatchbox knows where to run it") if Array(body["roles"]).empty? && Hatchbox.blank?(body["server_id"])
+    raise Hatchbox::Error, "#{body["name"]} is not a name hatchbox takes, which is letters, numbers, hyphens and underscores" unless body["name"] =~ Hatchbox::ProcessCatalog::NAME
+
+    data = client.post("/apps/#{app_id}/processes", body: { "process" => body }).json || {}
+    code = settle("created #{body["name"].to_s.cyan} on #{env}, process #{data["id"]}", data["log_id"])
+    puts
+    show(data)
+    code
+  end
+end
+
+class Hatchbox::PsUpdate < Hatchbox::PsCommand
+  include Hatchbox::ProcessFields
+
+  describe "ps:update",
+    summary: "change a process",
+    usage: "ps:update TYPE [--start COMMAND] [--roles LIST] ...",
+    flags: Hatchbox::ProcessFields::FLAGS
+
+  def call
+    process = catalog.find(one_positional("process"))
+    body = process_body
+    usage_error("ps:update needs something to change") if body.empty?
+
+    data = client.patch(process_path(process), body: { "process" => body }).json || {}
+    settle("updated #{process["name"].to_s.cyan} on #{env}, #{body.keys.join(", ")}", data["log_id"])
+  end
+end
+
+class Hatchbox::PsDestroy < Hatchbox::PsCommand
+  describe "ps:destroy",
+    summary: "stop a process and delete it from every server",
+    usage: "ps:destroy TYPE",
+    flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"]]
+
+  def call
+    process = catalog.find(one_positional("process"))
+    name = process["name"].to_s
+    confirm(expected: name, action: "this deletes #{name} on #{env}")
+    log_id = (client.delete(process_path(process)).json || {})["id"]
+    settle("deleted #{name.cyan} on #{env}", log_id)
+  end
+end
+
+class Hatchbox::Logs < Hatchbox::Command
+  describe "logs",
+    summary: "display recent log output",
+    flags: [
+      ["-n", "--num NUM", "number of lines to display", Integer],
+      ["-t", "--tail", "continually stream logs"],
+      ["-f", "--follow", "same as --tail"],
+      ["-p", "--process-type TYPE", "only this process type"],
+      [nil, "--ps TYPE", "same as --process-type"],
+      ["-s", "--server SERVER", "the server to read, by name or role"],
+      [nil, "--since WHEN", "only lines since this, anything journalctl --since takes, like '1 hour ago'"],
+      [nil, "--units", "list the systemd units it would read, and stop"]
+    ]
+
+  def call
+    usage_error("one process at a time") if positionals.length > 1
+    wanted = positionals.first
+    raise Hatchbox::Error, "logs reads the running app now. a hatchbox log id goes to releases:output #{wanted}" if wanted.to_s =~ /\A[0-9]+\z/
+
+    type = options[:process_type] || options[:ps] || wanted
+    process = Hatchbox.blank?(type) ? nil : catalog.find(type)
+    target = Hatchbox::ProcessTarget.resolve(context: context, process: process, filter: options[:server])
+    warn("#{process ? process["name"] : "every process"} on #{target.server_label || target.host}, journal on the server, hatchbox stores none of this".dim)
+    Hatchbox.run(target.ssh(command: target.login_shell(journal(process)), tty: $stdout.tty?))
+  end
+
+  private
+
+  def journal(process)
+    Hatchbox::Journal.new(
+      app_name: app.name,
+      process_name: process ? process["name"] : nil,
+      lines: options[:num] || 100,
+      follow: options[:tail] || options[:follow],
+      since: options[:since],
+      units_only: options[:units]
+    ).script
+  end
+
+  def catalog
+    @catalog ||= Hatchbox::ProcessCatalog.new(client: client, app_id: app_id)
+  end
+end
+
+class Hatchbox::Run < Hatchbox::Command
+  describe "run",
+    summary: "run a command on one of the app's servers",
+    usage: "run COMMAND",
+    lenient: true,
+    flags: [["-s", "--server SERVER", "the server to run on, by name or role"]]
+
+  def call
+    command = (positionals + passthru).join(" ")
+    usage_error("run needs a command") if command.strip.empty?
+
+    target = Hatchbox::SshTarget.resolve(context: context, filter: options[:server])
+    Hatchbox.run(target.ssh(command: target.login_shell(script_for(command: command, target: target)), tty: $stdin.tty? && $stdout.tty?))
+  end
+
+  private
+
+  def rails?(command)
+    ["rails", "bin/rails"].include?(command) || command.start_with?("rails ", "bin/rails ")
+  end
+
+  def script_for(command:, target:)
+    return "#{target.enter(separator: "\n")}#{command}" unless rails?(command)
+
+    "#{target.enter_or_stop}\nexec bin/rails #{command.sub(%r{\Abin/}, "").sub(/\Arails/, "").strip}"
+  end
+end
+
+class Hatchbox::Ssh < Hatchbox::Command
+  describe "ps:exec",
+    summary: "open an ssh session on one of the app's servers",
+    usage: "ps:exec [COMMAND]",
+    aliases: ["ssh"],
+    flags: [["-s", "--server SERVER", "the server, by name or role"]]
+
+  def call
+    usage_error("only one command at a time, quote it as one argument") if positionals.length > 1
+    command = positionals.first
+    target = Hatchbox::SshTarget.resolve(context: context, filter: options[:server])
+    warn("#{target.server_label}, #{target.host}".dim) if target.server && command.nil?
+    Hatchbox.run(target.ssh(command: "#{target.enter(separator: "; ")}#{command || "exec ${SHELL:-/bin/bash} -l"}", tty: command.nil?, extra: passthru))
+  end
+end
+
+class Hatchbox::Deploy < Hatchbox::Command
+  describe "deploy",
+    summary: "deploy the app's branch, or one commit",
+    flags: [
+      [nil, "--sha SHA", "deploy this commit instead of the tip of the branch"],
+      [nil, "--watch", "stream the build instead of printing what hatchbox queued"],
+      [nil, "--no-follow", "print what hatchbox queued, which it does anyway"],
+      [nil, "--status", "same as hatchbox status"]
+    ]
+
+  def call
+    return Hatchbox::Status.call(context: context, args: []) if options[:status] || positionals == ["status"]
+
+    none!
+    sha = options[:sha]
+    data = client.post("/apps/#{app_id}/deploy", body: Hatchbox.blank?(sha) ? nil : { "sha" => sha }).json || {}
+    log_id = data["id"]
+    raise Hatchbox::Error, "hatchbox accepted the deploy but returned no log id: #{JSON.dump(data)}" if Hatchbox.blank?(log_id)
+
+    remember_log("deploy", log_id)
+    unless options[:watch]
+      puts(JSON.pretty_generate(data))
+      return 0
+    end
+
+    puts("queued deploy to #{env.cyan}, log #{log_id.to_s.cyan}")
+    puts
+    follow_log(log_id)
+  end
+end
+
+class Hatchbox::Status < Hatchbox::Command
+  describe "status",
+    summary: "show the latest deploy and its output",
+    hidden: false
+
+  def call
+    none!
+    puts("#{env.cyan}, app #{app_id}")
+    report_deploy
+    puts
+    log_id = config.get("last_deploy:#{env}")
+    return show_log(log_id) unless Hatchbox.blank?(log_id)
+
+    puts(no_log_help.dim)
+    0
+  end
+
+  private
+
+  def report_deploy
+    sha = app.details["last_deploy_sha"].to_s
+    if sha.empty?
+      puts("no deploy recorded on this app yet")
+      return
+    end
+
+    at = app.details["last_deploy_at"].to_s
+    line = "last deploy #{sha[0, 7].cyan}"
+    line = "#{line} at #{at}" unless at.empty?
+    puts(line)
+    puts("full sha #{sha}".dim)
+  end
+
+  def no_log_help
+    [
+      "no deploy log to stream",
+      "hatchbox only serves a log by its id and has no endpoint that lists them, so the",
+      "only ids around are the ones written back to",
+      "  #{config.path}",
+      "deploy from here and the next one is streamable, or pass an id off the dashboard",
+      "url to hatchbox releases:output"
+    ].join("\n")
+  end
+end
+
+class Hatchbox::Releases < Hatchbox::Command
+  NAMES = {
+    "Apps::Deploy" => "deploy",
+    "Apps::Restart" => "restart",
+    "Apps::EnvVars" => "config",
+    "Apps::Maintenance" => "maintenance"
+  }.freeze
+
+  describe "releases",
+    summary: "display the app's release history",
+    flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer]]
+
+  def call
+    none!
+    limit = options[:num] || 15
+    rows = client.get("/apps/#{app_id}/logs?page=#{options[:page] || 1}&limit=#{limit}").json || []
+    if rows.empty?
+      puts("nothing on record for #{env}")
+      return 0
+    end
+
+    puts("#{env.cyan}, app #{app_id}")
+    puts
+    rows.each { |row| puts(line(row)) }
+    puts
+    puts("the output of one of these is releases:output ID".dim)
+    0
+  end
+
+  private
+
+  def line(row)
+    id = row["id"].to_s.ljust(9)
+    kind = (NAMES[row["name"].to_s] || row["name"].to_s).ljust(11)
+    sha = row["commit_sha"].to_s
+    sha = sha.empty? ? "".ljust(7) : sha[0, 7]
+    "  #{id}#{kind}#{state(row)}#{sha}  #{when_for(row)}  #{row["description"]}"
+  end
+
+  def state(row)
+    raw = row["state"].to_s
+    text = raw.ljust(11)
+    return text.green if raw == "completed"
+    return text.red if ["failed", "aborted"].include?(raw)
+
+    text.yellow
+  end
+
+  def when_for(row)
+    stamp = row["created_at"].to_s
+    stamp.empty? ? "" : stamp[0, 16].sub("T", " ")
+  end
+end
+
+class Hatchbox::ReleasesOutput < Hatchbox::Command
+  KINDS = {
+    "deploy" => "deploy",
+    "deploys" => "deploy",
+    "restart" => "restart",
+    "restarts" => "restart"
+  }.freeze
+
+  describe "releases:output",
+    summary: "view the output of a release",
+    usage: "releases:output RELEASE"
+
+  def call
+    wanted = one_positional("log id")
+    show_log(wanted =~ /\A[0-9]+\z/ ? wanted : id_for(wanted))
+  end
+
+  private
+
+  def id_for(wanted)
+    kind = KINDS[wanted]
+    raise Hatchbox::Error, "no log type called #{wanted}, releases:output takes a log id, deploy or restart" unless kind
+
+    found = config.get("last_#{kind}:#{env}")
+    raise Hatchbox::Error, "no #{kind} has been started from here for #{env}, so there is no log id to fetch. releases lists what hatchbox has" if Hatchbox.blank?(found)
+
+    found
+  end
+end
+
+class Hatchbox::Domains < Hatchbox::Command
+  describe "domains",
+    summary: "list the app's domains"
+
+  def call
+    none!
+    rows = app.domains
+    if rows.empty?
+      puts("no domains on #{env}, add one with domains:add")
+      return 0
+    end
+
+    ui.header("domains on #{env}")
+    rows.each { |row| puts("  #{row["name"]}") }
+    0
+  end
+end
+
+module Hatchbox::DomainPaths
+  private
+
+  def domain_path(name)
+    "/apps/#{app_id}/domains/#{URI.encode_www_form_component(name).gsub("+", "%20").gsub("%2A", "*")}"
+  end
+
+  def targets
+    servers = app.servers.select { |server| server["state"].to_s == "active" }
+    fronts = servers.select { |server| (server["roles"] || []).include?("load_balancer") }
+    fronts = servers.select { |server| (server["roles"] || []).include?("web") } if fronts.empty?
+    fronts.map { |server| server["public_ip"].to_s }.reject { |ip| ip.empty? }
+  rescue Hatchbox::Error
+    []
+  end
+end
+
+class Hatchbox::DomainsAdd < Hatchbox::Command
+  include Hatchbox::DomainPaths
+
+  describe "domains:add",
+    summary: "add a domain to the app",
+    usage: "domains:add HOSTNAME"
+
+  def call
+    name = one_positional("domain")
+    client.post("/apps/#{app_id}/domains", body: { "domain" => { "name" => name } })
+    puts("added #{name.cyan} to #{env}")
+    ips = targets
+    puts("point its dns at #{ui.list(ips)}, caddy gets the certificate once it resolves".dim) if ips.any?
+    0
+  end
+end
+
+class Hatchbox::DomainsRemove < Hatchbox::Command
+  include Hatchbox::DomainPaths
+
+  describe "domains:remove",
+    summary: "remove a domain from the app",
+    usage: "domains:remove HOSTNAME",
+    aliases: ["domains:delete"]
+
+  def call
+    name = one_positional("domain")
+    client.delete(domain_path(name))
+    puts("removed #{name.cyan} from #{env}")
+    0
+  end
+end
+
+class Hatchbox::DomainsInfo < Hatchbox::Command
+  include Hatchbox::DomainPaths
+
+  describe "domains:info",
+    summary: "show one of the app's domains",
+    usage: "domains:info HOSTNAME"
+
+  def call
+    name = one_positional("domain")
+    row = client.get(domain_path(name)).json || {}
+
+    ui.header(row["name"].to_s)
+    rows = [["id", row["id"]], ["created", row["created_at"]], ["updated", row["updated_at"]], ["points at", targets.join(", ")]]
+    puts(rows.map { |key, value| "  #{key.ljust(14)}#{Hatchbox.blank?(value) ? "-" : value}" }.join("\n"))
+    0
+  end
+end
+
+class Hatchbox::DomainsUpdate < Hatchbox::Command
+  include Hatchbox::DomainPaths
+
+  describe "domains:update",
+    summary: "rename one of the app's domains",
+    usage: "domains:update HOSTNAME NEWHOSTNAME"
+
+  def call
+    usage_error("domains:update takes the domain and its new name") unless positionals.length == 2
+
+    old, name = positionals
+    client.patch(domain_path(old), body: { "domain" => { "name" => name } })
+    puts("#{old} is #{name.cyan} on #{env} now")
+    0
+  end
+end
+
+class Hatchbox::DomainsClear < Hatchbox::Command
+  include Hatchbox::DomainPaths
+
+  describe "domains:clear",
+    summary: "remove every domain from the app",
+    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
+
+  def call
+    none!
+    rows = app.domains
+    if rows.empty?
+      puts("no domains on #{env}")
+      return 0
+    end
+
+    names = rows.map { |row| row["name"].to_s }
+    confirm(expected: app.name, action: "this removes #{names.join(", ")} from #{app.name}")
+    names.each { |name| client.delete(domain_path(name)) }
+    puts("removed #{ui.list(names)} from #{env}")
+    0
+  end
+end
+
+class Hatchbox::Psql < Hatchbox::Command
+  describe "pg:psql",
+    summary: "open a psql shell to the database",
+    usage: "pg:psql [SQL]",
+    aliases: ["psql"],
+    flags: [
+      ["-c", "--command SQL", "sql command to run"],
+      ["-d", "--database NAME", "which postgresql database, when the app has more than one"],
+      [nil, "--url", "print the connection uri instead of connecting"],
+      [nil, "--direct", "connect straight to the database host instead of through an ssh tunnel"],
+      [nil, "--dangerous", "a session that can write, which it cannot by default"]
+    ]
+
+  def call
+    usage_error("only one statement at a time, quote it as one argument") if positionals.length > 1
+    sql = options[:command].to_s.sub(/\A=/, "")
+    if positionals.any?
+      usage_error("only one statement at a time, quote it as one argument") unless sql.empty?
+      sql = positionals.first
+    end
+
+    record = choose(options[:database])
+    return print_url(record) if options[:url]
+
+    open_psql(record: record, sql: sql)
+  end
+
+  private
+
+  def choose(wanted)
+    pool = app.databases.select { |record| record["engine"] == "postgresql" }
+    pool = pool.select { |record| record["name"] == wanted } unless Hatchbox.blank?(wanted)
+    raise Hatchbox::Error, none_message(wanted) if pool.empty?
+    raise Hatchbox::Error, "#{env} has more than one postgresql database, so pick one with --database\n\n#{pool.map { |record| "  #{record["name"]}" }.join("\n")}" if pool.length > 1
+
+    pool.first
+  end
+
+  def none_message(wanted)
+    head = Hatchbox.blank?(wanted) ? "no postgresql database is attached to #{env}" : "no postgresql database called #{wanted} is attached to #{env}"
+    return head if app.databases.empty?
+
+    "#{head}\n\nwhat is attached:\n#{attached}"
+  end
+
+  def attached
+    app.databases.map do |record|
+      var = (record["app_attachments"] || []).map { |item| item["env_var"] }.first
+      "  #{record["name"]}, #{record["engine"]}, reachable as #{var || "nothing"}"
+    end.join("\n")
+  end
+
+  def connection_text(record)
+    public_uri = record["public_connection_uri"].to_s
+    text = Hatchbox.blank?(public_uri) ? record["private_connection_uri"].to_s : public_uri
+    raise Hatchbox::Error, "that database has no connection uri, which happens on sqlite" if Hatchbox.blank?(text)
+
+    text
+  end
+
+  def print_url(record)
+    puts(connection_text(record))
+    warn("that host is the database's own machine, so the uri only works from the server".yellow) if Hatchbox.blank?(record["public_connection_uri"])
+    0
+  end
+
+  def open_psql(record:, sql:)
+    database = Hatchbox::Database.new(connection_text(record))
+    tunnel = Hatchbox.blank?(record["public_connection_uri"]) && !options[:direct] ? Hatchbox::Tunnel.open(context: context, host: database.host, port: database.port) : nil
+    host = tunnel ? "127.0.0.1" : database.host
+    port = tunnel ? tunnel.local_port.to_s : database.port
+    warn(options[:dangerous] ? "read write session".yellow : "read only session, pass --dangerous to write".dim)
+    argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
+    argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
+    argv.concat(passthru)
+    begin
+      Hatchbox.run(argv, env: environment(database: database, dangerous: options[:dangerous]))
+    ensure
+      tunnel.close if tunnel
+    end
+  end
+
+  def environment(database:, dangerous:)
+    env = { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
+    return env if dangerous
+
+    extra = [ENV["PGOPTIONS"], "-c default_transaction_read_only=on"].reject { |part| Hatchbox.blank?(part) }
+    env.merge("PGOPTIONS" => extra.join(" "))
+  end
+end
 
 class Hatchbox::Cli
-
-  COMMANDS = {
-    "deploy" => Hatchbox::Deploy,
-    "status" => Hatchbox::Status,
-    "ps" => Hatchbox::Ps,
-    "ps:info" => Hatchbox::PsInfo,
-    "ps:restart" => Hatchbox::PsRestart,
-    "ps:start" => Hatchbox::PsStart,
-    "ps:stop" => Hatchbox::PsStop,
-    "ps:create" => Hatchbox::PsCreate,
-    "ps:update" => Hatchbox::PsUpdate,
-    "ps:destroy" => Hatchbox::PsDestroy,
-    "ps:exec" => Hatchbox::Ssh,
-    "logs" => Hatchbox::Logs,
-    "releases" => Hatchbox::Releases,
-    "releases:output" => Hatchbox::ReleasesOutput,
-    "config" => Hatchbox::ConfigShow,
-    "config:get" => Hatchbox::ConfigGet,
-    "config:set" => Hatchbox::ConfigSet,
-    "config:unset" => Hatchbox::ConfigUnset,
-    "maintenance" => Hatchbox::Maintenance,
-    "maintenance:on" => Hatchbox::MaintenanceOn,
-    "maintenance:off" => Hatchbox::MaintenanceOff,
-    "domains" => Hatchbox::Domains,
-    "domains:info" => Hatchbox::DomainsInfo,
-    "domains:add" => Hatchbox::DomainsAdd,
-    "domains:remove" => Hatchbox::DomainsRemove,
-    "domains:update" => Hatchbox::DomainsUpdate,
-    "domains:clear" => Hatchbox::DomainsClear,
-    "pg:psql" => Hatchbox::Psql,
-    "run" => Hatchbox::Run,
-    "apps:info" => Hatchbox::AppsInfo,
-    "apps:destroy" => Hatchbox::AppsDestroy,
-    "apps:update" => Hatchbox::AppsUpdate,
-    "apps:rename" => Hatchbox::AppsRename,
-    "apps:open" => Hatchbox::AppsOpen,
-    "remotes" => Hatchbox::Remotes,
-    "restart" => Hatchbox::PsRestart,
-    "ssh" => Hatchbox::Ssh,
-    "psql" => Hatchbox::Psql,
-    "envs" => Hatchbox::Remotes
-  }.freeze
-
-  ACCOUNT_COMMANDS = {
-    "auth:login" => Hatchbox::AuthLogin,
-    "login" => Hatchbox::AuthLogin,
-    "auth:logout" => Hatchbox::AuthLogout,
-    "logout" => Hatchbox::AuthLogout,
-    "auth:whoami" => Hatchbox::AuthWhoami,
-    "whoami" => Hatchbox::AuthWhoami,
-    "auth:token" => Hatchbox::AuthToken,
-    "git:remote" => Hatchbox::GitRemote,
-    "setup" => Hatchbox::GitRemote,
-    "apps" => Hatchbox::AppsList,
-    "apps:create" => Hatchbox::AppsCreate,
-    "git:providers" => Hatchbox::GitProviders
-  }.freeze
-
-  ALIASES = ["restart", "ssh", "psql", "envs", "setup"].freeze
-
   class << self
-
     def call(argv)
       new(argv).call
     end
@@ -3043,58 +3018,90 @@ class Hatchbox::Cli
 
   def initialize(argv)
     @argv = argv
-    @env_name = nil
-    @help = false
   end
 
   def call
-    rest = strip_env
-    name = rest.first
-    if help || Hatchbox.blank?(name) || name == "help"
-      puts(Hatchbox::USAGE)
-      return 0
-    end
-    return ACCOUNT_COMMANDS[name].call(context: Hatchbox::Context.new(env_name), args: rest.drop(1)) if ACCOUNT_COMMANDS.key?(name)
+    rest = scan
+    name = rest.shift
+    return help(rest.first) if name.nil? || name == "help"
+    return help(name) if @help
 
-    command = COMMANDS[name]
-    raise Hatchbox::Error, "no command called #{name}\n\n#{Hatchbox::USAGE}" unless command
-
-    command.call(context: Hatchbox::Context.load(env_name), args: rest.drop(1))
+    command = Hatchbox::Registry.find(name)
+    unknown(name) unless command
+    command.call(context: Hatchbox::Context.new(@env), args: rest)
   end
 
   private
 
-  attr_reader :argv, :env_name, :help
+  attr_reader :argv
 
-  def strip_env
-    cut = argv.index("--")
-    head = cut ? argv[0, cut] : argv.dup
-    tail = cut ? argv[cut..-1] : []
-    scan(head) + tail
-  end
-
-  def scan(head)
+  def scan
     rest = []
-    parser = OptionParser.new
-    parser.on("-e", "--env ENV") { |value| @env_name = value }
-    parser.on("-h", "--help") { @help = true }
-    parser.on("--version") { rest << "--version" }
-    until head.empty?
-      begin
-        parser.order!(head) { |arg| rest << arg }
-      rescue OptionParser::InvalidOption => e
-        rest.concat(e.args)
-      rescue OptionParser::MissingArgument
-        raise Hatchbox::Error, "--env needs an environment"
+    tokens = argv.dup
+    until tokens.empty?
+      token = tokens.shift
+      if token == "--"
+        rest << token
+        rest.concat(tokens)
+        break
+      end
+
+      case token
+      when "-e", "--env" then @env = value(token, tokens)
+      when /\A--env=(.*)\z/ then @env = Regexp.last_match(1)
+      when /\A-e(.+)\z/ then @env = Regexp.last_match(1)
+      when "-h", "--help" then @help = true
+      else rest << token
       end
     end
     rest
+  end
+
+  def value(flag, tokens)
+    found = tokens.shift
+    raise Hatchbox::Error, "#{flag} needs a value" if found.nil? || found == "--"
+
+    found
+  end
+
+  def help(name)
+    command = Hatchbox.blank?(name) ? nil : Hatchbox::Registry.find(name)
+    raise Hatchbox::Error, "no command called #{name}, hatchbox help lists them" if command.nil? && !Hatchbox.blank?(name)
+
+    command ? usage(command) : listing
+    0
+  end
+
+  def listing
+    puts("usage: hatchbox COMMAND [-e ENV] [options]")
+    puts
+    rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }
+    width = rows.map { |klass| klass.meta[:name].length }.max
+    rows.each { |klass| puts("  #{klass.meta[:name].ljust(width)}  #{klass.meta[:summary]}") }
+  end
+
+  def usage(command)
+    meta = command.meta
+    puts("usage: hatchbox #{meta[:usage]}")
+    puts
+    puts("  #{meta[:summary]}")
+    flags = (meta[:app] ? Hatchbox::Command::APP_FLAGS : []) + meta[:flags]
+    return if flags.empty?
+
+    puts
+    labels = flags.map { |short, long, _description, _type| short ? "#{short}, #{long}" : "    #{long}" }
+    width = labels.map { |text| text.length }.max
+    flags.each_with_index { |(_short, _long, description, _type), index| puts("  #{labels[index].ljust(width)}  #{description}") }
+  end
+
+  def unknown(name)
+    raise Hatchbox::Error, "no command called #{name}, hatchbox help lists them"
   end
 end
 
 if $PROGRAM_NAME == __FILE__
   begin
-    exit(Hatchbox::Cli.call(ARGV))
+    exit(Hatchbox::Cli.call(ARGV).to_i)
   rescue Hatchbox::Error => e
     warn(e.message.red)
     exit(1)
