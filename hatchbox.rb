@@ -666,8 +666,8 @@ class Hatchbox::Target
     return self if @resolved
 
     @resolved = true
-    return by_env(session.env_flag) unless Hatchbox.blank?(session.env_flag)
-    return by_env(ENV["HATCHBOX_ENV"]) unless Hatchbox.blank?(ENV["HATCHBOX_ENV"])
+    return by_remote(session.remote_flag) unless Hatchbox.blank?(session.remote_flag)
+    return by_remote(ENV["HATCHBOX_ENV"]) unless Hatchbox.blank?(ENV["HATCHBOX_ENV"])
 
     by_default
   end
@@ -685,11 +685,11 @@ class Hatchbox::Target
     session.config
   end
 
-  def by_env(name)
+  def by_remote(name)
     raise Hatchbox::Error, no_app_message unless config.exists?
 
     found = config.app_for(name)
-    raise Hatchbox::Error, "no app is listed for #{name} in #{config.path}\n\n#{envs_line}" if Hatchbox.blank?(found)
+    raise Hatchbox::Error, "no remote called #{name} in #{config.path}\n\n#{remotes_line}" if Hatchbox.blank?(found)
 
     @env = name
     @slug = found
@@ -706,7 +706,7 @@ class Hatchbox::Target
     name = config.envs.first if Hatchbox.blank?(name) && config.envs.uniq.length == 1
     raise Hatchbox::Error, multiple_message if Hatchbox.blank?(name)
 
-    by_env(name)
+    by_remote(name)
   end
 
   def no_app_message
@@ -714,21 +714,21 @@ class Hatchbox::Target
   end
 
   def multiple_message
-    "#{config.path} has more than one environment and no default line, so pick one with -e\n\n#{envs_line}"
+    "#{config.path} has more than one remote and no default line, so pick one with -r\n\n#{remotes_line}"
   end
 
-  def envs_line
+  def remotes_line
     return "it names no apps, add one with hatchbox git:remote" if config.envs.empty?
 
-    "environments it does know about:\n#{config.envs.uniq.map { |name| "  #{name}" }.join("\n")}"
+    "remotes it does know about:\n#{config.envs.uniq.map { |name| "  #{name}" }.join("\n")}"
   end
 end
 
 class Hatchbox::Session
-  attr_reader :env_flag
+  attr_reader :remote_flag
 
-  def initialize(env_flag: nil)
-    @env_flag = env_flag
+  def initialize(remote_flag: nil)
+    @remote_flag = remote_flag
   end
 
   def config
@@ -749,7 +749,7 @@ class Hatchbox::Session
 
   def token
     @token ||= begin
-      scope = @target ? @target.env : env_flag
+      scope = @target ? @target.env : remote_flag
       found = Hatchbox::TokenStore.new.read(env: scope)
       raise Hatchbox::Error, "no api token. run hatchbox auth:login or set HATCHBOX_API_TOKEN" if Hatchbox.blank?(found)
 
@@ -1286,7 +1286,7 @@ class Hatchbox::LogStream
   def give_up(state)
     puts
     puts("gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}".yellow)
-    puts("pick it back up with: hatchbox -e #{env} logs #{log_id}".dim)
+    puts("pick it back up with: hatchbox -r #{env} logs #{log_id}".dim)
     false
   end
 end
@@ -1461,7 +1461,7 @@ end
 
 class Hatchbox::Command
   APP_FLAGS = [
-    ["-e", "--env ENV", "environment in .hatchbox to run command against"]
+    ["-r", "--remote REMOTE", "environment in .hatchbox to run command against"]
   ].freeze
 
 
@@ -1727,7 +1727,7 @@ class Hatchbox::AuthWhoami < Hatchbox::Command
     accounts = client.get("/accounts").json || []
     puts("the token reaches")
     accounts.each { |account| puts("  #{account["name"]}, account #{account["id"]}") }
-    puts("token from #{Hatchbox::TokenStore.new.source(env: session.env_flag)}".dim)
+    puts("token from #{Hatchbox::TokenStore.new.source(env: session.remote_flag)}".dim)
     0
   end
 end
@@ -1961,7 +1961,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     return puts("add it to a .hatchbox with hatchbox git:remote --app #{slug}".dim) unless target
 
     file = Hatchbox::Config.new(target)
-    remote = Hatchbox.blank?(session.env_flag) ? "production" : session.env_flag
+    remote = Hatchbox.blank?(session.remote_flag) ? "production" : session.remote_flag
     existing = file.app_for(remote)
     unless Hatchbox.blank?(existing)
       puts("#{remote} is already #{existing} in #{file.path}, so it was left alone".yellow)
@@ -2122,14 +2122,21 @@ end
 class Hatchbox::Remotes < Hatchbox::Command
   describe "remotes",
     summary: "list the apps named in .hatchbox",
-    aliases: ["envs", "git:remotes"]
+    aliases: ["envs", "git:remotes"],
+    app: false
 
   def call
     none!
+    raise Hatchbox::Error, "no .hatchbox here or above #{Dir.pwd}, add one with hatchbox git:remote" unless config.exists?
+
     puts("remotes in #{config.path}")
+    current = begin
+      session.target.env
+    rescue Hatchbox::Error
+      nil
+    end
     config.apps.each do |name, slug|
-      current = name == env ? " (in use)".green : ""
-      puts("  #{name}, app #{slug}#{current}")
+      puts("  #{name}, app #{slug}#{name == current ? " (in use)".green : ""}")
     end
     0
   end
@@ -2141,19 +2148,19 @@ class Hatchbox::GitRemote < Hatchbox::Command
     usage: "git:remote [FILTER]",
     aliases: ["setup"],
     app: false,
-    flags: [[nil, "--app APP", "the app to write, instead of picking one"], [nil, "--as ENV", "the environment name, same as -e"]]
+    flags: [[nil, "--app APP", "the app to write, instead of picking one"], [nil, "--as REMOTE", "the remote name, same as -r"]]
 
   def call
     usage_error("one filter at a time") if positionals.length > 1
     Hatchbox::TokenStore.new(prompt: prompt).ensure_token
     @file = Hatchbox::Config.new(Hatchbox::Config.target)
     slug = Hatchbox.blank?(options[:app]) ? choose_app(positionals.first) : options[:app]
-    name = options[:as] || session.env_flag
-    name = ask_env(guess_remote(slug)) if Hatchbox.blank?(name)
-    validate(name)
-    return 1 unless replace?(env: name, app: slug)
+    remote = options[:as] || session.remote_flag
+    remote = ask_remote(guess_remote(slug)) if Hatchbox.blank?(remote)
+    validate(remote)
+    return 1 unless replace?(remote: remote, slug: slug)
 
-    write(env: name, app: slug)
+    write(remote: remote, slug: slug)
     0
   end
 
@@ -2211,53 +2218,55 @@ class Hatchbox::GitRemote < Hatchbox::Command
     { "" => "production", "prod" => "production", "stage" => "staging", "dev" => "development" }.fetch(found, found)
   end
 
-  def ask_env(suggested)
+  def ask_remote(suggested)
+    return suggested unless prompt.available?
+
     answer = prompt.ask(question: "call it what, here? [#{suggested}] ")
     Hatchbox.blank?(answer) ? suggested : answer
   end
 
-  def validate(env)
-    return unless env =~ /[:=\s]/
+  def validate(remote)
+    return unless remote =~ /[:=\s]/
 
-    raise Hatchbox::Error, "an environment name cannot hold a colon, an equals or a space"
+    raise Hatchbox::Error, "a remote name cannot hold a colon, an equals or a space"
   end
 
-  def replace?(env:, app:)
-    existing = file.exists? ? file.app_for(env) : nil
-    return true if Hatchbox.blank?(existing) || existing == app
+  def replace?(remote:, slug:)
+    existing = file.exists? ? file.app_for(remote) : nil
+    return true if Hatchbox.blank?(existing) || existing == slug
 
     puts
-    puts("#{env} is already #{existing} in #{file.path}".yellow)
+    puts("#{remote} is already #{existing} in #{file.path}".yellow)
     return true unless prompt.available? && Hatchbox.blank?(ENV["HATCHBOX_ASSUME_YES"])
-    return true if ["y", "yes"].include?(prompt.ask(question: "point it at #{app} instead? [y/N] ").to_s.downcase)
+    return true if ["y", "yes"].include?(prompt.ask(question: "point it at #{slug} instead? [y/N] ").to_s.downcase)
 
     puts("left alone")
     false
   end
 
-  def write(env:, app:)
-    file.set_app(env: env, app: app)
+  def write(remote:, slug:)
+    file.set_app(env: remote, app: slug)
     puts
-    puts("#{app} is #{env} in #{file.path}".green)
+    puts("#{slug} is #{remote} in #{file.path}".green)
     choose_default
     report
   end
 
   def choose_default
-    envs = file.envs
-    return if envs.length < 2 || !Hatchbox.blank?(file.get("default"))
+    remotes = file.envs
+    return if remotes.length < 2 || !Hatchbox.blank?(file.get("default"))
 
     puts
-    puts("there is more than one environment here now, so every command wants -e")
+    puts("there is more than one remote here now, so every command wants -r")
     puts("unless one of them is the default")
     return unless prompt.available?
 
-    set_default(envs, prompt.ask(question: "which should it be? (blank to always pass -e) "))
+    set_default(remotes, prompt.ask(question: "which should it be? (blank to always pass -r) "))
   end
 
-  def set_default(envs, answer)
+  def set_default(remotes, answer)
     return if Hatchbox.blank?(answer)
-    return puts("no environment called #{answer}, leaving the default unset".yellow) unless envs.include?(answer)
+    return puts("no remote called #{answer}, leaving the default unset".yellow) unless remotes.include?(answer)
 
     file.set(key: "default", value: answer)
     puts("default is #{answer}".green)
@@ -2265,8 +2274,8 @@ class Hatchbox::GitRemote < Hatchbox::Command
 
   def report
     puts
-    puts("environments in #{file.path}")
-    file.apps.each { |env, app| puts("  #{env}, app #{app}") }
+    puts("remotes in #{file.path}")
+    file.apps.each { |remote, slug| puts("  #{remote}, app #{slug}") }
   end
 end
 
@@ -3097,7 +3106,7 @@ class Hatchbox::Cli
 
     command = Hatchbox::Registry.find(name)
     unknown(name) unless command
-    command.call(session: Hatchbox::Session.new(env_flag: @env), args: rest)
+    command.call(session: Hatchbox::Session.new(remote_flag: @remote), args: rest)
   end
 
   private
@@ -3116,9 +3125,9 @@ class Hatchbox::Cli
       end
 
       case token
-      when "-e", "--env" then @env = value(token, tokens)
-      when /\A--env=(.*)\z/ then @env = Regexp.last_match(1)
-      when /\A-e(.+)\z/ then @env = Regexp.last_match(1)
+      when "-r", "--remote" then @remote = value(token, tokens)
+      when /\A--remote=(.*)\z/ then @remote = Regexp.last_match(1)
+      when /\A-r(.+)\z/ then @remote = Regexp.last_match(1)
       when "-h", "--help" then @help = true
       else rest << token
       end
@@ -3142,7 +3151,7 @@ class Hatchbox::Cli
   end
 
   def listing
-    puts("usage: hatchbox COMMAND [-e ENV] [options]")
+    puts("usage: hatchbox COMMAND [-r REMOTE] [options]")
     puts
     rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }
     width = rows.map { |klass| klass.meta[:name].length }.max
