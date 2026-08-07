@@ -2833,8 +2833,11 @@ class Hatchbox::Run < Hatchbox::Command
     usage: "run COMMAND",
     lenient: true,
     flags: [
+      ["-e", "--env ENV", "environment variables to set, like FOO=bar;BAZ=qux", :many],
       ["-s", "--server SERVER", "the server to run on, by name, id or role"],
-      ["-d", "--dyno DYNO", "run on the server this copy of a process is on, like sidekiq.2"]
+      ["-d", "--dyno DYNO", "run on the server this copy of a process is on, like sidekiq.2"],
+      [nil, "--no-tty", "force the command to not run in a tty"],
+      ["-x", "--exit-code", "passthrough the exit code of the remote command, which it always does"]
     ]
 
   def call
@@ -2842,11 +2845,26 @@ class Hatchbox::Run < Hatchbox::Command
     usage_error("Must specify COMMAND.") if command.strip.empty?
 
     target = ssh_target(dyno: options[:dyno], server: options[:server])
+    script = [exports, script_for(command: command, target: target)].reject { |part| part.empty? }.join("\n")
     ui.action("Running `#{command}` on #{label}") { |step| step.status = "up, #{target.label}" }
-    Hatchbox.run(target.ssh(command: target.login_shell(script_for(command: command, target: target)), tty: $stdin.tty? && $stdout.tty?))
+    Hatchbox.run(target.ssh(command: target.login_shell(script), tty: tty?))
   end
 
   private
+
+  def tty?
+    !options[:no_tty] && $stdin.tty? && $stdout.tty?
+  end
+
+  def exports
+    pairs = Array(options[:env]).flat_map { |text| text.split(";") }.map { |pair| pair.strip }.reject { |pair| pair.empty? }
+    pairs.map do |pair|
+      name, separator, value = pair.partition("=")
+      usage_error("#{pair} is invalid. --env takes KEY=VALUE pairs separated by semicolons.") if separator.empty? || name !~ /\A[A-Za-z_][A-Za-z0-9_]*\z/
+
+      "export #{name}=#{Shellwords.escape(value)}"
+    end.join("\n")
+  end
 
   def rails?(command)
     ["rails", "bin/rails"].include?(command) || command.start_with?("rails ", "bin/rails ")
