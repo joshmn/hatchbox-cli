@@ -2896,6 +2896,50 @@ class Hatchbox::PsExec < Hatchbox::Command
   end
 end
 
+class Hatchbox::PsForward < Hatchbox::Command
+  describe "ps:forward",
+    summary: "forward traffic on a local port to a server",
+    usage: "ps:forward PORT[,PORT...]",
+    flags: [
+      ["-p", "--local-port PORT", "local port to use, comma separated to match PORT"],
+      ["-d", "--dyno DYNO", "the server this copy of a process is on"],
+      ["-s", "--server SERVER", "the server, by name, id or role"]
+    ]
+
+  def call
+    remote = one_positional("PORT").split(",")
+    local = Hatchbox.blank?(options[:local_port]) ? remote : options[:local_port].split(",")
+    usage_error("--local-port needs as many ports as PORT has.") unless local.length == remote.length
+    raise Hatchbox::Error, "Ports are numbers." unless (remote + local).all? { |port| port =~ /\A[0-9]+\z/ }
+
+    target = ssh_target(dyno: options[:dyno], server: options[:server])
+    forwards = local.zip(remote).flat_map { |mine, theirs| ["-L", "127.0.0.1:#{mine}:localhost:#{theirs}"] }
+    $stderr.puts("SSH tunnel established.")
+    local.zip(remote).each { |mine, theirs| $stderr.puts("Forwarding localhost:#{mine} to #{target.label}:#{theirs}") }
+    $stderr.puts("Use CTRL+C to stop port forwarding")
+    Hatchbox.run(target.ssh(extra: ["-N", "-o", "ExitOnForwardFailure=yes"] + forwards))
+  end
+end
+
+class Hatchbox::PsSocks < Hatchbox::Command
+  describe "ps:socks",
+    summary: "launch a SOCKS proxy into one of the app's servers",
+    flags: [
+      ["-p", "--port PORT", "local port for the proxy, 1080 unless you say otherwise"],
+      ["-d", "--dyno DYNO", "the server this copy of a process is on"],
+      ["-s", "--server SERVER", "the server, by name, id or role"]
+    ]
+
+  def call
+    none!
+    port = options[:port] || "1080"
+    target = ssh_target(dyno: options[:dyno], server: options[:server])
+    $stderr.puts("SOCKSv5 proxy server started on port #{port}")
+    $stderr.puts("Use CTRL+C to stop the proxy")
+    Hatchbox.run(target.ssh(extra: ["-N", "-o", "ExitOnForwardFailure=yes", "-D", "127.0.0.1:#{port}"]))
+  end
+end
+
 class Hatchbox::PsCopy < Hatchbox::Command
   describe "ps:copy",
     summary: "copy a file off one of the app's servers",
