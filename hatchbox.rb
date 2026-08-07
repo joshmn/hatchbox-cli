@@ -2859,7 +2859,7 @@ class Hatchbox::Run < Hatchbox::Command
   end
 end
 
-class Hatchbox::Ssh < Hatchbox::Command
+class Hatchbox::PsExec < Hatchbox::Command
   describe "ps:exec",
     summary: "open an SSH session on one of the app's servers",
     usage: "ps:exec [COMMAND]",
