@@ -1446,13 +1446,16 @@ class Hatchbox::Operation
   attr_reader :client, :app, :seen, :headers
 
   def poll(log_id)
+    waited = 0
     loop do
       log = fetch(log_id)
       yield(log)
       state = log["state"].to_s
       return Result.new(log, state) if Hatchbox::FINISHED.include?(state)
+      raise Hatchbox::Error, "Gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}.\nPick it back up with hatchbox releases:output #{log_id}" if waited >= Hatchbox::MAX_WAIT_SECONDS
 
       sleep(Hatchbox::POLL_SECONDS)
+      waited += Hatchbox::POLL_SECONDS
     end
   rescue Interrupt
     $stderr.puts
