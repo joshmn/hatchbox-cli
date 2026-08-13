@@ -64,6 +64,7 @@ module Hatchbox
   MAX_WAIT_SECONDS = 3600
   DEFAULT_SSH_USER = "deploy"
   DEFAULT_SSH_PORT = "22"
+  FINISHED = ["completed", "failed", "aborted"].freeze
   APP_ROLES = ["web", "worker", "cron", "app"].freeze
 
   class Error < StandardError; end
@@ -1392,54 +1393,71 @@ class Hatchbox::Tunnel
   end
 end
 
-class Hatchbox::LogStream
-  ENDED = ["completed", "failed", "aborted"].freeze
+class Hatchbox::Operation
+  Result = Struct.new(:log, :state) do
+    def ok?
+      state == "completed"
+    end
+  end
 
-  def initialize(client:, app:, log_id:)
+  def initialize(client:, app: nil)
     @client = client
     @app = app
-    @log_id = log_id
     @seen = {}
     @headers = {}
   end
 
-  def show
-    data = fetch
-    Hatchbox::Ui.header("#{data["name"] || "Release"} #{log_id}")
-    Hatchbox::Ui.styled_hash([["State", data["state"]], ["Commit", commit_line(data)], ["By", data["username"]]])
-    puts
-    follow
+  def fetch(log_id)
+    client.get("/logs/#{log_id}").json || {}
   end
 
-  def follow
-    waited = 0
-    loop do
-      data = fetch
-      emit(key: "parent", text: data["body"].to_s)
-      emit_children(data)
-      state = data["state"].to_s
-      return finish(state) if ENDED.include?(state)
-      return give_up(state) if waited >= Hatchbox::MAX_WAIT_SECONDS
+  def wait(log_id)
+    poll(log_id) { |_log| nil }
+  end
 
-      sleep(Hatchbox::POLL_SECONDS)
-      waited += Hatchbox::POLL_SECONDS
+  def follow(log_id)
+    poll(log_id) do |log|
+      emit(key: "parent", text: log["body"].to_s)
+      emit_children(log)
     end
+  end
+
+  def report_failure(result)
+    log = result.log || {}
+    children = (log["child_logs"] || []).reject { |child| child["body"].to_s.empty? }
+    pool = children.select { |child| child["state"].to_s != "completed" }
+    pool = children if pool.empty?
+    if pool.empty?
+      text = log["body"].to_s
+      $stderr.print(text)
+      $stderr.puts unless text.empty? || text.end_with?("\n")
+    else
+      pool.each do |child|
+        $stderr.puts("Output from #{server_label(child)}")
+        $stderr.print(child["body"].to_s)
+        $stderr.puts unless child["body"].to_s.end_with?("\n")
+      end
+    end
+    Hatchbox::Ui.error("#{log["name"]} #{result.state}. The full log is hatchbox releases:output #{log["id"]}")
   end
 
   private
 
-  attr_reader :client, :app, :log_id, :seen, :headers
+  attr_reader :client, :app, :seen, :headers
 
-  def fetch
-    client.get("/logs/#{log_id}").json || {}
-  end
+  def poll(log_id)
+    loop do
+      log = fetch(log_id)
+      yield(log)
+      state = log["state"].to_s
+      return Result.new(log, state) if Hatchbox::FINISHED.include?(state)
 
-  def commit_line(data)
-    sha = data["commit_sha"].to_s
-    return nil if sha.empty?
-
-    subject = data["description"].to_s.strip.split("\n").first.to_s
-    subject.empty? ? sha[0, 7] : "#{sha[0, 7]} #{subject}"
+      sleep(Hatchbox::POLL_SECONDS)
+    end
+  rescue Interrupt
+    $stderr.puts
+    Hatchbox::Ui.warning("Stopped watching. It keeps running on Hatchbox; pick it back up with hatchbox releases:output #{log_id}")
+    raise
   end
 
   def emit(key:, text:)
@@ -1455,31 +1473,23 @@ class Hatchbox::LogStream
     seen[key] = text
   end
 
-  def emit_children(data)
-    (data["child_logs"] || []).each do |child|
+  def emit_children(log)
+    (log["child_logs"] || []).each do |child|
       text = child["body"].to_s
       id = child["id"]
       if !text.empty? && !headers[id]
         puts
-        puts("Output from #{app.server_name(child["loggable_id"])}".cyan)
+        puts("Output from #{server_label(child)}".cyan)
         headers[id] = true
       end
       emit(key: "child-#{id}", text: text)
     end
   end
 
-  def finish(state)
-    puts
-    return true if state == "completed"
+  def server_label(child)
+    return "server #{child["loggable_id"]}" unless app
 
-    Hatchbox::Ui.error("#{state.capitalize}. Read it again with hatchbox releases:output #{log_id}")
-    false
-  end
-
-  def give_up(state)
-    puts
-    Hatchbox::Ui.warning("Gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}.\nPick it back up with hatchbox releases:output #{log_id}")
-    false
+    app.server_name(child["loggable_id"])
   end
 end
 
@@ -1739,16 +1749,23 @@ class Hatchbox::Command
     Hatchbox::Ui
   end
 
-  def stream_for(log_id)
-    Hatchbox::LogStream.new(client: client, app: app, log_id: log_id)
-  end
-
-  def follow_log(log_id)
-    stream_for(log_id).follow ? 0 : 1
+  def operation
+    @operation ||= Hatchbox::Operation.new(client: client, app: meta[:app] ? app : nil)
   end
 
   def show_log(log_id)
-    stream_for(log_id).show ? 0 : 1
+    log = operation.fetch(log_id)
+    print(log["body"].to_s)
+    (log["child_logs"] || []).each do |child|
+      text = child["body"].to_s
+      next if text.empty?
+
+      puts
+      puts("Output from #{app.server_name(child["loggable_id"])}".cyan)
+      print(text)
+    end
+    $stdout.flush
+    log["state"] == "completed" ? 0 : 1
   end
 
   def remember_log(kind, log_id)
@@ -1764,8 +1781,15 @@ class Hatchbox::Command
     end
 
     remember_log(kind, log_id) if kind
-    ui.action(message) { |step| step.status = "queued, release #{log_id}" }
-    follow_log(log_id)
+    result = nil
+    ui.action(message) do |step|
+      result = operation.wait(log_id)
+      step.status = result.ok? ? "done" : ui.paint(result.state.to_s, 31)
+    end
+    return 0 if result.ok?
+
+    operation.report_failure(result)
+    1
   end
 
   def one_positional(what)
@@ -2555,6 +2579,16 @@ end
 class Hatchbox::Command
   private
 
+  def follow_deploy(log_id)
+    result = operation.follow(log_id)
+    $stdout.puts
+    ui.action("Verifying deploy") { |step| step.status = result.ok? ? "done" : ui.paint(result.state.to_s, 31) }
+    return 0 if result.ok?
+
+    ui.error("The deploy #{result.state}. Read it again with hatchbox releases:output #{log_id}")
+    1
+  end
+
   def dyno_server(dyno:, server:)
     return nil if Hatchbox::SshTarget.pinned?(session)
     return app.formation.find_dyno(dyno).server unless Hatchbox.blank?(dyno)
@@ -3000,7 +3034,7 @@ class Hatchbox::Deploy < Hatchbox::Command
     end
 
     ui.action("Deploying #{Hatchbox.blank?(sha) ? app.details["branch"] : sha[0, 7]} to #{label}") { |step| step.status = "queued, release #{log_id}" }
-    follow_log(log_id)
+    follow_deploy(log_id)
   end
 end
 
