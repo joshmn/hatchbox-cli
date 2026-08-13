@@ -1501,11 +1501,11 @@ class Hatchbox::Operation
 end
 
 class Hatchbox::Journal
-  META = /([\\^$.|?*+()\[\]{}])/.freeze
+  FIELDS = "MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_USER_UNIT,UNIT,USER_UNIT,SYSLOG_IDENTIFIER"
+  LIVE = '{"__hbx":"live"}'
 
-  def initialize(app_name:, process_name: nil, lines: 100, follow: false, since: nil, units_only: false)
-    @app_name = app_name.to_s
-    @process_name = process_name.to_s
+  def initialize(units: [], lines: 100, follow: false, since: nil, units_only: false)
+    @units = units
     @lines = lines
     @follow = follow
     @since = since
@@ -1515,84 +1515,253 @@ class Hatchbox::Journal
   def script
     [
       "set -u",
-      "list() { systemctl \"$@\" list-units --type=service --all --plain --no-legend --no-pager 2>/dev/null | awk '{print $1}'; }",
-      "scope=system",
-      "names=$(list)",
-      "units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(primary)} || true)",
-      "if [ -z \"$units\" ]; then units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(secondary)} || true); fi",
-      "if [ -z \"$units\" ]; then",
-      "  scope=user",
-      "  names=$(list --user)",
-      "  units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(primary)} || true)",
-      "  if [ -z \"$units\" ]; then units=$(printf '%s\\n' \"$names\" | grep -iE #{quote(secondary)} || true); fi",
-      "fi",
-      "if [ -z \"$units\" ]; then",
-      "  echo #{quote(miss)} >&2",
-      "  echo 'Services on this server:' >&2",
-      "  list >&2",
-      "  list --user >&2",
-      "  exit 1",
-      "fi",
+      "[ -n \"${XDG_RUNTIME_DIR:-}\" ] || export XDG_RUNTIME_DIR=/run/user/$(id -u)",
       "args=''",
-      "for u in $units; do args=\"$args -u $u\"; done",
-      units_only ? report : tail
+      "found=0",
+      "system=0",
+      *units.map { |unit| check(unit) },
+      "if [ \"$found\" = 0 ]; then exit 3; fi",
+      "if [ \"$system\" = 1 ] && [ \"$(id -u)\" != 0 ] && ! id -nG | tr ' ' '\\n' | grep -qxE 'adm|systemd-journal'; then echo #{quote(JSON.dump("__hbx" => "blind"))}; fi",
+      *reading
     ].join("\n")
   end
 
   private
 
-  attr_reader :app_name, :process_name, :lines, :follow, :since, :units_only
+  attr_reader :units, :lines, :follow, :since, :units_only
 
-  def report
+  def check(unit)
+    name = quote(unit)
     [
-      "echo \"scope $scope\"",
-      "printf '%s\\n' $units"
+      "if systemctl --user cat #{name} >/dev/null 2>&1; then args=\"$args --user-unit=#{unit}\"; found=1; echo #{marker("unit", unit, "user")}",
+      "elif systemctl cat #{name} >/dev/null 2>&1; then args=\"$args -u #{unit}\"; found=1; system=1; echo #{marker("unit", unit, "system")}",
+      "else echo #{marker("missing", unit, nil)}; fi"
     ].join("\n")
   end
 
-  def tail
+  def marker(kind, unit, scope)
+    data = { "__hbx" => kind, "unit" => unit }
+    data["scope"] = scope if scope
+    quote(JSON.dump(data))
+  end
+
+  def reading
+    return ["exit 0"] if units_only
+
+    common = "journalctl -q --all -o json --output-fields=#{FIELDS} $args"
+    window = "-n #{lines.to_i}#{Hatchbox.blank?(since) ? "" : " --since #{quote(since)}"}"
+    return ["exec #{common} #{window} --no-pager"] unless follow
+
     [
-      "if [ \"$scope\" = user ]; then",
-      "  exec journalctl --user $args #{flags}",
-      "fi",
-      "probe=$(journalctl -n 1 --no-pager $args 2>&1 || true)",
-      "case \"$probe\" in",
-      "  *'No journal files'*|*'Permission denied'*|*'systemd-journal'*) exec sudo journalctl $args #{flags} ;;",
-      "  *) exec journalctl $args #{flags} ;;",
-      "esac"
-    ].join("\n")
-  end
-
-  def flags
-    parts = ["-n", lines.to_s]
-    parts.concat(["--since", Shellwords.escape(since)]) unless Hatchbox.blank?(since)
-    parts << (follow ? "-f" : "--no-pager")
-    parts.join(" ")
-  end
-
-  def primary
-    return "^.*#{safe(app_name)}.*\\.service$" if process_name.empty?
-
-    "^(.*#{safe(app_name)}.*#{safe(process_name)}|.*#{safe(process_name)}.*#{safe(app_name)}).*\\.service$"
-  end
-
-  def secondary
-    return "^.*#{safe(app_name)}.*\\.service$" if process_name.empty?
-
-    "^.*#{safe(process_name)}.*\\.service$"
-  end
-
-  def miss
-    wanted = process_name.empty? ? app_name : "#{app_name} and #{process_name}"
-    "No systemd service on this server has #{wanted} in its name, so there is no journal to read."
-  end
-
-  def safe(text)
-    text.gsub(META) { "\\#{Regexp.last_match(1)}" }
+      "out=$(#{common} #{window} --no-pager)",
+      "[ -n \"$out\" ] && printf '%s\\n' \"$out\"",
+      "echo #{quote(LIVE)}",
+      "cursor=$(printf '%s\\n' \"$out\" | tail -n 1 | sed -n 's/^{ *\"__CURSOR\" *: *\"\\([^\"]*\\)\".*/\\1/p')",
+      "if [ -n \"$cursor\" ]; then exec #{common} -f --after-cursor=\"$cursor\"; fi",
+      "exec #{common} -f -n 0"
+    ]
   end
 
   def quote(text)
     Shellwords.escape(text)
+  end
+end
+
+class Hatchbox::LogReader
+  PALETTE = [36, 32, 33, 35, 34, 31].freeze
+
+  Plan = Struct.new(:target, :units, keyword_init: true)
+  Entry = Struct.new(:time, :source, :dyno, :message, :color, :order)
+
+  def initialize(plans:, lines:, follow:, since:, units_only:)
+    @plans = plans
+    @lines = lines
+    @follow = follow
+    @since = since
+    @units_only = units_only
+    @queue = Queue.new
+    @children = []
+    @seen = Hash.new { |hash, key| hash[key] = {} }
+    @missing = []
+    @found = Hash.new { |hash, key| hash[key] = [] }
+    @blind = []
+    @order = 0
+  end
+
+  def run
+    start
+    backlog = collect
+    report_units if units_only
+    return units_only_status if units_only
+
+    print_entries(backlog.sort_by { |entry| [entry.time, entry.order] }.last(lines))
+    stream if follow
+    finish
+  ensure
+    stop
+  end
+
+  private
+
+  attr_reader :plans, :lines, :follow, :since, :units_only, :queue, :children, :seen
+
+  def start
+    plans.each_with_index do |plan, index|
+      journal = Hatchbox::Journal.new(
+        units: plan.units.keys,
+        lines: lines,
+        follow: follow,
+        since: since,
+        units_only: units_only
+      )
+      argv = plan.target.ssh(command: "bash -c #{Shellwords.escape(journal.script)}")
+      stdin, stdout, stderr, waiter = Open3.popen3(*argv)
+      stdin.close
+      children << waiter
+      Thread.new { stdout.each_line { |line| queue << [:line, index, line] }; queue << [:eof, index, nil] }
+      Thread.new { stderr.each_line { |line| queue << [:err, index, line] } }
+      Thread.new { queue << [:exit, index, Hatchbox.exit_code(waiter.value)] }
+    end
+  rescue Errno::ENOENT
+    raise Hatchbox::Error, "ssh is required and is not installed."
+  end
+
+  def collect
+    @live = {}
+    @closed = {}
+    @exits = {}
+    entries = []
+    until plans.each_index.all? { |index| settled?(index) }
+      kind, index, payload = queue.pop
+      handle(kind: kind, index: index, payload: payload) { |entry| entries << entry }
+    end
+    entries
+  end
+
+  def stream
+    until plans.each_index.all? { |index| @exits.key?(index) && @closed[index] }
+      kind, index, payload = queue.pop
+      handle(kind: kind, index: index, payload: payload) { |entry| print_entries([entry]) }
+    end
+  end
+
+  def settled?(index)
+    return true if @exits.key?(index) && @closed[index]
+    return false unless follow
+
+    @live[index] || (@exits.key?(index) && @closed[index])
+  end
+
+  def handle(kind:, index:, payload:)
+    case kind
+    when :err
+      $stderr.print(plans.length > 1 ? "#{plans[index].target.label}: #{payload}" : payload)
+    when :eof
+      @closed[index] = true
+    when :exit
+      @exits[index] = payload
+    when :line
+      entry = parse(index: index, text: payload)
+      yield(entry) if entry
+    end
+  end
+
+  def parse(index:, text:)
+    return nil if text.strip.empty?
+
+    data = JSON.parse(text)
+    return marker(index: index, data: data) if data.key?("__hbx")
+
+    cursor = data["__CURSOR"].to_s
+    return nil if !cursor.empty? && seen[index].key?(cursor)
+
+    seen[index][cursor] = true unless cursor.empty?
+    build(plan: plans[index], data: data)
+  rescue JSON::ParserError
+    $stderr.print(text)
+    nil
+  end
+
+  def marker(index:, data:)
+    case data["__hbx"]
+    when "live" then @live[index] = true
+    when "missing" then @missing << [plans[index].target.label, data["unit"]]
+    when "unit" then @found[index] << "#{data["unit"]} (#{data["scope"]})"
+    when "blind" then @blind << plans[index].target.label
+    end
+    nil
+  end
+
+  def build(plan:, data:)
+    unit, kind = locate(plan: plan, data: data)
+    dyno = unit ? plan.units[unit] : nil
+    dyno ||= { name: (data["_SYSTEMD_USER_UNIT"] || data["_SYSTEMD_UNIT"] || data["SYSLOG_IDENTIFIER"]).to_s.sub(/\.service\z/, ""), color: 37 }
+    @order += 1
+    Entry.new(time_of(data), kind || "app", dyno[:name], message_of(data["MESSAGE"]), dyno[:color], @order)
+  end
+
+  def locate(plan:, data:)
+    found = [data["_SYSTEMD_USER_UNIT"], data["_SYSTEMD_UNIT"]].find { |unit| plan.units.key?(unit) }
+    return [found, "app"] if found
+
+    found = [data["USER_UNIT"], data["UNIT"]].find { |unit| plan.units.key?(unit) }
+    return [found, "systemd"] if found
+
+    [nil, nil]
+  end
+
+  def time_of(data)
+    micros = data["__REALTIME_TIMESTAMP"].to_i
+    Time.at(micros / 1_000_000, micros % 1_000_000, :usec).utc
+  end
+
+  def message_of(value)
+    text = value.is_a?(Array) ? value.pack("C*").force_encoding(Encoding::UTF_8).scrub : value.to_s
+    text.chomp
+  end
+
+  def print_entries(entries)
+    entries.each do |entry|
+      label = "#{entry.source}[#{entry.dyno}]:"
+      label = "\e[#{entry.color}m#{label}\e[0m" if Hatchbox.color?
+      $stdout.puts("#{entry.time.strftime("%Y-%m-%dT%H:%M:%S.%6N+00:00")} #{label} #{entry.message}")
+    end
+    $stdout.flush
+  end
+
+  def report_units
+    plans.each_with_index do |plan, index|
+      Hatchbox::Ui.header("#{plan.target.label} (#{plan.target.host})")
+      @found[index].each { |line| puts(line) }
+      @missing.select { |label, _unit| label == plan.target.label }.each { |_label, unit| puts("#{unit} (not on this server)") }
+      puts
+    end
+  end
+
+  def units_only_status
+    @exits.values.all? { |code| code.zero? } ? 0 : 1
+  end
+
+  def finish
+    @missing.each { |label, unit| Hatchbox::Ui.warning("There is no #{unit} on #{label}.") }
+    @blind.uniq.each { |label| Hatchbox::Ui.warning("The deploy user on #{label} cannot read the system journal. Add it to the systemd-journal group to see those lines.") }
+    failed = @exits.select { |_index, code| code != 0 && code != 130 && code != 143 }
+    return 0 if failed.empty?
+    return 0 if failed.length < plans.length
+
+    raise Hatchbox::Error, "No systemd unit to read. Try hatchbox logs --units to see what it looked for." if failed.values.uniq == [3]
+
+    failed.values.first
+  end
+
+  def stop
+    children.each do |waiter|
+      next unless waiter.alive?
+
+      Process.kill("TERM", waiter.pid)
+    rescue SystemCallError
+      nil
+    end
   end
 end
 
@@ -2883,9 +3052,9 @@ class Hatchbox::Logs < Hatchbox::Command
       ["-d", "--dyno DYNO", "only this process or copy of it, like sidekiq or server.2"],
       ["-p", "--process-type TYPE", "only this process type"],
       [nil, "--ps TYPE", "same as --process-type"],
-      ["-s", "--server SERVER", "the server to read, by name, id or role"],
+      ["-s", "--server SERVER", "only the server with this name, id or role"],
       [nil, "--since WHEN", "only lines since this, anything journalctl --since takes, like '1 hour ago'"],
-      [nil, "--units", "list the systemd units it would read, and stop"]
+      [nil, "--units", "list the systemd units it would read on each server, and stop"]
     ]
 
   def call
@@ -2893,26 +3062,62 @@ class Hatchbox::Logs < Hatchbox::Command
     wanted = positionals.first
     raise Hatchbox::Error, "logs reads the running app. A Hatchbox log id goes to hatchbox releases:output #{wanted}" if wanted.to_s =~ /\A[0-9]+\z/
 
-    type = options[:process_type] || options[:ps] || wanted || options[:dyno].to_s.sub(/\.[0-9]+\z/, "")
-    process = Hatchbox.blank?(type) ? nil : app.formation.find_process(type)
-    dyno = options[:dyno]
-    dyno = process["name"] if Hatchbox.blank?(dyno) && process && Hatchbox.blank?(options[:server])
-    target = ssh_target(dyno: dyno, server: options[:server])
-    ui.note("#{process ? process["name"] : "Every process"} on #{target.label}")
-    Hatchbox.run(target.ssh(command: target.login_shell(journal(process)), tty: $stdout.tty?))
-  end
-
-  private
-
-  def journal(process)
-    Hatchbox::Journal.new(
-      app_name: app.name,
-      process_name: process ? process["name"] : nil,
+    Hatchbox::LogReader.new(
+      plans: plans(type: options[:process_type] || options[:ps] || wanted),
       lines: options[:num] || 100,
       follow: options[:tail] || options[:follow],
       since: options[:since],
       units_only: options[:units]
-    ).script
+    ).run
+  end
+
+  private
+
+  def plans(type:)
+    dyno = options[:dyno].to_s
+    formation = app.formation
+    raise Hatchbox::Error, "#{label} has no processes, so there is no journal to read." if formation.processes.empty?
+
+    dynos = pick(formation: formation, dyno: dyno, type: type)
+    return [pinned_plan(dynos)] if Hatchbox::SshTarget.pinned?(session)
+
+    unless Hatchbox.blank?(options[:server])
+      server = formation.find_server(options[:server])
+      dynos = dynos.select { |row| row.server["id"] == server["id"] }
+      raise Hatchbox::Error, "None of those processes run on #{server["name"]}." if dynos.empty?
+    end
+    raise Hatchbox::Error, "Those processes run on no active server." if dynos.empty?
+
+    dynos.group_by { |row| row.server["id"] }.map do |_id, group|
+      Hatchbox::LogReader::Plan.new(
+        target: Hatchbox::SshTarget.new(session: session, server: group.first.server),
+        units: group.to_h { |row| [unit(row.process), { name: row.name, color: color(row.process) }] }
+      )
+    end
+  end
+
+  def pick(formation:, dyno:, type:)
+    return [formation.find_dyno(dyno)] if dyno =~ /\.[0-9]+\z/
+    return formation.dynos(formation.find_process(dyno)) unless dyno.empty?
+    return formation.dynos(formation.find_process(type)) unless Hatchbox.blank?(type)
+
+    formation.dynos
+  end
+
+  def pinned_plan(dynos)
+    units = {}
+    pool = dynos.empty? ? app.formation.processes.map { |process| Hatchbox::Formation::Dyno.new(process, {}, 1) } : dynos
+    pool.each { |row| units[unit(row.process)] ||= { name: "#{row.type}.1", color: color(row.process) } }
+    Hatchbox::LogReader::Plan.new(target: Hatchbox::SshTarget.new(session: session), units: units)
+  end
+
+  def unit(process)
+    "#{app.name}-#{process["name"]}.service"
+  end
+
+  def color(process)
+    index = app.processes.index(process) || 0
+    Hatchbox::LogReader::PALETTE[index % Hatchbox::LogReader::PALETTE.length]
   end
 end
 
