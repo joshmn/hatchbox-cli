@@ -1394,9 +1394,9 @@ class Hatchbox::Tunnel
 end
 
 class Hatchbox::Operation
-  Result = Struct.new(:log, :state) do
+  Result = Struct.new(:log, :state, :gone) do
     def ok?
-      state == "completed"
+      gone || state == "completed"
     end
   end
 
@@ -1411,12 +1411,12 @@ class Hatchbox::Operation
     client.get("/logs/#{log_id}").json || {}
   end
 
-  def wait(log_id)
-    poll(log_id) { |_log| nil }
+  def wait(log_id, gone_ok: false)
+    poll(log_id, gone_ok: gone_ok) { |_log| nil }
   end
 
-  def follow(log_id)
-    poll(log_id) do |log|
+  def follow(log_id, gone_ok: false)
+    poll(log_id, gone_ok: gone_ok) do |log|
       emit(key: "parent", text: log["body"].to_s)
       emit_children(log)
     end
@@ -1445,13 +1445,17 @@ class Hatchbox::Operation
 
   attr_reader :client, :app, :seen, :headers
 
-  def poll(log_id)
+  def poll(log_id, gone_ok:)
     waited = 0
     loop do
-      log = fetch(log_id)
+      response = client.raw("GET", "/logs/#{log_id}")
+      return Result.new(nil, "completed", true) if response.code == 404 && gone_ok
+      raise Hatchbox::Error, client.error_message(response) unless response.ok?
+
+      log = response.json || {}
       yield(log)
       state = log["state"].to_s
-      return Result.new(log, state) if Hatchbox::FINISHED.include?(state)
+      return Result.new(log, state, false) if Hatchbox::FINISHED.include?(state)
       raise Hatchbox::Error, "Gave up watching after #{Hatchbox::MAX_WAIT_SECONDS / 60} minutes, still #{state}.\nPick it back up with hatchbox releases:output #{log_id}" if waited >= Hatchbox::MAX_WAIT_SECONDS
 
       sleep(Hatchbox::POLL_SECONDS)
@@ -1618,6 +1622,7 @@ class Hatchbox::Command
     ["-r", "--remote REMOTE", "environment in .hatchbox to run command against"]
   ].freeze
 
+  WAIT_FLAG = [nil, "--no-wait", "return once Hatchbox has queued it, without waiting for it to finish"].freeze
 
   class << self
     attr_reader :meta
@@ -1777,16 +1782,17 @@ class Hatchbox::Command
     config.set(key: "last_#{kind}:#{env}", value: log_id)
   end
 
-  def settle(message, log_id, kind: nil)
-    if Hatchbox.blank?(log_id)
-      ui.action(message) { nil }
+  def queued(message, log_id, gone_ok: false)
+    raise Hatchbox::Error, "Hatchbox accepted it but returned no log id." if Hatchbox.blank?(log_id)
+
+    if options[:no_wait]
+      ui.action(message) { |step| step.status = "done, queued as #{log_id}" }
       return 0
     end
 
-    remember_log(kind, log_id) if kind
     result = nil
     ui.action(message) do |step|
-      result = operation.wait(log_id)
+      result = operation.wait(log_id, gone_ok: gone_ok)
       step.status = result.ok? ? "done" : ui.paint(result.state.to_s, 31)
     end
     return 0 if result.ok?
@@ -2160,13 +2166,16 @@ class Hatchbox::AppsDestroy < Hatchbox::Command
     summary: "permanently destroy an app",
     usage: "apps:destroy [APP]",
     aliases: ["destroy"],
-    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
+    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"], WAIT_FLAG]
 
   def call
     usage_error("Only one app at a time.") if positionals.length > 1
     name = app.name
     confirm(expected: name, lines: ["This command will destroy #{name}, its folder and services on every server.", "Its databases are detached, not deleted."])
-    ui.action("Destroying #{name} (databases are detached, not deleted)") { client.delete("/apps/#{app_id}", body: { "name" => name }) }
+    log_id = (client.delete("/apps/#{app_id}", body: { "name" => name }).json || {})["id"]
+    code = queued("Destroying #{name} (databases are detached, not deleted)", log_id, gone_ok: true)
+    return code unless code.zero?
+
     gone = config.remove_app_id(app_id)
     ui.note("removed #{ui.list(gone)} from #{config.path}") if gone.any?
     0
@@ -2184,7 +2193,7 @@ class Hatchbox::AppsRename < Hatchbox::Command
     summary: "rename an app, which takes it down while it moves",
     usage: "apps:rename NEWNAME",
     aliases: ["rename"],
-    flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"]]
+    flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"], WAIT_FLAG]
 
   def call
     new_name = one_positional("NEWNAME")
@@ -2194,7 +2203,10 @@ class Hatchbox::AppsRename < Hatchbox::Command
     raise Hatchbox::Error, "New name must be different from the current name." if new_name == old
 
     confirm(expected: old, lines: ["Renaming #{old} stops its processes and moves its folder, so it is down until this finishes."])
-    ui.action("Renaming #{old} to #{new_name}") { client.post("/apps/#{app_id}/rename", body: { "app" => { "name" => new_name } }) }
+    log_id = (client.post("/apps/#{app_id}/rename", body: { "app" => { "name" => new_name } }).json || {})["id"]
+    code = queued("Renaming #{old} to #{new_name}", log_id)
+    return code unless code.zero?
+
     moved = config.rename_app_id(app_id: app_id, slug: "#{app_id}-#{new_name}")
     moved.each { |remote| puts(".hatchbox remote #{remote} updated") }
     0
@@ -2667,18 +2679,21 @@ class Hatchbox::PsRestart < Hatchbox::Command
   describe "ps:restart",
     summary: "restart every process, or one process type",
     usage: "ps:restart [TYPE]",
-    aliases: ["restart"]
+    aliases: ["restart"],
+    flags: [WAIT_FLAG]
 
   def call
     usage_error("One process type at a time.") if positionals.length > 1
     if positionals.empty?
       log_id = (client.post("/apps/#{app_id}/restart").json || {})["id"]
-      return settle("Restarting all processes on #{label}", log_id, kind: "restart")
+      remember_log("restart", log_id)
+      return queued("Restarting all processes on #{label}", log_id)
     end
 
     process = app.formation.find_process(positionals.first.sub(/\.[0-9]+\z/, ""))
     log_id = (client.post("/apps/#{app_id}/processes/#{process["id"]}/restart").json || {})["id"]
-    settle("Restarting #{process["name"]} on #{label}", log_id, kind: "restart")
+    remember_log("restart", log_id)
+    queued("Restarting #{process["name"]} on #{label}", log_id)
   end
 end
 
@@ -2686,24 +2701,38 @@ class Hatchbox::PsStop < Hatchbox::Command
   describe "ps:stop",
     summary: "turn a process off and leave it off",
     usage: "ps:stop TYPE",
-    aliases: ["ps:kill"]
+    aliases: ["ps:kill"],
+    flags: [WAIT_FLAG]
 
   def call
     process = app.formation.find_process(one_positional("TYPE").sub(/\.[0-9]+\z/, ""))
     data = client.delete("/apps/#{app_id}/processes/#{process["id"]}/activation").json || {}
-    settle("Stopping #{process["name"]} on #{label}", data["log_id"])
+    toggled(data: data, message: "Stopping #{process["name"]} on #{label}", already: "it was already off")
+  end
+
+  private
+
+  def toggled(data:, message:, already:)
+    log_id = data["log_id"]
+    if Hatchbox.blank?(log_id)
+      ui.action(message) { |step| step.status = "done, #{already}" }
+      return 0
+    end
+
+    queued(message, log_id)
   end
 end
 
-class Hatchbox::PsStart < Hatchbox::Command
+class Hatchbox::PsStart < Hatchbox::PsStop
   describe "ps:start",
     summary: "turn a stopped process back on",
-    usage: "ps:start TYPE"
+    usage: "ps:start TYPE",
+    flags: [WAIT_FLAG]
 
   def call
     process = app.formation.find_process(one_positional("TYPE").sub(/\.[0-9]+\z/, ""))
     data = client.post("/apps/#{app_id}/processes/#{process["id"]}/activation").json || {}
-    settle("Starting #{process["name"]} on #{label}", data["log_id"])
+    toggled(data: data, message: "Starting #{process["name"]} on #{label}", already: "it was already on")
   end
 end
 
@@ -2777,7 +2806,7 @@ class Hatchbox::PsCreate < Hatchbox::Command
   describe "ps:create",
     summary: "add a process to the app",
     usage: "ps:create NAME --start COMMAND (--roles LIST | --server SERVER)",
-    flags: Hatchbox::ProcessFields::FLAGS
+    flags: Hatchbox::ProcessFields::FLAGS + [WAIT_FLAG]
 
   def call
     usage_error("Only one name at a time.") if positionals.length > 1
@@ -2789,7 +2818,7 @@ class Hatchbox::PsCreate < Hatchbox::Command
     raise Hatchbox::Error, "#{body["name"]} is not a name Hatchbox takes. Use letters, numbers, hyphens and underscores." unless body["name"] =~ Hatchbox::ProcessFields::NAME
 
     data = client.post("/apps/#{app_id}/processes", body: { "process" => body }).json || {}
-    code = settle("Creating #{body["name"]} on #{label}", data["log_id"])
+    code = Hatchbox.blank?(data["log_id"]) ? 0 : queued("Creating #{body["name"]} on #{label}", data["log_id"])
     show(data)
     code
   end
@@ -2801,15 +2830,19 @@ class Hatchbox::PsUpdate < Hatchbox::Command
   describe "ps:update",
     summary: "change a process",
     usage: "ps:update TYPE [--start COMMAND] [--roles LIST] ...",
-    flags: Hatchbox::ProcessFields::FLAGS
+    flags: Hatchbox::ProcessFields::FLAGS + [WAIT_FLAG]
 
   def call
     process = app.formation.find_process(one_positional("TYPE"))
     body = process_body
     usage_error("Nothing to change. See hatchbox help ps:update.") if body.empty?
 
+    message = "Updating #{process["name"]} on #{label}"
     data = client.patch("/apps/#{app_id}/processes/#{process["id"]}", body: { "process" => body }).json || {}
-    settle("Updating #{process["name"]} on #{label}", data["log_id"])
+    return queued(message, data["log_id"]) unless Hatchbox.blank?(data["log_id"])
+
+    ui.action(message) { nil }
+    0
   end
 end
 
@@ -2817,14 +2850,14 @@ class Hatchbox::PsDestroy < Hatchbox::Command
   describe "ps:destroy",
     summary: "stop a process and delete it from every server",
     usage: "ps:destroy TYPE",
-    flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"]]
+    flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"], WAIT_FLAG]
 
   def call
     process = app.formation.find_process(one_positional("TYPE"))
     name = process["name"].to_s
     confirm(expected: name, lines: ["This command will stop #{name} and remove its systemd unit from every server on #{label}."])
     log_id = (client.delete("/apps/#{app_id}/processes/#{process["id"]}").json || {})["id"]
-    settle("Destroying #{name} on #{label}", log_id)
+    queued("Destroying #{name} on #{label}", log_id)
   end
 end
 
@@ -3013,11 +3046,12 @@ end
 
 class Hatchbox::Deploy < Hatchbox::Command
   describe "deploy",
-    summary: "deploy the app's branch, or one commit",
+    summary: "deploy the app's branch, or one commit, and stream the build",
     flags: [
       [nil, "--sha SHA", "deploy this commit instead of the tip of the branch"],
-      [nil, "--watch", "stream the build instead of printing what Hatchbox queued"],
-      [nil, "--no-follow", "print what Hatchbox queued, which it does anyway"],
+      WAIT_FLAG,
+      [nil, "--no-follow", "same as --no-wait"],
+      [nil, "--watch", "stream the log, which it does anyway"],
       [nil, "--status", "same as hatchbox status"]
     ]
 
@@ -3026,17 +3060,17 @@ class Hatchbox::Deploy < Hatchbox::Command
 
     none!
     sha = options[:sha]
-    data = client.post("/apps/#{app_id}/deploy", body: Hatchbox.blank?(sha) ? nil : { "sha" => sha }).json || {}
-    log_id = data["id"]
-    raise Hatchbox::Error, "Hatchbox accepted the deploy but returned no log id." if Hatchbox.blank?(log_id)
+    ref = Hatchbox.blank?(sha) ? app.details["branch"] : sha[0, 7]
+    log_id = nil
+    ui.action("Deploying #{ref} to #{label}") do |step|
+      log_id = (client.post("/apps/#{app_id}/deploy", body: Hatchbox.blank?(sha) ? nil : { "sha" => sha }).json || {})["id"]
+      raise Hatchbox::Error, "Hatchbox accepted the deploy but returned no log id." if Hatchbox.blank?(log_id)
 
-    remember_log("deploy", log_id)
-    unless options[:watch]
-      puts(JSON.pretty_generate(data))
-      return 0
+      step.status = options[:no_wait] || options[:no_follow] ? "done, queued as #{log_id}" : "queued, release #{log_id}"
     end
+    remember_log("deploy", log_id)
+    return 0 if options[:no_wait] || options[:no_follow]
 
-    ui.action("Deploying #{Hatchbox.blank?(sha) ? app.details["branch"] : sha[0, 7]} to #{label}") { |step| step.status = "queued, release #{log_id}" }
     follow_deploy(log_id)
   end
 end
