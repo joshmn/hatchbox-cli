@@ -1504,8 +1504,9 @@ class Hatchbox::Journal
   FIELDS = "MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_USER_UNIT,UNIT,USER_UNIT,SYSLOG_IDENTIFIER"
   LIVE = '{"__hbx":"live"}'
 
-  def initialize(units: [], lines: 100, follow: false, since: nil, units_only: false)
+  def initialize(units: [], identifiers: [], lines: 100, follow: false, since: nil, units_only: false)
     @units = units
+    @identifiers = identifiers
     @lines = lines
     @follow = follow
     @since = since
@@ -1520,6 +1521,7 @@ class Hatchbox::Journal
       "found=0",
       "system=0",
       *units.map { |unit| check(unit) },
+      *identifiers.map { |name| "args=\"$args -t #{quote(name)}\"; found=1" },
       "if [ \"$found\" = 0 ]; then exit 3; fi",
       "if [ \"$system\" = 1 ] && [ \"$(id -u)\" != 0 ] && ! id -nG | tr ' ' '\\n' | grep -qxE 'adm|systemd-journal'; then echo #{quote(JSON.dump("__hbx" => "blind"))}; fi",
       *reading
@@ -1528,7 +1530,7 @@ class Hatchbox::Journal
 
   private
 
-  attr_reader :units, :lines, :follow, :since, :units_only
+  attr_reader :units, :identifiers, :lines, :follow, :since, :units_only
 
   def check(unit)
     name = quote(unit)
@@ -1570,7 +1572,7 @@ end
 class Hatchbox::LogReader
   PALETTE = [36, 32, 33, 35, 34, 31].freeze
 
-  Plan = Struct.new(:target, :units, keyword_init: true)
+  Plan = Struct.new(:target, :units, :identifiers, keyword_init: true)
   Entry = Struct.new(:time, :source, :dyno, :message, :color, :order)
 
   def initialize(plans:, lines:, follow:, since:, source:, units_only:, colors:)
@@ -1611,6 +1613,7 @@ class Hatchbox::LogReader
     plans.each_with_index do |plan, index|
       journal = Hatchbox::Journal.new(
         units: plan.units.keys,
+        identifiers: plan.identifiers.keys,
         lines: Hatchbox.blank?(source) ? lines : [lines * 50, 10_000].min,
         follow: follow,
         since: since,
@@ -1697,7 +1700,9 @@ class Hatchbox::LogReader
   def build(plan:, data:)
     unit, kind = locate(plan: plan, data: data)
     dyno = unit ? plan.units[unit] : nil
-    dyno ||= { name: (data["_SYSTEMD_USER_UNIT"] || data["_SYSTEMD_UNIT"] || data["SYSLOG_IDENTIFIER"]).to_s.sub(/\.service\z/, ""), color: 37 }
+    ident = data["SYSLOG_IDENTIFIER"].to_s
+    dyno ||= plan.identifiers[ident]
+    dyno ||= { name: (data["_SYSTEMD_USER_UNIT"] || data["_SYSTEMD_UNIT"] || ident).to_s.sub(/\.service\z/, ""), color: 37 }
     @order += 1
     Entry.new(time_of(data), kind || "app", dyno[:name], message_of(data["MESSAGE"]), dyno[:color], @order)
   end
@@ -1740,6 +1745,7 @@ class Hatchbox::LogReader
       Hatchbox::Ui.header("#{plan.target.label} (#{plan.target.host})")
       @found[index].each { |line| puts(line) }
       @missing.select { |label, _unit| label == plan.target.label }.each { |_label, unit| puts("#{unit} (not on this server)") }
+      plan.identifiers.each_key { |name| puts("#{name} (identifier)") }
       puts
     end
   end
@@ -3055,7 +3061,7 @@ class Hatchbox::Logs < Hatchbox::Command
       ["-n", "--num NUM", "number of lines to display", Integer],
       ["-t", "--tail", "continually stream logs"],
       ["-f", "--follow", "same as --tail"],
-      ["-d", "--dyno DYNO", "only this process or copy of it, like sidekiq or server.2"],
+      ["-d", "--dyno DYNO", "only this process or copy of it, like sidekiq or server.2, or a run.ID"],
       ["-p", "--process-type TYPE", "only this process type"],
       [nil, "--ps TYPE", "same as --process-type"],
       ["-s", "--source SOURCE", "only app lines, or only systemd lines about starting and stopping"],
@@ -3088,6 +3094,8 @@ class Hatchbox::Logs < Hatchbox::Command
 
   def plans(type:)
     dyno = options[:dyno].to_s
+    return run_plans(dyno) if dyno.start_with?("run.")
+
     formation = app.formation
     raise Hatchbox::Error, "#{label} has no processes, so there is no journal to read." if formation.processes.empty?
 
@@ -3104,7 +3112,8 @@ class Hatchbox::Logs < Hatchbox::Command
     dynos.group_by { |row| row.server["id"] }.map do |_id, group|
       Hatchbox::LogReader::Plan.new(
         target: Hatchbox::SshTarget.new(session: session, server: group.first.server),
-        units: group.to_h { |row| [unit(row.process), { name: row.name, color: color(row.process) }] }
+        units: group.to_h { |row| [unit(row.process), { name: row.name, color: color(row.process) }] },
+        identifiers: {}
       )
     end
   end
@@ -3121,7 +3130,25 @@ class Hatchbox::Logs < Hatchbox::Command
     units = {}
     pool = dynos.empty? ? app.formation.processes.map { |process| Hatchbox::Formation::Dyno.new(process, {}, 1) } : dynos
     pool.each { |row| units[unit(row.process)] ||= { name: "#{row.type}.1", color: color(row.process) } }
-    Hatchbox::LogReader::Plan.new(target: Hatchbox::SshTarget.new(session: session), units: units)
+    Hatchbox::LogReader::Plan.new(target: Hatchbox::SshTarget.new(session: session), units: units, identifiers: {})
+  end
+
+  def run_plans(dyno)
+    ident = "#{app.name}-#{dyno.tr(".", "-")}"
+    servers = Hatchbox::SshTarget.pinned?(session) ? [nil] : run_servers
+    servers.map do |server|
+      Hatchbox::LogReader::Plan.new(
+        target: Hatchbox::SshTarget.new(session: session, server: server),
+        units: {},
+        identifiers: { ident => { name: dyno, color: 34 } }
+      )
+    end
+  end
+
+  def run_servers
+    return [app.formation.find_server(options[:server])] unless Hatchbox.blank?(options[:server])
+
+    app.formation.app_servers
   end
 
   def unit(process)
@@ -3181,6 +3208,43 @@ class Hatchbox::Run < Hatchbox::Command
     return "#{target.enter(separator: "\n")}#{command}" unless rails?(command)
 
     "#{target.enter_or_stop}\nexec bin/rails #{command.sub(%r{\Abin/}, "").sub(/\Arails/, "").strip}"
+  end
+end
+
+class Hatchbox::RunDetached < Hatchbox::Run
+  describe "run:detached",
+    summary: "run a command on a server in the background",
+    usage: "run:detached COMMAND",
+    lenient: true,
+    flags: [
+      ["-e", "--env ENV", "environment variables to set, like FOO=bar;BAZ=qux", :many],
+      ["-s", "--server SERVER", "the server to run on, by name, id or role"],
+      ["-d", "--dyno DYNO", "run on the server this copy of a process is on, like sidekiq.2"]
+    ]
+
+  def call
+    command = (positionals + passthru).join(" ")
+    usage_error("Must specify COMMAND.") if command.strip.empty?
+
+    target = ssh_target(dyno: options[:dyno], server: options[:server])
+    dyno = "run.#{Time.now.utc.strftime("%Y%m%d%H%M%S")}"
+    ident = "#{app.name}-#{dyno.tr(".", "-")}"
+    inner = rails?(command) ? "exec bin/rails #{command.sub(%r{\Abin/}, "").sub(/\Arails/, "").strip}" : command
+    script = [
+      rails?(command) ? target.enter_or_stop : target.enter(separator: " || true"),
+      exports,
+      "setsid nohup systemd-cat -t #{Shellwords.escape(ident)} bash -lc #{Shellwords.escape(inner)} </dev/null >/dev/null 2>&1 &",
+      "echo started"
+    ].reject { |part| part.empty? }.join("\n")
+    code = nil
+    ui.action("Running `#{command}` on #{label}") do |step|
+      code = Hatchbox.run(target.ssh(command: target.login_shell(script)))
+      step.status = code.zero? ? "done, #{dyno}" : ui.paint("failed", 31)
+    end
+    return code unless code.zero?
+
+    puts("Run hatchbox logs --app #{app.slug || app_id} --dyno #{dyno} to view the output.")
+    0
   end
 end
 
