@@ -1776,12 +1776,6 @@ class Hatchbox::Command
     log["state"] == "completed" ? 0 : 1
   end
 
-  def remember_log(kind, log_id)
-    return if env.nil? || !config.exists?
-
-    config.set(key: "last_#{kind}:#{env}", value: log_id)
-  end
-
   def queued(message, log_id, gone_ok: false)
     raise Hatchbox::Error, "Hatchbox accepted it but returned no log id." if Hatchbox.blank?(log_id)
 
@@ -2604,6 +2598,26 @@ class Hatchbox::Command
     1
   end
 
+  def resolve_log(wanted, kind: nil)
+    text = wanted.to_s
+    return text if text =~ /\A[0-9]+\z/
+
+    names = {
+      "deploy" => "Apps::Deploy",
+      "deploys" => "Apps::Deploy",
+      "restart" => "Apps::Restart",
+      "restarts" => "Apps::Restart"
+    }
+    name = Hatchbox.blank?(text) ? kind : names[text]
+    raise Hatchbox::Error, "#{text} is not a release id. hatchbox releases lists them." if !Hatchbox.blank?(text) && name.nil?
+
+    rows = client.get("/apps/#{app_id}/logs?limit=100").json || []
+    found = name ? rows.find { |row| row["name"] == name } : rows.first
+    raise Hatchbox::Error, "#{label} has no #{name ? "#{name.split("::").last.downcase}s" : "releases"} on record." unless found
+
+    found["id"].to_s
+  end
+
   def dyno_server(dyno:, server:)
     return nil if Hatchbox::SshTarget.pinned?(session)
     return app.formation.find_dyno(dyno).server unless Hatchbox.blank?(dyno)
@@ -2686,13 +2700,11 @@ class Hatchbox::PsRestart < Hatchbox::Command
     usage_error("One process type at a time.") if positionals.length > 1
     if positionals.empty?
       log_id = (client.post("/apps/#{app_id}/restart").json || {})["id"]
-      remember_log("restart", log_id)
       return queued("Restarting all processes on #{label}", log_id)
     end
 
     process = app.formation.find_process(positionals.first.sub(/\.[0-9]+\z/, ""))
     log_id = (client.post("/apps/#{app_id}/processes/#{process["id"]}/restart").json || {})["id"]
-    remember_log("restart", log_id)
     queued("Restarting #{process["name"]} on #{label}", log_id)
   end
 end
@@ -3068,7 +3080,6 @@ class Hatchbox::Deploy < Hatchbox::Command
 
       step.status = options[:no_wait] || options[:no_follow] ? "done, queued as #{log_id}" : "queued, release #{log_id}"
     end
-    remember_log("deploy", log_id)
     return 0 if options[:no_wait] || options[:no_follow]
 
     follow_deploy(log_id)
@@ -3082,15 +3093,13 @@ class Hatchbox::Status < Hatchbox::Command
 
   def call
     none!
-    sha = app.details["last_deploy_sha"].to_s
-    ui.header(label)
-    ui.styled_hash([["Last Deploy", sha.empty? ? "none yet" : "#{sha} #{ui.date(app.details["last_deploy_at"])}"]])
+    log = operation.fetch(resolve_log(nil, kind: "Apps::Deploy"))
+    ui.header("#{label} Deploy #{log["id"]}")
+    ui.styled_hash([["State", log["state"]], ["Commit", log["commit_sha"]], ["By", log["username"]], ["When", ui.date(log["created_at"])]])
     puts
-    log_id = env ? config.get("last_deploy:#{env}") : nil
-    return show_log(log_id) unless Hatchbox.blank?(log_id)
+    return follow_deploy(log["id"]) unless Hatchbox::FINISHED.include?(log["state"].to_s)
 
-    ui.note("No deploy log to show. Hatchbox only serves a log by its id, and the only ids around are the ones deploys from here write to #{config.path}.")
-    0
+    show_log(log["id"])
   end
 end
 
@@ -3136,32 +3145,13 @@ class Hatchbox::Releases < Hatchbox::Command
 end
 
 class Hatchbox::ReleasesOutput < Hatchbox::Command
-  KINDS = {
-    "deploy" => "deploy",
-    "deploys" => "deploy",
-    "restart" => "restart",
-    "restarts" => "restart"
-  }.freeze
-
   describe "releases:output",
     summary: "view the output of a release",
-    usage: "releases:output RELEASE"
+    usage: "releases:output [RELEASE]"
 
   def call
-    wanted = one_positional("RELEASE")
-    show_log(wanted =~ /\A[0-9]+\z/ ? wanted : id_for(wanted))
-  end
-
-  private
-
-  def id_for(wanted)
-    kind = KINDS[wanted]
-    raise Hatchbox::Error, "#{wanted} is not a release id, or deploy or restart. hatchbox releases lists them." unless kind
-
-    found = env ? config.get("last_#{kind}:#{env}") : nil
-    raise Hatchbox::Error, "No #{kind} has been started from here for #{label}, so there is no id to fetch. hatchbox releases lists them." if Hatchbox.blank?(found)
-
-    found
+    usage_error("One release at a time.") if positionals.length > 1
+    show_log(resolve_log(positionals.first))
   end
 end
 
