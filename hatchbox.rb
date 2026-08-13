@@ -1573,12 +1573,14 @@ class Hatchbox::LogReader
   Plan = Struct.new(:target, :units, keyword_init: true)
   Entry = Struct.new(:time, :source, :dyno, :message, :color, :order)
 
-  def initialize(plans:, lines:, follow:, since:, units_only:)
+  def initialize(plans:, lines:, follow:, since:, source:, units_only:, colors:)
     @plans = plans
     @lines = lines
     @follow = follow
     @since = since
+    @source = source
     @units_only = units_only
+    @colors = colors
     @queue = Queue.new
     @children = []
     @seen = Hash.new { |hash, key| hash[key] = {} }
@@ -1603,13 +1605,13 @@ class Hatchbox::LogReader
 
   private
 
-  attr_reader :plans, :lines, :follow, :since, :units_only, :queue, :children, :seen
+  attr_reader :plans, :lines, :follow, :since, :source, :units_only, :colors, :queue, :children, :seen
 
   def start
     plans.each_with_index do |plan, index|
       journal = Hatchbox::Journal.new(
         units: plan.units.keys,
-        lines: lines,
+        lines: Hatchbox.blank?(source) ? lines : [lines * 50, 10_000].min,
         follow: follow,
         since: since,
         units_only: units_only
@@ -1662,7 +1664,7 @@ class Hatchbox::LogReader
       @exits[index] = payload
     when :line
       entry = parse(index: index, text: payload)
-      yield(entry) if entry
+      yield(entry) if entry && wanted?(entry)
     end
   end
 
@@ -1720,10 +1722,14 @@ class Hatchbox::LogReader
     text.chomp
   end
 
+  def wanted?(entry)
+    Hatchbox.blank?(source) || entry.source == source
+  end
+
   def print_entries(entries)
     entries.each do |entry|
       label = "#{entry.source}[#{entry.dyno}]:"
-      label = "\e[#{entry.color}m#{label}\e[0m" if Hatchbox.color?
+      label = "\e[#{entry.color}m#{label}\e[0m" if colors
       $stdout.puts("#{entry.time.strftime("%Y-%m-%dT%H:%M:%S.%6N+00:00")} #{label} #{entry.message}")
     end
     $stdout.flush
@@ -3052,9 +3058,11 @@ class Hatchbox::Logs < Hatchbox::Command
       ["-d", "--dyno DYNO", "only this process or copy of it, like sidekiq or server.2"],
       ["-p", "--process-type TYPE", "only this process type"],
       [nil, "--ps TYPE", "same as --process-type"],
-      ["-s", "--server SERVER", "only the server with this name, id or role"],
+      ["-s", "--source SOURCE", "only app lines, or only systemd lines about starting and stopping"],
+      [nil, "--server SERVER", "only the server with this name, id or role"],
       [nil, "--since WHEN", "only lines since this, anything journalctl --since takes, like '1 hour ago'"],
-      [nil, "--units", "list the systemd units it would read on each server, and stop"]
+      [nil, "--units", "list the systemd units it would read on each server, and stop"],
+      [nil, "--force-colors", "force use of colors even on non-tty output"]
     ]
 
   def call
@@ -3062,12 +3070,17 @@ class Hatchbox::Logs < Hatchbox::Command
     wanted = positionals.first
     raise Hatchbox::Error, "logs reads the running app. A Hatchbox log id goes to hatchbox releases:output #{wanted}" if wanted.to_s =~ /\A[0-9]+\z/
 
+    source = options[:source]
+    raise Hatchbox::Error, "--source takes app or systemd." unless Hatchbox.blank?(source) || ["app", "systemd"].include?(source)
+
     Hatchbox::LogReader.new(
       plans: plans(type: options[:process_type] || options[:ps] || wanted),
       lines: options[:num] || 100,
       follow: options[:tail] || options[:follow],
       since: options[:since],
-      units_only: options[:units]
+      source: source,
+      units_only: options[:units],
+      colors: options[:force_colors] || Hatchbox.color?
     ).run
   end
 
