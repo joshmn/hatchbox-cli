@@ -106,6 +106,10 @@ module Hatchbox
       threads.to_h { |key, thread| [key, thread.value] }
     end
 
+    def ssh_options
+      Shellwords.split(ENV["HATCHBOX_SSH_OPTIONS"].to_s)
+    end
+
     def slug_id(slug)
       slug.to_s[/\A[0-9]+/]
     end
@@ -1247,6 +1251,7 @@ class Hatchbox::SshTarget
 
   def ssh(command: nil, tty: false, extra: [])
     argv = ["ssh", "-p", port.to_s]
+    argv.concat(Hatchbox.ssh_options)
     argv << "-t" if tty
     argv.concat(extra)
     argv << address
@@ -1369,7 +1374,9 @@ class Hatchbox::Tunnel
   end
 
   def ssh_command
-    ["ssh", "-f", "-N", "-M", "-S", control, "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10", "-p", target.port.to_s, "-L", "127.0.0.1:#{local_port}:#{host}:#{port}", target.address]
+    argv = ["ssh", "-f", "-N", "-M", "-S", control, "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10", "-p", target.port.to_s]
+    argv.concat(Hatchbox.ssh_options)
+    argv.concat(["-L", "127.0.0.1:#{local_port}:#{host}:#{port}", target.address])
   end
 
   def failure_message
@@ -2957,7 +2964,7 @@ class Hatchbox::PsCopy < Hatchbox::Command
 
     target = ssh_target(dyno: options[:dyno], server: options[:server])
     remote = file.start_with?("/") || target.app_dir.nil? ? file : File.join(target.app_dir, file)
-    argv = ["scp", "-q", "-P", target.port.to_s, "#{target.address}:#{Shellwords.escape(remote)}", output]
+    argv = ["scp", "-q", "-P", target.port.to_s] + Hatchbox.ssh_options + ["#{target.address}:#{Shellwords.escape(remote)}", output]
     code = nil
     ui.action("Copying #{file} to #{output}") do |step|
       code = Hatchbox.run(argv)
