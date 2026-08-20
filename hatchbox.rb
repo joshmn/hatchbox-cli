@@ -301,16 +301,22 @@ class Hatchbox::Http
   }.freeze
 
   class Response
-    attr_reader :code, :body, :json
+    attr_reader :code, :body, :json, :headers
 
-    def initialize(code:, body:)
+    def initialize(code:, body:, headers: {})
       @code = code
       @body = body
+      @headers = headers
       @json = parse(body)
     end
 
     def ok?
       code >= 200 && code < 300
+    end
+
+    def next_page
+      found = headers["link"].to_s.split(",").find { |part| part.include?('rel="next"') }
+      found ? found[/<([^>]+)>/, 1] : nil
     end
 
     private
@@ -330,9 +336,9 @@ class Hatchbox::Http
   end
 
   def request(method:, path:, body: nil)
-    uri = URI.parse("#{base}#{path}")
+    uri = URI.parse(path.start_with?("http://", "https://") ? path : "#{base}#{path}")
     response = perform(uri: uri, message: build(method: method, uri: uri, body: body))
-    Response.new(code: response.code.to_i, body: response.body.to_s)
+    Response.new(code: response.code.to_i, body: response.body.to_s, headers: response.each_header.to_h)
   end
 
   private
@@ -3490,7 +3496,8 @@ end
 class Hatchbox::ReleasesOutput < Hatchbox::Command
   describe "releases:output",
     summary: "view the output of a release",
-    usage: "releases:output [RELEASE]"
+    usage: "releases:output [RELEASE]",
+    aliases: ["builds:output"]
 
   def call
     usage_error("One release at a time.") if positionals.length > 1
@@ -3539,6 +3546,52 @@ class Hatchbox::ReleasesRollback < Hatchbox::Command
     raise Hatchbox::Error, "Release #{log["id"]} belongs to another app." unless log["loggable_id"].to_s == app_id.to_s
 
     log
+  end
+end
+
+class Hatchbox::Builds < Hatchbox::Command
+  describe "builds",
+    summary: "list the app's deploys",
+    flags: [["-n", "--num NUM", "number of builds to display", Integer]]
+
+  def call
+    none!
+    limit = options[:num] || 15
+    rows = []
+    url = "/apps/#{app_id}/logs?limit=100"
+    pages = 0
+    while url && rows.length < limit && pages < 10
+      response = client.get(url)
+      rows.concat(Array(response.json).select { |row| Hatchbox::Activity.deploy?(row) })
+      url = response.next_page
+      pages += 1
+    end
+    rows = rows.first(limit)
+
+    ui.header("#{label} Builds")
+    return puts("No builds on record.") if rows.empty?
+
+    ui.columns(rows.map do |row|
+      state = row["state"].to_s
+      painted = state == "completed" ? "succeeded".green : (["failed", "aborted"].include?(state) ? state.red : state.yellow)
+      [row["id"].to_s, painted, row["commit_sha"].to_s[0, 7], row["username"].to_s, Hatchbox::Ui.date(row["created_at"]).to_s, row["description"].to_s.split("\n").first.to_s[0, 50]]
+    end)
+    0
+  end
+end
+
+class Hatchbox::BuildsInfo < Hatchbox::ReleasesInfo
+  describe "builds:info",
+    summary: "view detailed information for a build",
+    usage: "builds:info [BUILD]"
+
+  def call
+    usage_error("One build at a time.") if positionals.length > 1
+    log = operation.fetch(resolve_log(positionals.first, kind: "Apps::Deploy"))
+
+    ui.header("Build #{log["id"]}")
+    Hatchbox::ReleasesInfo.describe_log(log)
+    0
   end
 end
 
