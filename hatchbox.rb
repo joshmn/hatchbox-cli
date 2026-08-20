@@ -3430,7 +3430,7 @@ class Hatchbox::Status < Hatchbox::Command
     none!
     log = operation.fetch(resolve_log(nil, kind: "Apps::Deploy"))
     ui.header("#{label} Deploy #{log["id"]}")
-    ui.styled_hash([["State", log["state"]], ["Commit", log["commit_sha"]], ["By", log["username"]], ["When", ui.date(log["created_at"])]])
+    Hatchbox::ReleasesInfo.describe_log(log)
     puts
     return follow_deploy(log["id"]) unless Hatchbox::FINISHED.include?(log["state"].to_s)
 
@@ -3454,6 +3454,35 @@ class Hatchbox::Releases < Hatchbox::Command
 
     puts
     ui.columns(Hatchbox::Activity.rows(rows))
+    0
+  end
+end
+
+class Hatchbox::ReleasesInfo < Hatchbox::Command
+  describe "releases:info",
+    summary: "view detailed information for a release",
+    usage: "releases:info [RELEASE]"
+
+  def self.describe_log(log)
+    Hatchbox::Ui.styled_hash([
+      ["Change", Hatchbox::Activity.change(log)],
+      ["By", log["username"]],
+      ["When", Hatchbox::Ui.date(log["created_at"])],
+      ["State", log["state"]],
+      ["Commit", log["commit_sha"]],
+      ["Started", Hatchbox::Ui.date(log["started_at"])],
+      ["Completed", Hatchbox::Ui.date(log["completed_at"])],
+      ["Duration", Hatchbox::Ui.duration(log["started_at"], log["completed_at"])],
+      ["Servers", (log["child_logs"] || []).map { |child| "#{child["loggable_id"]} #{child["state"]}" }]
+    ])
+  end
+
+  def call
+    usage_error("One release at a time.") if positionals.length > 1
+    log = operation.fetch(resolve_log(positionals.first))
+
+    ui.header("Release #{log["id"]}")
+    self.class.describe_log(log)
     0
   end
 end
