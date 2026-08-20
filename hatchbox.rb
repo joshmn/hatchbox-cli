@@ -2766,6 +2766,59 @@ class Hatchbox::GitProviders < Hatchbox::Command
   end
 end
 
+module Hatchbox::Activity
+  NAMESPACES = ["Apps"].freeze
+
+  class << self
+    def change(row)
+      name = row["name"].to_s
+      text = name == "Apps::Deploy" ? deploy(row) : humanize(name)
+      description = row["description"].to_s.strip
+      return text if name == "Apps::Deploy" || description.empty?
+
+      "#{text}: #{description}"
+    end
+
+    def state(row)
+      raw = row["state"].to_s
+      return "" if raw == "completed"
+      return raw.red if ["failed", "aborted"].include?(raw)
+
+      raw.yellow
+    end
+
+    def deploy?(row)
+      row["name"].to_s == "Apps::Deploy"
+    end
+
+    def humanize(name)
+      parts = name.split("::")
+      parts.shift if parts.length > 1 && NAMESPACES.include?(parts.first)
+      words = parts.map { |part| part.gsub(/([a-z0-9])([A-Z])/, '\1 \2').tr("_", " ").downcase }
+      return "#{words.first.to_s[0].to_s.upcase}#{words.first.to_s[1..-1]}" if words.length < 2
+
+      last = words.last
+      "#{last[0].upcase}#{last[1..-1]} #{words[-2]}"
+    end
+
+    def rows(list, limit: 50)
+      list.map do |row|
+        change = change(row)
+        change = "#{change[0, limit - 3]}..." if change.length > limit
+        [row["id"].to_s, change, row["username"].to_s, Hatchbox::Ui.date(row["created_at"]).to_s, state(row)]
+      end
+    end
+
+    private
+
+    def deploy(row)
+      sha = row["commit_sha"].to_s
+      subject = row["description"].to_s.strip.split("\n").first.to_s
+      ["Deploy", sha.empty? ? nil : sha[0, 7], subject.empty? ? nil : subject].compact.join(" ")
+    end
+  end
+end
+
 class Hatchbox::Command
   private
 
@@ -2794,7 +2847,7 @@ class Hatchbox::Command
 
     rows = client.get("/apps/#{app_id}/logs?limit=100").json || []
     found = name ? rows.find { |row| row["name"] == name } : rows.first
-    raise Hatchbox::Error, "#{label} has no #{name ? "#{name.split("::").last.downcase}s" : "releases"} on record." unless found
+    raise Hatchbox::Error, "#{label} has no #{name ? Hatchbox::Activity.humanize(name).downcase : "releases"} on record." unless found
 
     found["id"].to_s
   end
@@ -3386,13 +3439,6 @@ class Hatchbox::Status < Hatchbox::Command
 end
 
 class Hatchbox::Releases < Hatchbox::Command
-  NAMES = {
-    "Apps::Deploy" => "Deploy",
-    "Apps::Restart" => "Restart",
-    "Apps::EnvVars" => "Config vars",
-    "Apps::Maintenance" => "Maintenance"
-  }.freeze
-
   describe "releases",
     summary: "display the app's release history",
     flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer]]
@@ -3401,28 +3447,14 @@ class Hatchbox::Releases < Hatchbox::Command
     none!
     limit = options[:num] || 15
     rows = client.get("/apps/#{app_id}/logs?page=#{options[:page] || 1}&limit=#{limit}").json || []
-    ui.header("#{label} Releases")
+
+    current = rows.find { |row| Hatchbox::Activity.deploy?(row) && row["state"] == "completed" }
+    ui.header("#{label} Releases#{current ? " - Current: #{current["id"]}" : ""}")
     return puts("No releases on record.") if rows.empty?
 
     puts
-    ui.columns(rows.map { |row| [row["id"].to_s, change(row), row["username"].to_s, ui.date(row["created_at"]).to_s, state(row)] })
+    ui.columns(Hatchbox::Activity.rows(rows))
     0
-  end
-
-  private
-
-  def change(row)
-    text = NAMES[row["name"].to_s] || row["name"].to_s
-    sha = row["commit_sha"].to_s
-    sha.empty? ? text : "#{text} #{sha[0, 7]}"
-  end
-
-  def state(row)
-    raw = row["state"].to_s
-    return "" if raw == "completed"
-    return raw.red if ["failed", "aborted"].include?(raw)
-
-    raw.yellow
   end
 end
 
