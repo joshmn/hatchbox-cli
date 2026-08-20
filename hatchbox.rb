@@ -1421,11 +1421,27 @@ class Hatchbox::Operation
     poll(log_id, gone_ok: gone_ok) { |_log| nil }
   end
 
-  def follow(log_id, gone_ok: false)
+  def stream(log_id, gone_ok: false)
     poll(log_id, gone_ok: gone_ok) do |log|
       emit(key: "parent", text: log["body"].to_s)
       emit_children(log)
     end
+  end
+
+  def print_log(log)
+    body = log["body"].to_s
+    print(body)
+    puts if !body.empty? && !body.end_with?("\n")
+    (log["child_logs"] || []).each do |child|
+      text = child["body"].to_s
+      next if text.empty?
+
+      puts
+      puts("Output from #{server_label(child)}".cyan)
+      print(text)
+      puts unless text.end_with?("\n")
+    end
+    $stdout.flush
   end
 
   def report_failure(result)
@@ -1946,21 +1962,6 @@ class Hatchbox::Command
 
   def operation
     @operation ||= Hatchbox::Operation.new(client: client, app: meta[:app] ? app : nil)
-  end
-
-  def show_log(log_id)
-    log = operation.fetch(log_id)
-    print(log["body"].to_s)
-    (log["child_logs"] || []).each do |child|
-      text = child["body"].to_s
-      next if text.empty?
-
-      puts
-      puts("Output from #{app.server_name(child["loggable_id"])}".cyan)
-      print(text)
-    end
-    $stdout.flush
-    log["state"] == "completed" ? 0 : 1
   end
 
   def queued(message, log_id, gone_ok: false)
@@ -2829,7 +2830,7 @@ class Hatchbox::Command
   private
 
   def follow_deploy(log_id)
-    result = operation.follow(log_id)
+    result = operation.stream(log_id)
     $stdout.puts
     ui.action("Verifying deploy") { |step| step.status = result.ok? ? "done" : ui.paint(result.state.to_s, 31) }
     return 0 if result.ok?
@@ -3440,7 +3441,8 @@ class Hatchbox::Status < Hatchbox::Command
     puts
     return follow_deploy(log["id"]) unless Hatchbox::FINISHED.include?(log["state"].to_s)
 
-    show_log(log["id"])
+    operation.print_log(log)
+    log["state"] == "completed" ? 0 : 1
   end
 end
 
@@ -3495,13 +3497,27 @@ end
 
 class Hatchbox::ReleasesOutput < Hatchbox::Command
   describe "releases:output",
-    summary: "view the output of a release",
+    summary: "view the output of a release, following it while it runs",
     usage: "releases:output [RELEASE]",
     aliases: ["builds:output"]
 
   def call
     usage_error("One release at a time.") if positionals.length > 1
-    show_log(resolve_log(positionals.first))
+    log_id = resolve_log(positionals.first, kind: default_kind)
+    log = operation.fetch(log_id)
+    unless Hatchbox::FINISHED.include?(log["state"].to_s)
+      result = operation.stream(log_id)
+      return result.ok? ? 0 : 1
+    end
+
+    operation.print_log(log)
+    log["state"] == "completed" ? 0 : 1
+  end
+
+  private
+
+  def default_kind
+    nil
   end
 end
 
