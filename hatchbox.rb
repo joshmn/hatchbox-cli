@@ -3955,7 +3955,10 @@ class Hatchbox::PgPull < Hatchbox::Command
   describe "pg:pull",
     summary: "pull the database into a new local database",
     usage: "pg:pull SOURCE TARGET",
-    flags: [[nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"]]
+    flags: [
+      [nil, "--exclude-table-data TABLES", "tables to skip the data of, separated by semicolons"],
+      [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"]
+    ]
 
   def call
     usage_error("Must specify SOURCE and TARGET.") unless positionals.length == 2
@@ -3981,6 +3984,7 @@ class Hatchbox::PgPull < Hatchbox::Command
 
   def dump(database:, host:, port:)
     argv = ["pg_dump", "-F", "c", "-Z", "0", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
+    options[:exclude_table_data].to_s.split(";").map { |table| table.strip }.reject { |table| table.empty? }.each { |table| argv << "--exclude-table-data=#{table}" }
     argv
   end
 
