@@ -3949,6 +3949,53 @@ class Hatchbox::PgCredentialsUrl < Hatchbox::Command
   end
 end
 
+class Hatchbox::PgPull < Hatchbox::Command
+  include Hatchbox::PgTools
+
+  describe "pg:pull",
+    summary: "pull the database into a new local database",
+    usage: "pg:pull SOURCE TARGET",
+    flags: [[nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"]]
+
+  def call
+    usage_error("Must specify SOURCE and TARGET.") unless positionals.length == 2
+
+    source, target = positionals
+    record = postgres(source)
+    create(target)
+    code = nil
+    with_connection(record) do |database, host, port|
+      ui.action("Pulling #{record["name"]} into #{target}") do |step|
+        statuses = Open3.pipeline(
+          [pg_environment(database: database, dangerous: false), *dump(database: database, host: host, port: port)],
+          ["pg_restore", "-d", target]
+        )
+        code = statuses.map { |status| Hatchbox.exit_code(status) }.max
+        step.status = code.zero? ? "done" : ui.paint("finished with errors", 33)
+      end
+    end
+    code
+  end
+
+  private
+
+  def dump(database:, host:, port:)
+    argv = ["pg_dump", "-F", "c", "-Z", "0", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
+    argv
+  end
+
+  def create(target)
+    output, status = Open3.capture2e("createdb", target)
+    return if status.success?
+
+    raise Hatchbox::Error, "Local database #{target} already exists. Drop it first or choose another name." if output.include?("already exists")
+
+    raise Hatchbox::Error, "createdb #{target} failed:\n#{output.strip}"
+  rescue Errno::ENOENT
+    raise Hatchbox::Error, "createdb is required and is not installed."
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
