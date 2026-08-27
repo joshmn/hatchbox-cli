@@ -1081,6 +1081,17 @@ class Hatchbox::App
     (record["app_attachments"] || []).select { |row| row["app_id"].to_s == id }.map { |row| row["env_var"].to_s }
   end
 
+  def find_database(wanted, engines: nil)
+    pool = databases
+    pool = pool.select { |record| engines.include?(record["engine"]) } if engines
+    return pool if Hatchbox.blank?(wanted)
+
+    text = wanted.to_s
+    pool.select do |record|
+      record["name"].to_s == text || record["id"].to_s == text || attachment_names(record).map { |name| name.upcase }.include?(text.upcase)
+    end
+  end
+
   private
 
   attr_reader :client
@@ -3751,9 +3762,7 @@ module Hatchbox::DatabaseLookup
   end
 
   def attached(wanted, engines: nil)
-    pool = app.databases
-    pool = pool.select { |record| engines.include?(record["engine"]) } if engines
-    pool = pool.select { |record| record["name"].to_s == wanted.to_s || record["id"].to_s == wanted.to_s } unless Hatchbox.blank?(wanted)
+    pool = app.find_database(wanted, engines: engines)
     return pool.first if pool.length == 1
 
     kind = engines ? engines.join(" or ") : "database"
@@ -3838,7 +3847,7 @@ class Hatchbox::Psql < Hatchbox::Command
 
   describe "pg:psql",
     summary: "open a psql shell to the database",
-    usage: "pg:psql [SQL]",
+    usage: "pg:psql [DATABASE | SQL]",
     aliases: ["psql"],
     flags: [
       ["-c", "--command SQL", "SQL command to run"],
@@ -3850,13 +3859,18 @@ class Hatchbox::Psql < Hatchbox::Command
 
   def call
     usage_error("Only one statement at a time, quote it as one argument.") if positionals.length > 1
+    wanted = options[:database]
     sql = options[:command].to_s.sub(/\A=/, "")
     if positionals.any?
-      usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
-      sql = positionals.first
+      if app.find_database(positionals.first, engines: ["postgresql"]).any? && Hatchbox.blank?(wanted)
+        wanted = positionals.first
+      else
+        usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
+        sql = positionals.first
+      end
     end
 
-    record = postgres(options[:database])
+    record = postgres(wanted)
     return print_url(record) if options[:url]
 
     open_psql(record: record, sql: sql)
