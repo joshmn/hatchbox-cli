@@ -3971,7 +3971,7 @@ class Hatchbox::PgPull < Hatchbox::Command
       ui.action("Pulling #{record["name"]} into #{target}") do |step|
         statuses = Open3.pipeline(
           [pg_environment(database: database, dangerous: false), *dump(database: database, host: host, port: port)],
-          ["pg_restore", "-d", target]
+          ["pg_restore", "--no-acl", "--no-owner", "-d", target]
         )
         code = statuses.map { |status| Hatchbox.exit_code(status) }.max
         step.status = code.zero? ? "done" : ui.paint("finished with errors", 33)
@@ -3983,7 +3983,7 @@ class Hatchbox::PgPull < Hatchbox::Command
   private
 
   def dump(database:, host:, port:)
-    argv = ["pg_dump", "-F", "c", "-Z", "0", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
+    argv = ["pg_dump", "-F", "c", "-Z", "0", "--no-acl", "--no-owner", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
     options[:exclude_table_data].to_s.split(";").map { |table| table.strip }.reject { |table| table.empty? }.each { |table| argv << "--exclude-table-data=#{table}" }
     argv
   end
