@@ -1077,6 +1077,10 @@ class Hatchbox::App
     found ? "https://#{found}/" : nil
   end
 
+  def attachment_names(record)
+    (record["app_attachments"] || []).select { |row| row["app_id"].to_s == id }.map { |row| row["env_var"].to_s }
+  end
+
   private
 
   attr_reader :client
@@ -2182,7 +2186,7 @@ class Hatchbox::AppsInfo < Hatchbox::Command
       "servers" => found[:cluster]["servers"] || [],
       "processes" => found[:processes],
       "domains" => found[:domains].map { |row| row["name"] },
-      "databases" => found[:databases].map { |record| record.slice("id", "name", "engine", "database_cluster_id").merge("as" => (record["app_attachments"] || []).select { |row| row["app_id"].to_s == app.id }.map { |row| row["env_var"].to_s }) },
+      "databases" => found[:databases].map { |record| record.slice("id", "name", "engine", "database_cluster_id").merge("as" => app.attachment_names(record)) },
       "team" => found[:account] ? found[:account]["name"] : nil,
       "git_provider" => provider,
       "web_url" => app.web_url
@@ -3726,7 +3730,112 @@ class Hatchbox::DomainsClear < Hatchbox::Command
   end
 end
 
+module Hatchbox::DatabaseLookup
+  private
+
+  def account
+    @account ||= begin
+      found = session.catalog.account_for(app_id)
+      raise Hatchbox::Error, "Could not tell which account #{label} is on." unless found
+
+      found
+    end
+  end
+
+  def database_clusters
+    @database_clusters ||= session.catalog.database_clusters_for(account)
+  end
+
+  def database_cluster(id)
+    database_clusters.find { |row| row["id"].to_s == id.to_s } || {}
+  end
+
+  def attached(wanted, engines: nil)
+    pool = app.databases
+    pool = pool.select { |record| engines.include?(record["engine"]) } if engines
+    pool = pool.select { |record| record["name"].to_s == wanted.to_s || record["id"].to_s == wanted.to_s } unless Hatchbox.blank?(wanted)
+    return pool.first if pool.length == 1
+
+    kind = engines ? engines.join(" or ") : "database"
+    if pool.empty?
+      head = Hatchbox.blank?(wanted) ? "No #{kind} is attached to #{label}." : "No #{kind} called #{wanted} is attached to #{label}."
+      raise Hatchbox::Error, app.databases.empty? ? head : "#{head}\n#{attachments_listing}"
+    end
+
+    raise Hatchbox::Error, "#{label} has more than one #{kind}, so name one:\n#{attachments_listing(pool)}"
+  end
+
+  def attachments_listing(pool = app.databases)
+    pool.map { |record| "#{record["name"]} (#{record["engine"]}) as #{app.attachment_names(record).join(", ")}" }.join("\n")
+  end
+
+  def title_for(record)
+    names = app.attachment_names(record)
+    names.empty? ? record["name"].to_s : names.join(", ")
+  end
+
+  def backup_configuration(record)
+    response = client.raw("GET", "/databases/#{record["id"]}/backup_configuration")
+    return response.json if response.ok?
+
+    { "error" => client.error_message(response) }
+  end
+
+  def backup_line(config)
+    return config["error"] if config.key?("error")
+    return "off" unless config["backup_enabled"]
+
+    place = [config["backup_provider"], config["backup_bucket"]].compact.join(" ")
+    kept = Hatchbox.blank?(config["backup_retention_period"]) ? "" : ", kept #{config["backup_retention_period"]}"
+    "on, #{config["backup_frequency"]} to #{place}#{kept}"
+  end
+end
+
+module Hatchbox::PgTools
+  include Hatchbox::DatabaseLookup
+
+  private
+
+  def postgres(wanted)
+    attached(wanted, engines: ["postgresql"])
+  end
+
+  def connection_text(record)
+    public_uri = record["public_connection_uri"].to_s
+    text = Hatchbox.blank?(public_uri) ? record["private_connection_uri"].to_s : public_uri
+    raise Hatchbox::Error, "That database has no connection URI, which happens on sqlite." if Hatchbox.blank?(text)
+
+    text
+  end
+
+  def tunnelled?(record)
+    Hatchbox.blank?(record["public_connection_uri"]) && !options[:direct]
+  end
+
+  def with_connection(record)
+    database = Hatchbox::Database.new(connection_text(record))
+    tunnel = tunnelled?(record) ? Hatchbox::Tunnel.open(session: session, host: database.host, port: database.port) : nil
+    host = tunnel ? "127.0.0.1" : database.host
+    port = tunnel ? tunnel.local_port.to_s : database.port
+    begin
+      yield(database, host, port)
+    ensure
+      tunnel.close if tunnel
+    end
+  end
+
+  def pg_environment(database:, dangerous:)
+    env = { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
+    return env if dangerous
+
+    extra = [ENV["PGOPTIONS"], "-c default_transaction_read_only=on"].reject { |part| Hatchbox.blank?(part) }
+    env.merge("PGOPTIONS" => extra.join(" "))
+  end
+end
+
 class Hatchbox::Psql < Hatchbox::Command
+  include Hatchbox::PgTools
+
   describe "pg:psql",
     summary: "open a psql shell to the database",
     usage: "pg:psql [SQL]",
@@ -3747,37 +3856,13 @@ class Hatchbox::Psql < Hatchbox::Command
       sql = positionals.first
     end
 
-    record = choose(options[:database])
+    record = postgres(options[:database])
     return print_url(record) if options[:url]
 
     open_psql(record: record, sql: sql)
   end
 
   private
-
-  def choose(wanted)
-    pool = app.databases.select { |record| record["engine"] == "postgresql" }
-    pool = pool.select { |record| record["name"] == wanted } unless Hatchbox.blank?(wanted)
-    raise Hatchbox::Error, none_message(wanted) if pool.empty?
-    raise Hatchbox::Error, "#{label} has more than one postgresql database, so name one with --database:\n#{pool.map { |record| record["name"] }.join("\n")}" if pool.length > 1
-
-    pool.first
-  end
-
-  def none_message(wanted)
-    head = Hatchbox.blank?(wanted) ? "No postgresql database is attached to #{label}." : "No postgresql database called #{wanted} is attached to #{label}."
-    return head if app.databases.empty?
-
-    "#{head}\n#{app.databases.map { |record| "#{record["name"]} (#{record["engine"]})" }.join("\n")}"
-  end
-
-  def connection_text(record)
-    public_uri = record["public_connection_uri"].to_s
-    text = Hatchbox.blank?(public_uri) ? record["private_connection_uri"].to_s : public_uri
-    raise Hatchbox::Error, "That database has no connection URI, which happens on sqlite." if Hatchbox.blank?(text)
-
-    text
-  end
 
   def print_url(record)
     puts(connection_text(record))
@@ -3786,27 +3871,44 @@ class Hatchbox::Psql < Hatchbox::Command
   end
 
   def open_psql(record:, sql:)
-    database = Hatchbox::Database.new(connection_text(record))
-    tunnel = Hatchbox.blank?(record["public_connection_uri"]) && !options[:direct] ? Hatchbox::Tunnel.open(session: session, host: database.host, port: database.port) : nil
-    host = tunnel ? "127.0.0.1" : database.host
-    port = tunnel ? tunnel.local_port.to_s : database.port
-    $stderr.puts(options[:dangerous] ? "Read-write session".yellow : "Read-only session, pass --dangerous to write".dim)
-    argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
-    argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
-    argv.concat(passthru)
-    begin
-      Hatchbox.run(argv, env: environment(database: database, dangerous: options[:dangerous]))
-    ensure
-      tunnel.close if tunnel
+    with_connection(record) do |database, host, port|
+      $stderr.puts(options[:dangerous] ? "Read-write session".yellow : "Read-only session, pass --dangerous to write".dim)
+      argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
+      argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
+      argv.concat(passthru)
+      Hatchbox.run(argv, env: pg_environment(database: database, dangerous: options[:dangerous]))
     end
   end
+end
 
-  def environment(database:, dangerous:)
-    env = { "PGPASSWORD" => database.password, "PGSSLMODE" => database.sslmode }
-    return env if dangerous
+class Hatchbox::PgInfo < Hatchbox::Command
+  include Hatchbox::PgTools
 
-    extra = [ENV["PGOPTIONS"], "-c default_transaction_read_only=on"].reject { |part| Hatchbox.blank?(part) }
-    env.merge("PGOPTIONS" => extra.join(" "))
+  describe "pg:info",
+    summary: "show database information",
+    usage: "pg:info [DATABASE]",
+    aliases: ["pg"]
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    pool = positionals.empty? ? app.databases.select { |record| record["engine"] == "postgresql" } : [postgres(positionals.first)]
+    return puts("#{label} has no postgresql databases.") if pool.empty?
+
+    pool.each_with_index do |record, index|
+      puts if index.positive?
+      cluster = database_cluster(record["database_cluster_id"])
+      ui.header(title_for(record))
+      ui.styled_hash([
+        ["Add-on", record["name"]],
+        ["Cluster", cluster["name"]],
+        ["PG Version", cluster["version"]],
+        ["Managed", cluster.key?("managed") ? (cluster["managed"] ? "yes" : "no") : nil],
+        ["Region", cluster["region"]],
+        ["Status", cluster.key?("active") ? (cluster["active"] ? "Available" : "Provisioning") : nil],
+        ["Backups", cluster["managed"] ? "handled by your provider" : backup_line(backup_configuration(record))]
+      ])
+    end
+    0
   end
 end
 
