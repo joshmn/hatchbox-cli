@@ -1475,7 +1475,7 @@ class Hatchbox::Operation
         $stderr.puts unless child["body"].to_s.end_with?("\n")
       end
     end
-    Hatchbox::Ui.error("#{log["name"]} #{result.state}. The full log is hatchbox releases:output #{log["id"]}")
+    Hatchbox::Ui.error("#{log["name"] || "The operation"} #{result.state || "failed"}. The full log is hatchbox releases:output #{log["id"]}")
   end
 
   private
@@ -4047,6 +4047,22 @@ class Hatchbox::PgBackups < Hatchbox::Command
     puts
     puts("Schedule: #{backup_line(backup_configuration(record))}")
     0
+  end
+end
+
+class Hatchbox::PgBackupsCapture < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups:capture",
+    summary: "take a backup now",
+    usage: "pg:backups:capture [DATABASE]",
+    flags: [WAIT_FLAG]
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    log_id = (client.post("/databases/#{record["id"]}/backups").json || {})["id"]
+    queued("Backing up #{title_for(record)} (#{record["name"]})", log_id)
   end
 end
 
