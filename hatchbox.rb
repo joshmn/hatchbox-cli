@@ -4220,7 +4220,7 @@ class Hatchbox::PgBackupsSchedule < Hatchbox::Command
     secret_access_key: "backup_secret_access_key",
     retention: "backup_retention_period",
     honeybadger_checkin_id: "honeybadger_checkin_id",
-    appsignal_push_api_key: "appsignal_push_api_key"
+    appsignal_push_api_key: "appsignal_app_push_api_key"
   }.freeze
 
   describe "pg:backups:schedule",
