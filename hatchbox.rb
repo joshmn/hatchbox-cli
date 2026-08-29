@@ -4076,6 +4076,22 @@ class Hatchbox::PgBackupsInfo < Hatchbox::Command
   end
 end
 
+class Hatchbox::PgBackupsUrl < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups:url",
+    summary: "get a temporary URL for the latest backup",
+    usage: "pg:backups:url [DATABASE]"
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    data = client.get("/databases/#{record["id"]}/backups/latest").json || {}
+    puts(data["url"])
+    0
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
