@@ -1,6 +1,8 @@
 # hatchbox
 
-A heroku-style command line for [Hatchbox](https://hatchbox.io). If your fingers already know `heroku ps:restart` and `heroku pg:psql`, they know this too. One file, standard library only.
+A heroku-style command line for [Hatchbox](https://hatchbox.io). If your fingers already know `heroku ps:restart` and `heroku pg:psql`, they know this too.
+
+It talks to the Hatchbox API for everything the API covers and goes over SSH for the things it doesn't, like logs, `run` and `psql`. One file, standard library only.
 
 ## Install
 
@@ -17,7 +19,7 @@ Make an API token at https://hatchbox.io/api_tokens, then:
 hatchbox login
 ```
 
-That saves it to `~/.hatchbox`. `HATCHBOX_API_TOKEN` wins over the file when it's set.
+That saves it to `~/.hatchbox`. `HATCHBOX_API_TOKEN` wins over the file when it's set, which is handy for CI.
 
 ## Pointing a repo at an app
 
@@ -35,7 +37,7 @@ It looks for the app whose repo matches one of your git remotes and writes a `.h
 default = production
 ```
 
-Pick one with `-r qa`, or skip the file entirely with `-a fpd`.
+Only the leading number matters to Hatchbox; the rest is there so you can tell which app it is. Pick one with `-r qa`, or skip the file entirely with `-a fpd`.
 
 The same file takes per-remote SSH overrides:
 
@@ -50,16 +52,26 @@ app_dir:production = /home/deploy/fpd/current
 
 ```bash
 hatchbox apps
-hatchbox deploy --watch
-hatchbox ps
-hatchbox ps:restart sidekiq
-hatchbox ps:exec -d sidekiq.2
-hatchbox ps:forward 9090
-hatchbox logs -p sidekiq --tail
-hatchbox run --env FOO=bar rails console
+hatchbox deploy
+hatchbox logs --tail
+hatchbox run rails console
 hatchbox config:set RAILS_ENV=production
-hatchbox domains:add www.example.com
+hatchbox ps:restart sidekiq
+hatchbox releases:rollback
 hatchbox pg:psql
+hatchbox pg:backups:capture
+hatchbox pg:pull DATABASE_URL fpd_development
 ```
 
 `hatchbox help` lists everything.
+
+Config var values are write-only (the API never returns them), so `config` lists names. `rollback` redeploys an older commit, since Hatchbox has no releases to restore. `pg:psql` sessions are read only unless you pass `--dangerous`.
+
+## Environment
+
+| Variable | What it does |
+| --- | --- |
+| `HATCHBOX_API_TOKEN` | overrides the token in `~/.hatchbox` |
+| `HATCHBOX_SSH_OPTIONS` | extra ssh flags, like `-i ~/.ssh/hatchbox` |
+| `HATCHBOX_API_BASE` | defaults to `https://hatchbox.io/api/v1` |
+| `NO_COLOR` | turns colors off |
