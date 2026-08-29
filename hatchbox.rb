@@ -4000,6 +4000,82 @@ class Hatchbox::PgPull < Hatchbox::Command
   end
 end
 
+module Hatchbox::BackupTools
+  include Hatchbox::DatabaseLookup
+
+  RUN = "Servers::Databases::Backups::Run"
+
+  private
+
+  def backed_up(wanted)
+    return attached(wanted) unless Hatchbox.blank?(wanted)
+
+    pool = app.databases.select { |record| record["engine"] == "postgresql" }
+    return pool.first if pool.length == 1
+
+    attached(nil)
+  end
+
+  def backup_logs(record)
+    client.get("/databases/#{record["id"]}/logs?limit=100").json.to_a.select { |row| row["name"] == RUN }
+  end
+end
+
+class Hatchbox::PgBackups < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups",
+    summary: "list database backups and the backup schedule",
+    usage: "pg:backups [DATABASE]"
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    rows = backup_logs(record)
+    ui.header("Backups of #{title_for(record)}")
+    if rows.empty?
+      puts("No backups on record.")
+    else
+      ui.table(rows, [
+        ["Id", ->(row) { row["id"] }],
+        ["Created At", ->(row) { ui.short_date(row["created_at"]) }],
+        ["Status", ->(row) { row["state"] == "completed" ? "Completed" : row["state"].to_s.capitalize }],
+        ["Duration", ->(row) { ui.duration(row["started_at"], row["completed_at"]) }],
+        ["By", ->(row) { row["username"] || "schedule" }]
+      ])
+    end
+    puts
+    puts("Schedule: #{backup_line(backup_configuration(record))}")
+    0
+  end
+end
+
+class Hatchbox::PgBackupsInfo < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups:info",
+    summary: "show the output of a backup",
+    usage: "pg:backups:info [BACKUP_ID]",
+    flags: [["-d", "--database DATABASE", "which database, when the app has more than one"]]
+
+  def call
+    usage_error("One backup at a time.") if positionals.length > 1
+    log_id = positionals.first
+    if Hatchbox.blank?(log_id)
+      latest = backup_logs(backed_up(options[:database])).first
+      raise Hatchbox::Error, "No backups on record." unless latest
+
+      log_id = latest["id"]
+    end
+    log = operation.fetch(log_id)
+    ui.header("Backup #{log["id"]}")
+    Hatchbox::ReleasesInfo.describe_log(log)
+    puts
+    operation.print_log(log)
+    log["state"] == "completed" ? 0 : 1
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
