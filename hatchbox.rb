@@ -4032,6 +4032,8 @@ class Hatchbox::PgBackups < Hatchbox::Command
     usage_error("One database at a time.") if positionals.length > 1
     record = backed_up(positionals.first)
     rows = backup_logs(record)
+    config = backup_configuration(record)
+
     ui.header("Backups of #{title_for(record)}")
     if rows.empty?
       puts("No backups on record.")
@@ -4045,7 +4047,8 @@ class Hatchbox::PgBackups < Hatchbox::Command
       ])
     end
     puts
-    puts("Schedule: #{backup_line(backup_configuration(record))}")
+    ui.header("Backup Schedule")
+    Hatchbox::PgBackupsSchedules.show(config)
     0
   end
 end
@@ -4164,6 +4167,125 @@ class Hatchbox::PgBackupsDownload < Hatchbox::Command
 
   def megabytes(bytes)
     format("%.1f MB", bytes / 1_048_576.0)
+  end
+end
+
+class Hatchbox::PgBackupsSchedules < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups:schedules",
+    summary: "show the backup schedule of a database",
+    usage: "pg:backups:schedules [DATABASE]"
+
+  def self.show(config)
+    return Hatchbox::Ui.error(config["error"]) if config.key?("error")
+    return puts("Backups are not scheduled.") unless config["backup_enabled"]
+
+    Hatchbox::Ui.styled_hash([
+      ["Frequency", config["backup_frequency"]],
+      ["Provider", config["backup_provider"]],
+      ["Bucket", config["backup_bucket"]],
+      ["Region", config["backup_region"]],
+      ["Endpoint", config["backup_endpoint"]],
+      ["Retention", Hatchbox.blank?(config["backup_retention_period"]) ? "forever" : config["backup_retention_period"]],
+      ["Credentials", config["backup_credentials_set"] ? "set" : "missing"],
+      ["AppSignal", config["appsignal"] ? "on" : nil],
+      ["Honeybadger", config["honeybadger_checkin_id"]],
+      ["Last Backup", Hatchbox::Ui.date(config["last_backup_at"])]
+    ])
+  end
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    config = backup_configuration(record)
+
+    ui.header("Backup Schedule for #{title_for(record)}")
+    self.class.show(config)
+    0
+  end
+end
+
+class Hatchbox::PgBackupsSchedule < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  PROVIDERS = ["local", "s3", "azureblob", "r2", "spaces", "gcs", "wasabi", "other"].freeze
+  FIELDS = {
+    at: "backup_frequency",
+    provider: "backup_provider",
+    region: "backup_region",
+    bucket: "backup_bucket",
+    endpoint: "backup_endpoint",
+    access_key_id: "backup_access_key_id",
+    secret_access_key: "backup_secret_access_key",
+    retention: "backup_retention_period",
+    honeybadger_checkin_id: "honeybadger_checkin_id",
+    appsignal_push_api_key: "appsignal_push_api_key"
+  }.freeze
+
+  describe "pg:backups:schedule",
+    summary: "schedule backups, or change where and how often they run",
+    usage: "pg:backups:schedule [DATABASE] --at SCHEDULE",
+    flags: [
+      [nil, "--at SCHEDULE", "cron expression or @hourly, @daily, @weekly, @monthly"],
+      [nil, "--provider PROVIDER", "local, s3, azureblob, r2, spaces, gcs, wasabi or other"],
+      [nil, "--bucket BUCKET", "bucket or container, for every provider but local"],
+      [nil, "--region REGION", "for s3, spaces and wasabi"],
+      [nil, "--endpoint URL", "for other, and optionally r2"],
+      [nil, "--access-key-id KEY", "access key, or the storage account name on Azure"],
+      [nil, "--secret-access-key SECRET", "secret key, asked for when you leave it off"],
+      [nil, "--retention PERIOD", "how long to keep them, like 7d or 6M"],
+      [nil, "--honeybadger-checkin-id ID", "Honeybadger check-in to report runs to"],
+      [nil, "--appsignal-push-api-key KEY", "AppSignal push key to monitor runs with"]
+    ]
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    body = {}
+    FIELDS.each { |flag, field| body[field] = options[flag] if options.key?(flag) }
+    usage_error("Nothing to change. Pass --at, --provider and the rest.") if body.empty?
+    raise Hatchbox::Error, "#{body["backup_provider"]} is not a provider Hatchbox takes: #{PROVIDERS.join(", ")}." if body.key?("backup_provider") && !PROVIDERS.include?(body["backup_provider"])
+
+    ask_secret(body: body, record: record)
+    data = client.patch("/databases/#{record["id"]}/backup_configuration", body: { "backup_configuration" => body }).json || {}
+    message = "Scheduling backups of #{title_for(record)} (#{record["name"]})"
+    return queued(message, data["log_id"]) unless Hatchbox.blank?(data["log_id"])
+
+    ui.action(message) { nil }
+    0
+  end
+
+  private
+
+  def ask_secret(body:, record:)
+    return if body.key?("backup_secret_access_key") || !body.key?("backup_provider") || body["backup_provider"] == "local"
+    return if backup_configuration(record)["backup_credentials_set"] && !body.key?("backup_access_key_id")
+    return unless prompt.available?
+
+    secret = prompt.secret(question: "Secret access key: ")
+    body["backup_secret_access_key"] = secret unless Hatchbox.blank?(secret)
+  end
+end
+
+class Hatchbox::PgBackupsUnschedule < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups:unschedule",
+    summary: "stop backups and clear the storage settings",
+    usage: "pg:backups:unschedule [DATABASE]",
+    flags: [[nil, "--confirm DATABASE", "the database's name, to skip the prompt"]]
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    confirm(expected: record["name"].to_s, lines: ["This command stops backups of #{record["name"]} and clears its storage settings and credentials."])
+    data = client.delete("/databases/#{record["id"]}/backup_configuration").json || {}
+    message = "Unscheduling backups of #{title_for(record)} (#{record["name"]})"
+    return queued(message, data["log_id"]) unless Hatchbox.blank?(data["log_id"])
+
+    ui.action(message) { |step| step.status = "done, they were already off" }
+    0
   end
 end
 
