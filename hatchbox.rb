@@ -4045,6 +4045,55 @@ class Hatchbox::PgPs < Hatchbox::PgQuery
   end
 end
 
+class Hatchbox::PgLocks < Hatchbox::PgQuery
+  describe "pg:locks",
+    summary: "display queries with active locks",
+    usage: "pg:locks [DATABASE]"
+
+  def call
+    query(<<~SQL)
+      SELECT
+        pg_stat_activity.pid,
+        pg_class.relname,
+        pg_locks.transactionid,
+        pg_locks.granted,
+        pg_stat_activity.query AS query_snippet,
+        age(now(), pg_stat_activity.query_start) AS "age"
+      FROM pg_stat_activity, pg_locks
+      LEFT OUTER JOIN pg_class ON (pg_locks.relation = pg_class.oid)
+      WHERE pg_stat_activity.query <> '<insufficient privilege>'
+        AND pg_locks.pid = pg_stat_activity.pid
+        AND pg_locks.mode = 'ExclusiveLock'
+        AND pg_stat_activity.pid <> pg_backend_pid()
+      ORDER BY query_start;
+    SQL
+  end
+end
+
+class Hatchbox::PgBlocking < Hatchbox::PgQuery
+  describe "pg:blocking",
+    summary: "display queries holding locks other queries are waiting to be released",
+    usage: "pg:blocking [DATABASE]"
+
+  def call
+    query(<<~SQL)
+      SELECT
+        bl.pid AS blocked_pid,
+        ka.query AS blocking_statement,
+        now() - ka.query_start AS blocking_duration,
+        kl.pid AS blocking_pid,
+        a.query AS blocked_statement,
+        now() - a.query_start AS blocked_duration
+      FROM pg_catalog.pg_locks bl
+      JOIN pg_catalog.pg_stat_activity a ON bl.pid = a.pid
+      JOIN pg_catalog.pg_locks kl
+        JOIN pg_catalog.pg_stat_activity ka ON kl.pid = ka.pid
+      ON bl.transactionid = kl.transactionid AND bl.pid != kl.pid
+      WHERE NOT bl.granted;
+    SQL
+  end
+end
+
 module Hatchbox::BackupTools
   include Hatchbox::DatabaseLookup
 
