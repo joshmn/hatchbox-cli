@@ -3840,6 +3840,13 @@ module Hatchbox::PgTools
     extra = [ENV["PGOPTIONS"], "-c default_transaction_read_only=on"].reject { |part| Hatchbox.blank?(part) }
     env.merge("PGOPTIONS" => extra.join(" "))
   end
+
+  def run_sql(record, sql, dangerous: false)
+    with_connection(record) do |database, host, port|
+      argv = ["psql", "-X", "-h", host, "-p", port, "-U", database.user, "-d", database.name, "-c", sql]
+      Hatchbox.run(argv, env: pg_environment(database: database, dangerous: dangerous))
+    end
+  end
 end
 
 class Hatchbox::Psql < Hatchbox::Command
@@ -3997,6 +4004,44 @@ class Hatchbox::PgPull < Hatchbox::Command
     raise Hatchbox::Error, "createdb #{target} failed:\n#{output.strip}"
   rescue Errno::ENOENT
     raise Hatchbox::Error, "createdb is required and is not installed."
+  end
+end
+
+class Hatchbox::PgQuery < Hatchbox::Command
+  include Hatchbox::PgTools
+
+  private
+
+  def query(sql, database: positionals.first)
+    usage_error("One database at a time.") if positionals.length > 1
+
+    run_sql(postgres(database), sql)
+  end
+end
+
+class Hatchbox::PgPs < Hatchbox::PgQuery
+  describe "pg:ps",
+    summary: "view the queries running on the database",
+    usage: "pg:ps [DATABASE]"
+
+  def call
+    query(<<~SQL)
+      SELECT
+        pid,
+        state,
+        application_name AS source,
+        usename AS username,
+        age(now(), xact_start) AS running_for,
+        xact_start AS transaction_start,
+        wait_event IS NOT NULL AS waiting,
+        query
+      FROM pg_stat_activity
+      WHERE query <> '<insufficient privilege>'
+        AND state <> 'idle'
+        AND pid <> pg_backend_pid()
+        AND datname = current_database()
+      ORDER BY query_start DESC;
+    SQL
   end
 end
 
