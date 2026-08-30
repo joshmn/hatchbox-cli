@@ -4022,7 +4022,8 @@ end
 class Hatchbox::PgPs < Hatchbox::PgQuery
   describe "pg:ps",
     summary: "view the queries running on the database",
-    usage: "pg:ps [DATABASE]"
+    usage: "pg:ps [DATABASE]",
+    flags: [["-v", "--verbose", "include idle connections"]]
 
   def call
     query(<<~SQL)
@@ -4037,7 +4038,7 @@ class Hatchbox::PgPs < Hatchbox::PgQuery
         query
       FROM pg_stat_activity
       WHERE query <> '<insufficient privilege>'
-        AND state <> 'idle'
+        #{options[:verbose] ? "" : "AND state <> 'idle'"}
         AND pid <> pg_backend_pid()
         AND datname = current_database()
       ORDER BY query_start DESC;
@@ -4098,15 +4099,16 @@ class Hatchbox::PgOutliers < Hatchbox::PgQuery
   describe "pg:outliers",
     summary: "show the queries with the longest total execution time",
     usage: "pg:outliers [DATABASE]",
-    flags: [["-n", "--num NUM", "number of queries to show, 10 unless you say otherwise", Integer]]
+    flags: [["-n", "--num NUM", "number of queries to show, 10 unless you say otherwise", Integer], ["-t", "--truncate", "cut queries off at 40 characters"]]
 
   def call
+    shown = options[:truncate] ? "CASE WHEN length(query) <= 40 THEN query ELSE substr(query, 0, 39) || '...' END" : "query"
     query(<<~SQL)
       SELECT
         interval '1 millisecond' * total_exec_time AS total_exec_time,
         to_char((total_exec_time / sum(total_exec_time) OVER ()) * 100, 'FM90D0') || '%' AS prop_exec_time,
         to_char(calls, 'FM999G999G999G990') AS ncalls,
-        query
+        #{shown} AS query
       FROM pg_stat_statements
       WHERE userid = (SELECT usesysid FROM pg_user WHERE usename = current_user LIMIT 1)
       ORDER BY total_exec_time DESC
