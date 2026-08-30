@@ -4230,6 +4230,43 @@ class Hatchbox::PgVacuumStats < Hatchbox::PgQuery
   end
 end
 
+class Hatchbox::PgKill < Hatchbox::PgQuery
+  describe "pg:kill",
+    summary: "cancel a running query",
+    usage: "pg:kill PID [DATABASE]",
+    flags: [["-f", "--force", "terminate the connection instead of cancelling its query"]]
+
+  def call
+    usage_error("Must specify PID.") if positionals.empty?
+    usage_error("Too many arguments.") if positionals.length > 2
+    pid = positionals.first
+    raise Hatchbox::Error, "#{pid} is not a pid. hatchbox pg:ps lists them." unless pid =~ /\A[0-9]+\z/
+
+    function = options[:force] ? "pg_terminate_backend" : "pg_cancel_backend"
+    run_sql(postgres(positionals[1]), "SELECT #{function}(#{pid.to_i});")
+  end
+end
+
+class Hatchbox::PgKillall < Hatchbox::PgQuery
+  describe "pg:killall",
+    summary: "terminate every other connection to the database",
+    usage: "pg:killall [DATABASE]",
+    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = postgres(positionals.first)
+    confirm(expected: app.name, lines: ["This command will terminate every connection to #{record["name"]}, including #{app.name}'s own."])
+    run_sql(record, <<~SQL)
+      SELECT pg_terminate_backend(pid)
+      FROM pg_stat_activity
+      WHERE pid <> pg_backend_pid()
+        AND query <> '<insufficient privilege>'
+        AND datname = current_database();
+    SQL
+  end
+end
+
 module Hatchbox::BackupTools
   include Hatchbox::DatabaseLookup
 
