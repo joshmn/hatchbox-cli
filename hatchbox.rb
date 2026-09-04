@@ -4558,6 +4558,27 @@ class Hatchbox::PgBackupsUnschedule < Hatchbox::Command
   end
 end
 
+class Hatchbox::PgBackupsTest < Hatchbox::Command
+  include Hatchbox::BackupTools
+
+  describe "pg:backups:test",
+    summary: "upload a test file to the backup storage",
+    usage: "pg:backups:test [DATABASE]"
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = backed_up(positionals.first)
+    log_id = (client.post("/databases/#{record["id"]}/backups/test_connection").json || {})["id"]
+    result = nil
+    ui.action("Testing backup storage for #{record["name"]}") do |step|
+      result = operation.wait(log_id)
+      step.status = result.ok? ? "done" : ui.paint(result.state.to_s, 31)
+    end
+    operation.print_log(result.log || {})
+    result.ok? ? 0 : 1
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
