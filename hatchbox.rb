@@ -3858,6 +3858,7 @@ class Hatchbox::Psql < Hatchbox::Command
     aliases: ["psql"],
     flags: [
       ["-c", "--command SQL", "SQL command to run"],
+      ["-f", "--file FILE", "SQL file to run"],
       ["-d", "--database NAME", "which postgresql database, when the app has more than one"],
       [nil, "--url", "print the connection URI instead of connecting"],
       [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"],
@@ -3896,6 +3897,7 @@ class Hatchbox::Psql < Hatchbox::Command
       $stderr.puts(options[:dangerous] ? "Read-write session".yellow : "Read-only session, pass --dangerous to write".dim)
       argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
       argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
+      argv.concat(["-f", options[:file]]) unless Hatchbox.blank?(options[:file])
       argv.concat(passthru)
       Hatchbox.run(argv, env: pg_environment(database: database, dangerous: options[:dangerous]))
     end
