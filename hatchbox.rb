@@ -360,7 +360,7 @@ class Hatchbox::Http
     session(uri).request(message)
   rescue StandardError => e
     drop(uri)
-    raise Hatchbox::Error, "Request to #{uri} failed: #{e.message}"
+    raise Hatchbox::Error, "Could not reach #{uri.host}: #{e.message}"
   end
 
   def session(uri)
