@@ -4803,6 +4803,19 @@ class Hatchbox::CronUpdate < Hatchbox::Command
   end
 end
 
+class Hatchbox::CronRemove < Hatchbox::Command
+  describe "cron:remove",
+    summary: "remove a cron job",
+    usage: "cron:remove JOB",
+    aliases: ["cron:destroy", "cron:delete"]
+
+  def call
+    row = Hatchbox::Cron.find(client: client, app_id: app_id, wanted: one_positional("JOB"))
+    ui.action("Removing #{row["name"]} from #{label}") { client.delete("/apps/#{app_id}/cron_jobs/#{row["id"]}") }
+    0
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
