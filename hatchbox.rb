@@ -1357,6 +1357,7 @@ class Hatchbox::Database
   attr_reader :uri
 
   def default_port
+    return 6379 if scheme.start_with?("redis")
     return 3306 if scheme.start_with?("mysql")
 
     5432
@@ -4590,6 +4591,28 @@ class Hatchbox::PgBackupsTest < Hatchbox::Command
     end
     operation.print_log(result.log || {})
     result.ok? ? 0 : 1
+  end
+end
+
+class Hatchbox::RedisCli < Hatchbox::Command
+  include Hatchbox::PgTools
+
+  describe "redis:cli",
+    summary: "open a redis-cli session to the app's redis",
+    usage: "redis:cli [DATABASE]",
+    flags: [[nil, "--direct", "connect straight to the redis host instead of through an SSH tunnel"]]
+
+  def call
+    usage_error("One database at a time.") if positionals.length > 1
+    record = attached(positionals.first, engines: ["redis"])
+    with_connection(record, role: "redis") do |database, host, port|
+      argv = ["redis-cli", "-h", host, "-p", port]
+      argv.concat(["-n", database.name]) if database.name =~ /\A[0-9]+\z/
+      argv.concat(["--user", database.user]) unless Hatchbox.blank?(database.user)
+      argv.concat(passthru)
+      env = Hatchbox.blank?(database.password) ? {} : { "REDISCLI_AUTH" => database.password }
+      Hatchbox.run(argv, env: env)
+    end
   end
 end
 
