@@ -1297,13 +1297,14 @@ class Hatchbox::SshTarget
 end
 
 class Hatchbox::DatabasePicker
-  def initialize(session:)
+  def initialize(session:, role: "postgresql")
     @session = session
+    @role = role
   end
 
   def pick
     servers = session.app.servers
-    found = servers.find { |server| (server["roles"] || []).include?("postgresql") }
+    found = servers.find { |server| (server["roles"] || []).include?(role) }
     found = servers.first if found.nil? && servers.length == 1
     raise Hatchbox::Error, "Could not tell which server holds the database. Set ssh_host:#{session.env || "ENV"} in #{session.config.path}." unless found
 
@@ -1312,7 +1313,7 @@ class Hatchbox::DatabasePicker
 
   private
 
-  attr_reader :session
+  attr_reader :session, :role
 end
 
 class Hatchbox::Database
@@ -1335,7 +1336,7 @@ class Hatchbox::Database
   end
 
   def port
-    (uri.port || 5432).to_s
+    (uri.port || default_port).to_s
   end
 
   def name
@@ -1347,9 +1348,19 @@ class Hatchbox::Database
     Hatchbox.blank?(found) ? "prefer" : found
   end
 
+  def scheme
+    uri.scheme.to_s
+  end
+
   private
 
   attr_reader :uri
+
+  def default_port
+    return 3306 if scheme.start_with?("mysql")
+
+    5432
+  end
 
   def decode(value)
     value.nil? ? "" : URI.decode_www_form_component(value)
@@ -1358,21 +1369,22 @@ end
 
 class Hatchbox::Tunnel
   class << self
-    def open(session:, host:, port:)
-      new(session: session, host: host, port: port).open
+    def open(session:, host:, port:, role: "postgresql")
+      new(session: session, host: host, port: port, role: role).open
     end
   end
 
   attr_reader :local_port
 
-  def initialize(session:, host:, port:)
+  def initialize(session:, host:, port:, role:)
     @session = session
     @host = host
     @port = port
+    @role = role
   end
 
   def open
-    server = Hatchbox::SshTarget.pinned?(session) ? nil : Hatchbox::DatabasePicker.new(session: session).pick
+    server = Hatchbox::SshTarget.pinned?(session) ? nil : Hatchbox::DatabasePicker.new(session: session, role: role).pick
     @target = Hatchbox::SshTarget.new(session: session, server: server)
     @local_port = free_port
     @dir = Dir.mktmpdir("hbx", "/tmp")
@@ -1389,7 +1401,7 @@ class Hatchbox::Tunnel
 
   private
 
-  attr_reader :session, :host, :port, :dir, :target
+  attr_reader :session, :host, :port, :role, :dir, :target
 
   def control
     File.join(dir, "control")
@@ -3821,9 +3833,9 @@ module Hatchbox::PgTools
     Hatchbox.blank?(record["public_connection_uri"]) && !options[:direct]
   end
 
-  def with_connection(record)
+  def with_connection(record, role: "postgresql")
     database = Hatchbox::Database.new(connection_text(record))
-    tunnel = tunnelled?(record) ? Hatchbox::Tunnel.open(session: session, host: database.host, port: database.port) : nil
+    tunnel = tunnelled?(record) ? Hatchbox::Tunnel.open(session: session, host: database.host, port: database.port, role: role) : nil
     host = tunnel ? "127.0.0.1" : database.host
     port = tunnel ? tunnel.local_port.to_s : database.port
     begin
@@ -4578,6 +4590,68 @@ class Hatchbox::PgBackupsTest < Hatchbox::Command
     end
     operation.print_log(result.log || {})
     result.ok? ? 0 : 1
+  end
+end
+
+class Hatchbox::MysqlCli < Hatchbox::Command
+  include Hatchbox::PgTools
+  describe "mysql:cli",
+    summary: "open a mysql shell to the app's mysql database",
+    usage: "mysql:cli [DATABASE | SQL]",
+    aliases: ["mysql"],
+    flags: [
+      ["-c", "--command SQL", "SQL statement to run"],
+      ["-d", "--database NAME", "which mysql database, when the app has more than one"],
+      [nil, "--url", "print the connection URI instead of connecting"],
+      [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"],
+      [nil, "--dangerous", "a session that can write, which it cannot by default"]
+    ]
+
+  def call
+    usage_error("Only one statement at a time, quote it as one argument.") if positionals.length > 1
+    wanted = options[:database]
+    sql = options[:command].to_s
+    if positionals.any?
+      if app.find_database(positionals.first, engines: ["mysql"]).any? && Hatchbox.blank?(wanted)
+        wanted = positionals.first
+      else
+        usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
+        sql = positionals.first
+      end
+    end
+
+    record = attached(wanted, engines: ["mysql"])
+    return print_url(record) if options[:url]
+
+    with_connection(record, role: "mysql") do |database, host, port|
+      $stderr.puts(options[:dangerous] ? "Read-write session".yellow : "Read-only session, pass --dangerous to write".dim)
+      Dir.mktmpdir("hbx") do |dir|
+        defaults = File.join(dir, "my.cnf")
+        File.open(defaults, File::WRONLY | File::CREAT | File::EXCL, 0o600) do |file|
+          file.puts("[client]")
+          file.puts("password=\"#{database.password.gsub("\\", "\\\\\\\\").gsub("\"", "\\\\\"")}\"")
+        end
+        Hatchbox.run(mysql_command(database: database, host: host, port: port, defaults: defaults, sql: sql))
+      end
+    end
+  end
+
+  private
+
+  def mysql_command(database:, host:, port:, defaults:, sql:)
+    argv = ["mysql", "--defaults-extra-file=#{defaults}", "-h", host, "-P", port, "-u", database.user]
+    argv << "--ssl-mode=REQUIRED" if database.sslmode.start_with?("require", "verify")
+    argv << "--init-command=SET SESSION TRANSACTION READ ONLY" unless options[:dangerous]
+    argv.concat(["-e", sql]) unless Hatchbox.blank?(sql)
+    argv.concat(passthru)
+    argv << database.name unless database.name.empty?
+    argv
+  end
+
+  def print_url(record)
+    puts(connection_text(record))
+    ui.warning("That host is the database's own machine, so the URI only works from the servers.") if Hatchbox.blank?(record["public_connection_uri"])
+    0
   end
 end
 
