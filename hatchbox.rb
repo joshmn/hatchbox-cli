@@ -4782,6 +4782,27 @@ class Hatchbox::CronInfo < Hatchbox::Command
   end
 end
 
+class Hatchbox::CronUpdate < Hatchbox::Command
+  include Hatchbox::CronFields
+
+  describe "cron:update",
+    summary: "change a cron job",
+    usage: "cron:update JOB",
+    flags: Hatchbox::CronFields::FLAGS + [[nil, "--command COMMAND", "the command to run"]]
+
+  def call
+    row = Hatchbox::Cron.find(client: client, app_id: app_id, wanted: one_positional("JOB"))
+    body = cron_body
+    body["command"] = options[:command] if options.key?(:command)
+    usage_error("Nothing to change. See hatchbox help cron:update.") if body.empty?
+
+    updated = nil
+    ui.action("Updating #{row["name"]} on #{label}") { updated = client.patch("/apps/#{app_id}/cron_jobs/#{row["id"]}", body: { "cron_job" => body }).json || {} }
+    show(updated)
+    0
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
