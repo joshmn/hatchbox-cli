@@ -4607,6 +4607,7 @@ class Hatchbox::RedisCli < Hatchbox::Command
     record = attached(positionals.first, engines: ["redis"])
     with_connection(record, role: "redis") do |database, host, port|
       argv = ["redis-cli", "-h", host, "-p", port]
+      argv << "--tls" if database.scheme == "rediss"
       argv.concat(["-n", database.name]) if database.name =~ /\A[0-9]+\z/
       argv.concat(["--user", database.user]) unless Hatchbox.blank?(database.user)
       argv.concat(passthru)
