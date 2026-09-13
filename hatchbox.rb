@@ -4679,6 +4679,85 @@ class Hatchbox::MysqlCli < Hatchbox::Command
   end
 end
 
+class Hatchbox::Cron < Hatchbox::Command
+  describe "cron",
+    summary: "list the app's cron jobs",
+    aliases: ["cron:list"]
+
+  def self.find(client:, app_id:, wanted:)
+    rows = client.get("/apps/#{app_id}/cron_jobs").json || []
+    found = rows.find { |row| row["id"].to_s == wanted.to_s } || rows.select { |row| row["name"].to_s.casecmp?(wanted.to_s) }.then { |pool| pool.length == 1 ? pool.first : nil }
+    raise Hatchbox::Error, "No cron job #{wanted}. hatchbox cron lists them." unless found
+
+    found
+  end
+
+  def call
+    none!
+    rows = client.get("/apps/#{app_id}/cron_jobs").json || []
+
+    ui.header("#{label} Cron Jobs")
+    return puts("No cron jobs on #{label}.") if rows.empty?
+
+    ui.table(rows, [
+      ["Id", ->(row) { row["id"] }],
+      ["Name", ->(row) { row["name"] }],
+      ["Schedule", ->(row) { row["run_at"] }],
+      ["Command", ->(row) { row["command"] }]
+    ])
+    0
+  end
+end
+
+module Hatchbox::CronFields
+  FLAGS = [
+    [nil, "--at SCHEDULE", "cron expression or @hourly, @daily, @weekly, @monthly"],
+    [nil, "--name NAME", "a label for the job"],
+    [nil, "--[no-]appsignal", "wrap it in AppSignal cron monitoring, which needs AppSignal conected"],
+    [nil, "--honeybadger-checkin-id ID", "Honeybadger check-in to report to, or an empty string to stop"]
+  ].freeze
+
+  private
+
+  def cron_body
+    body = {}
+    body["run_at"] = options[:at] if options.key?(:at)
+    body["name"] = options[:name] if options.key?(:name)
+    body["appsignal"] = options[:appsignal] if options.key?(:appsignal)
+    body["honeybadger_checkin_id"] = options[:honeybadger_checkin_id].to_s.empty? ? nil : options[:honeybadger_checkin_id] if options.key?(:honeybadger_checkin_id)
+    body
+  end
+
+  def show(row)
+    ui.styled_hash([
+      ["Id", row["id"].to_s],
+      ["Name", row["name"]],
+      ["Schedule", row["run_at"]],
+      ["Command", row["command"]],
+      ["AppSignal", row["appsignal"] ? "on" : nil],
+      ["Honeybadger", row["honeybadger_checkin_id"]],
+      ["Created", ui.date(row["created_at"])],
+      ["Updated", ui.date(row["updated_at"])]
+    ])
+  end
+end
+
+class Hatchbox::CronInfo < Hatchbox::Command
+  include Hatchbox::CronFields
+
+  describe "cron:info",
+    summary: "show a cron job",
+    usage: "cron:info JOB"
+
+  def call
+    row = Hatchbox::Cron.find(client: client, app_id: app_id, wanted: one_positional("JOB"))
+
+    ui.header(row["name"].to_s)
+    show(row)
+    0
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
