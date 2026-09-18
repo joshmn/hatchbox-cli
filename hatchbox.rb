@@ -4920,6 +4920,40 @@ class Hatchbox::ServersInfo < Hatchbox::Command
   end
 end
 
+class Hatchbox::ServersReboot < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers:reboot",
+    summary: "reboot a server, taking everything on it down until it is back",
+    usage: "servers:reboot SERVER",
+    app: :optional,
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to skip the prompt"], WAIT_FLAG]
+
+  def call
+    server = find_server(one_positional("SERVER"))
+    confirm(expected: server["name"].to_s, lines: ["This command will reboot #{server["name"]}. Everything on it is down until it comes back."])
+    log_id = (client.post(server_path(server, "reboot")).json || {})["id"]
+    queued("Rebooting #{server["name"]}", log_id)
+  end
+end
+
+class Hatchbox::ServersProvision < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers:provision",
+    summary: "rerun provisioning on a server, the dashboard's Update button",
+    usage: "servers:provision SERVER",
+    app: :optional,
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to skip the prompt"], WAIT_FLAG]
+
+  def call
+    server = find_server(one_positional("SERVER"))
+    confirm(expected: server["name"].to_s, lines: ["This command reprovisions #{server["name"]}. Processes on it may restart while it runs."])
+    log_id = (client.post(server_path(server, "provision")).json || {})["id"]
+    queued("Provisioning #{server["name"]}", log_id)
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
