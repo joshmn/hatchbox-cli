@@ -2039,7 +2039,7 @@ class Hatchbox::Command
   private
 
   def prepare
-    return unless meta[:app]
+    return unless meta[:app] == true
 
     wanted = positional_app
     @session = Hatchbox::Session.new(app_flag: wanted, remote_flag: session.remote_flag) if wanted && Hatchbox.blank?(session.app_flag)
@@ -4812,6 +4812,110 @@ class Hatchbox::CronRemove < Hatchbox::Command
   def call
     row = Hatchbox::Cron.find(client: client, app_id: app_id, wanted: one_positional("JOB"))
     ui.action("Removing #{row["name"]} from #{label}") { client.delete("/apps/#{app_id}/cron_jobs/#{row["id"]}") }
+    0
+  end
+end
+
+module Hatchbox::ServerLookup
+  CLUSTER_FLAG = [nil, "--cluster CLUSTER", "the cluster, by name or id, instead of the app's"].freeze
+
+  private
+
+  def cluster_record
+    @cluster_record ||= begin
+      wanted = options[:cluster]
+      if Hatchbox.blank?(wanted)
+        app.cluster
+      else
+        catalog = session.catalog
+        pool = catalog.usable_accounts.flat_map { |account| catalog.clusters_for(account) }
+        found = pool.find { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) }
+        raise Hatchbox::Error, "Couldn't find that cluster." unless found
+
+        client.get("/clusters/#{found["id"]}").json || {}
+      end
+    end
+  end
+
+  def find_server(wanted)
+    servers = cluster_record["servers"] || []
+    text = wanted.to_s.downcase
+    exact = servers.find { |server| server["name"].to_s.downcase == text || server["id"].to_s == text }
+    return exact if exact
+
+    near = servers.select { |server| server["name"].to_s.downcase.include?(text) }
+    return near.first if near.length == 1
+
+    raise Hatchbox::Error, "No server called #{wanted} on #{cluster_record["name"]}.\nServers: #{servers.map { |server| server["name"] }.join(", ")}"
+  end
+
+  def server_path(server, suffix = nil)
+    base = "/clusters/#{cluster_record["id"]}/servers/#{server["id"]}"
+    suffix ? "#{base}/#{suffix}" : base
+  end
+end
+
+class Hatchbox::Servers < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers",
+    summary: "list the servers in the app's cluster",
+    aliases: ["servers:list"],
+    app: :optional,
+    flags: [CLUSTER_FLAG]
+
+  def self.table(servers)
+    Hatchbox::Ui.table(servers, [
+      ["Name", ->(row) { row["name"] }],
+      ["Id", ->(row) { row["id"] }],
+      ["State", ->(row) { row["state"] == "active" ? row["state"] : row["state"].to_s.yellow }],
+      ["Roles", ->(row) { Array(row["roles"]).join(", ") }],
+      ["Public IP", ->(row) { row["public_ip"] }],
+      ["Private IP", ->(row) { row["private_ip"] }],
+      ["Size", ->(row) { row["size"] }],
+      ["OS", ->(row) { row["ubuntu_version"] }]
+    ])
+  end
+
+  def call
+    none!
+    servers = cluster_record["servers"] || []
+
+    ui.header("#{cluster_record["name"]} Servers")
+    return puts("No servers.") if servers.empty?
+
+    self.class.table(servers)
+    0
+  end
+end
+
+class Hatchbox::ServersInfo < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers:info",
+    summary: "show one server",
+    usage: "servers:info SERVER",
+    app: :optional,
+    flags: [CLUSTER_FLAG]
+
+  def call
+    server = client.get(server_path(find_server(one_positional("SERVER")))).json || {}
+
+    ui.header(server["name"].to_s)
+    ui.styled_hash([
+      ["Id", server["id"].to_s],
+      ["State", server["state"]],
+      ["Roles", Array(server["roles"]).join(", ")],
+      ["Cluster", cluster_record["name"]],
+      ["Public IP", server["public_ip"]],
+      ["Public IPv6", server["public_ipv6"]],
+      ["Private IP", server["private_ip"]],
+      ["SSH Port", server["ssh_port"].to_s],
+      ["Size", server["size"]],
+      ["OS", server["ubuntu_version"]],
+      ["Provider Id", server["provider_id"]],
+      ["Configured", ui.date(server["last_configured_at"])]
+    ])
     0
   end
 end
