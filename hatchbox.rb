@@ -2802,7 +2802,7 @@ class Hatchbox::GitProviders < Hatchbox::Command
 end
 
 module Hatchbox::Activity
-  NAMESPACES = ["Apps"].freeze
+  NAMESPACES = ["Apps", "Servers", "Clusters", "DatabaseClusters", "Databases", "Scripts"].freeze
 
   class << self
     def change(row)
@@ -4951,6 +4951,28 @@ class Hatchbox::ServersProvision < Hatchbox::Command
     confirm(expected: server["name"].to_s, lines: ["This command reprovisions #{server["name"]}. Processes on it may restart while it runs."])
     log_id = (client.post(server_path(server, "provision")).json || {})["id"]
     queued("Provisioning #{server["name"]}", log_id)
+  end
+end
+
+class Hatchbox::ServersActivity < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers:activity",
+    summary: "list what Hatchbox has done to a server",
+    usage: "servers:activity SERVER",
+    app: :optional,
+    flags: [CLUSTER_FLAG, ["-n", "--num NUM", "number of entries", Integer], [nil, "--all", "include the per-server output of app deploys"]]
+
+  def call
+    server = find_server(one_positional("SERVER"))
+    rows = client.get("#{server_path(server, "logs")}?limit=#{options[:all] ? options[:num] || 20 : 100}").json || []
+    rows = rows.select { |row| row["parent_id"].nil? }.first(options[:num] || 20) unless options[:all]
+
+    ui.header("#{server["name"]} Activity")
+    return puts("Nothing on record.") if rows.empty?
+
+    ui.columns(Hatchbox::Activity.rows(rows))
+    0
   end
 end
 
