@@ -798,13 +798,13 @@ class Hatchbox::AppCatalog
       return pool.first if pool.length == 1
       raise Hatchbox::Error, "Your token can reach no account with an active subscription." if pool.empty?
 
-      raise Hatchbox::Error, (["Pick an account with --account:"] + pool.map { |account| "#{account["name"]} (#{account["id"]})" }).join("\n")
+      raise Hatchbox::Error, (["Pick an account with --team:"] + pool.map { |account| "#{account["name"]} (#{account["id"]})" }).join("\n")
     end
 
     found = accounts.find do |account|
       [account["id"].to_s, "acct_#{account["id"]}"].include?(wanted.to_s) || account["name"].to_s.casecmp?(wanted.to_s)
     end
-    raise Hatchbox::Error, "Couldn't find that account." unless found
+    raise Hatchbox::Error, "Couldn't find that team." unless found
 
     found
   end
@@ -2140,13 +2140,14 @@ class Hatchbox::AppsList < Hatchbox::Command
     summary: "list your apps",
     usage: "apps",
     aliases: ["apps:list", "list"],
-    app: false
+    app: false,
+    flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"]]
 
   def call
     none!
     catalog = session.catalog
-    accounts = catalog.accounts
-    rows = catalog.entries
+    accounts = Hatchbox.blank?(options[:team]) ? catalog.accounts : [catalog.find_account(options[:team])]
+    rows = catalog.entries.select { |row| accounts.any? { |account| account["id"].to_s == row[:account_record]["id"].to_s } }
 
     clusters = cluster_names(accounts: accounts, catalog: catalog)
     shown = 0
@@ -2160,7 +2161,7 @@ class Hatchbox::AppsList < Hatchbox::Command
       shown += 1
     end
     puts("You have no apps.") if shown.zero?
-    catalog.skipped.each { |name, message| ui.warning("Skipped #{name}: #{message}") }
+    catalog.skipped.each { |name, message| ui.warning("Skipped #{name}: #{message}") if accounts.any? { |account| account["name"].to_s == name } }
     0
   end
 
@@ -2303,7 +2304,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     app: false,
     flags: [
       ["-c", "--cluster CLUSTER", "cluster to create the app on, by name or id"],
-      [nil, "--account ACCOUNT", "account the cluster belongs to, by name or id"],
+      ["-t", "--team TEAM", "account the cluster belongs to, by name or id"],
       [nil, "--repo REPO", "repository to deploy, e.g. myuser/my-app"],
       ["-b", "--branch BRANCH", "branch to deploy, main unless you say otherwise"],
       [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
@@ -2317,7 +2318,7 @@ class Hatchbox::AppsCreate < Hatchbox::Command
     raise Hatchbox::Error, "#{name} is not a name Hatchbox takes. Use letters, numbers, hyphens and underscores." unless name =~ NAME
 
     catalog = session.catalog
-    account = catalog.find_account(options[:account])
+    account = catalog.find_account(options[:team])
     cluster = pick_cluster(catalog.clusters_for(account))
     body = { "cluster_id" => cluster["id"], "name" => name }
     body["branch"] = options[:branch] unless Hatchbox.blank?(options[:branch])
@@ -2794,12 +2795,13 @@ end
 class Hatchbox::GitProviders < Hatchbox::Command
   describe "git:providers",
     summary: "list the connected git accounts apps can deploy from",
-    app: false
+    app: false,
+    flags: [["-t", "--team TEAM", "only this account, by name or id"]]
 
   def call
     none!
     catalog = session.catalog
-    accounts = catalog.usable_accounts
+    accounts = Hatchbox.blank?(options[:team]) ? catalog.usable_accounts : [catalog.find_account(options[:team])]
     found = accounts.to_h { |account| [account, catalog.git_providers_for(account)] }
 
     found.each_with_index do |(account, rows), index|
