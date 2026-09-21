@@ -5088,6 +5088,63 @@ class Hatchbox::ServersRolesRemove < Hatchbox::ServersRolesSet
   end
 end
 
+class Hatchbox::Firewall < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "firewall",
+    summary: "list a server's firewall rules",
+    usage: "firewall SERVER",
+    aliases: ["firewall:list"],
+    app: :optional,
+    flags: [CLUSTER_FLAG]
+
+  def call
+    server = find_server(one_positional("SERVER"))
+    rows = client.get(server_path(server, "firewall_rules")).json || []
+
+    ui.header("#{server["name"]} Firewall Rules")
+    return puts("No rules.") if rows.empty?
+
+    ui.table(rows, [
+      ["Id", ->(row) { row["id"] }],
+      ["Port", ->(row) { row["port"] }],
+      ["Action", ->(row) { row["action"] == "deny" ? row["action"].to_s.red : row["action"] }],
+      ["From", ->(row) { row["from"] || "anywhere" }],
+      ["Description", ->(row) { row["description"] }],
+      ["Managed", ->(row) { row["removable"] ? "" : "hatchbox" }]
+    ])
+    0
+  end
+end
+
+class Hatchbox::FirewallInfo < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "firewall:info",
+    summary: "show one firewall rule",
+    usage: "firewall:info SERVER RULE",
+    app: :optional,
+    flags: [CLUSTER_FLAG]
+
+  def call
+    usage_error("Must specify SERVER and RULE.") unless positionals.length == 2
+
+    server = find_server(positionals.first)
+    row = client.get(server_path(server, "firewall_rules/#{positionals.last}")).json || {}
+
+    ui.header("Rule #{row["id"]} on #{server["name"]}")
+    ui.styled_hash([
+      ["Port", row["port"].to_s],
+      ["Action", row["action"]],
+      ["From", row["from"] || "anywhere"],
+      ["Description", row["description"]],
+      ["Managed", row["removable"] ? "no" : "yes, by hatchbox"],
+      ["Created", ui.date(row["created_at"])]
+    ])
+    0
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
