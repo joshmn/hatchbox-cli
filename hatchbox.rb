@@ -5145,6 +5145,58 @@ class Hatchbox::FirewallInfo < Hatchbox::Command
   end
 end
 
+class Hatchbox::FirewallAdd < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "firewall:add",
+    summary: "add a firewall rule to a server",
+    usage: "firewall:add SERVER PORT",
+    app: :optional,
+    flags: [
+      CLUSTER_FLAG,
+      [nil, "--from ADDRESS", "an IP address or CIDR range, anywhere unless you pass one"],
+      [nil, "--description TEXT", "a note for yourself"],
+      WAIT_FLAG
+    ]
+
+  def call
+    usage_error("Must specify SERVER and PORT.") unless positionals.length == 2
+
+    server = find_server(positionals.first)
+    port = positionals.last
+    raise Hatchbox::Error, "#{port} is not a port." unless port =~ /\A[0-9]+\z/ && port.to_i <= 65_535
+
+    body = { "port" => port.to_i, "action" => "allow" }
+    body["from"] = options[:from] unless Hatchbox.blank?(options[:from])
+    body["description"] = options[:description] unless Hatchbox.blank?(options[:description])
+    data = client.post(server_path(server, "firewall_rules"), body: { "firewall_rule" => body }).json || {}
+    message = "Allowing port #{port} from #{options[:from] || "anywhere"} on #{server["name"]}"
+    return queued(message, data["log_id"]) unless Hatchbox.blank?(data["log_id"])
+
+    ui.action(message) { nil }
+    0
+  end
+end
+
+class Hatchbox::FirewallRemove < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "firewall:remove",
+    summary: "remove a firewall rule from a server",
+    usage: "firewall:remove SERVER RULE",
+    aliases: ["firewall:delete"],
+    app: :optional,
+    flags: [CLUSTER_FLAG, WAIT_FLAG]
+
+  def call
+    usage_error("Must specify SERVER and RULE.") unless positionals.length == 2
+
+    server = find_server(positionals.first)
+    log_id = (client.delete(server_path(server, "firewall_rules/#{positionals.last}")).json || {})["id"]
+    queued("Removing rule #{positionals.last} from #{server["name"]}", log_id)
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
