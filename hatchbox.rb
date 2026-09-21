@@ -416,6 +416,17 @@ class Hatchbox::Client
     http.request(method: method, path: path, body: body)
   end
 
+  def all(path)
+    rows = []
+    url = path
+    until url.nil?
+      response = get(url)
+      rows.concat(Array(response.json))
+      url = response.next_page
+    end
+    rows
+  end
+
   def error_message(response)
     return "Invalid credentials provided.\nRun hatchbox login, or check HATCHBOX_API_TOKEN." if response.code == 401
 
@@ -5100,7 +5111,7 @@ class Hatchbox::Firewall < Hatchbox::Command
 
   def call
     server = find_server(one_positional("SERVER"))
-    rows = client.get(server_path(server, "firewall_rules")).json || []
+    rows = client.all("#{server_path(server, "firewall_rules")}?limit=100")
 
     ui.header("#{server["name"]} Firewall Rules")
     return puts("No rules.") if rows.empty?
