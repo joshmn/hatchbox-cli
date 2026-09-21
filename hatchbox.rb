@@ -5210,6 +5210,25 @@ class Hatchbox::FirewallRemove < Hatchbox::Command
   end
 end
 
+class Hatchbox::ScriptsActivity < Hatchbox::Command
+  describe "scripts:activity",
+    summary: "list the runs of a custom script",
+    usage: "scripts:activity SCRIPT",
+    app: false,
+    flags: [["-n", "--num NUM", "number of runs", Integer]]
+
+  def call
+    script = one_positional("SCRIPT")
+    rows = client.get("/scripts/#{URI.encode_www_form_component(script)}/logs?limit=#{options[:num] || 20}").json || []
+
+    ui.header("Script #{script} Activity")
+    return puts("Nothing on record.") if rows.empty?
+
+    ui.columns(Hatchbox::Activity.rows(rows))
+    0
+  end
+end
+
 class Hatchbox::Cli
   class << self
     def call(argv)
