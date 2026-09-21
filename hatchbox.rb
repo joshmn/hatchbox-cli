@@ -5155,6 +5155,7 @@ class Hatchbox::FirewallAdd < Hatchbox::Command
     flags: [
       CLUSTER_FLAG,
       [nil, "--from ADDRESS", "an IP address or CIDR range, anywhere unless you pass one"],
+      [nil, "--deny", "deny the traffic instead of allowing it"],
       [nil, "--description TEXT", "a note for yourself"],
       WAIT_FLAG
     ]
@@ -5166,11 +5167,12 @@ class Hatchbox::FirewallAdd < Hatchbox::Command
     port = positionals.last
     raise Hatchbox::Error, "#{port} is not a port." unless port =~ /\A[0-9]+\z/ && port.to_i <= 65_535
 
-    body = { "port" => port.to_i, "action" => "allow" }
+    action = options[:deny] ? "deny" : "allow"
+    body = { "port" => port.to_i, "action" => action }
     body["from"] = options[:from] unless Hatchbox.blank?(options[:from])
     body["description"] = options[:description] unless Hatchbox.blank?(options[:description])
     data = client.post(server_path(server, "firewall_rules"), body: { "firewall_rule" => body }).json || {}
-    message = "Allowing port #{port} from #{options[:from] || "anywhere"} on #{server["name"]}"
+    message = "#{action == "deny" ? "Denying" : "Allowing"} port #{port} from #{options[:from] || "anywhere"} on #{server["name"]}"
     return queued(message, data["log_id"]) unless Hatchbox.blank?(data["log_id"])
 
     ui.action(message) { nil }
