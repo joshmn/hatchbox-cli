@@ -66,6 +66,7 @@ module Hatchbox
   DEFAULT_SSH_PORT = "22"
   FINISHED = ["completed", "failed", "aborted"].freeze
   APP_ROLES = ["web", "worker", "cron", "app"].freeze
+  ROLES = ["app", "web", "worker", "cron", "load_balancer", "postgresql", "mysql", "redis", "memcached", "elasticsearch"].freeze
 
   class Error < StandardError; end
 
@@ -4973,6 +4974,117 @@ class Hatchbox::ServersActivity < Hatchbox::Command
 
     ui.columns(Hatchbox::Activity.rows(rows))
     0
+  end
+end
+
+class Hatchbox::ServersRoles < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers:roles",
+    summary: "list a server's roles",
+    usage: "servers:roles SERVER",
+    app: :optional,
+    flags: [CLUSTER_FLAG]
+
+  def call
+    server = find_server(one_positional("SERVER"))
+    Array(server["roles"]).each { |role| puts(role) }
+    0
+  end
+end
+
+class Hatchbox::ServersRolesSet < Hatchbox::Command
+  include Hatchbox::ServerLookup
+
+  describe "servers:roles:set",
+    summary: "set a server's roles, adding and removing to match",
+    usage: "servers:roles:set SERVER ROLE [ROLE ...]",
+    app: :optional,
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"], WAIT_FLAG]
+
+  def call
+    usage_error("Must specify SERVER and at least one ROLE.") if positionals.length < 2
+
+    server = find_server(positionals.first)
+    apply(server, desired(server, positionals.drop(1).flat_map { |role| role.split(",") }.map { |role| role.strip.downcase }))
+  end
+
+  private
+
+  def desired(_server, roles)
+    roles
+  end
+
+  def apply(server, roles)
+    unknown = roles - Hatchbox::ROLES
+    raise Hatchbox::Error, "Unknown roles: #{unknown.join(", ")}. Roles are #{Hatchbox::ROLES.join(", ")}." if unknown.any?
+
+    body = { "server" => { "roles" => roles.uniq } }
+    response = client.raw("PATCH", server_path(server, "roles"), body: body)
+    if response.code == 409 && response.json.is_a?(Hash) && response.json["destructive_changes"]
+      destructive(server: server, changes: response.json["destructive_changes"])
+      response = client.raw("PATCH", server_path(server, "roles"), body: body.merge("confirm_destructive" => true))
+    end
+    raise Hatchbox::Error, client.error_message(response) unless response.ok?
+
+    data = response.json || {}
+    added = Array(data["added_roles"])
+    removed = Array(data["removed_roles"])
+    if added.empty? && removed.empty?
+      puts("#{server["name"]} already has those roles.")
+      return 0
+    end
+
+    parts = []
+    parts << "adding #{added.join(", ")}" if added.any?
+    parts << "removing #{removed.join(", ")}" if added.empty? && removed.any?
+    parts << "removing #{removed.join(", ")}" if added.any? && removed.any?
+    message = "#{parts.join(" and ").sub(/\A./) { |char| char.upcase }} on #{server["name"]}"
+    logs = Array(data["logs"]).map { |row| row["id"] }
+    if logs.empty?
+      ui.action(message) { nil }
+      return 0
+    end
+
+    codes = logs.each_with_index.map { |id, index| queued(index.zero? ? message : "Still #{message.sub(/\A./) { |char| char.downcase }}", id) }
+    codes.max
+  end
+
+  def destructive(server:, changes:)
+    roles = Array(changes["roles"])
+    clusters = Array(changes["database_clusters"]).map { |row| "#{row["name"]} (#{row["engine"]})" }
+    lines = ["This change destroys data on #{server["name"]}."]
+    lines << "It uninstalls #{roles.join(", ")}." if roles.any?
+    lines << "It destroys #{clusters.join(", ")}." if clusters.any?
+    confirm(expected: server["name"].to_s, lines: lines)
+  end
+end
+
+class Hatchbox::ServersRolesAdd < Hatchbox::ServersRolesSet
+  describe "servers:roles:add",
+    summary: "give a server more roles",
+    usage: "servers:roles:add SERVER ROLE [ROLE ...]",
+    app: :optional,
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"], WAIT_FLAG]
+
+  private
+
+  def desired(server, roles)
+    Array(server["roles"]).map { |role| role.to_s } | roles
+  end
+end
+
+class Hatchbox::ServersRolesRemove < Hatchbox::ServersRolesSet
+  describe "servers:roles:remove",
+    summary: "take roles off a server",
+    usage: "servers:roles:remove SERVER ROLE [ROLE ...]",
+    app: :optional,
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"], WAIT_FLAG]
+
+  private
+
+  def desired(server, roles)
+    Array(server["roles"]).map { |role| role.to_s } - roles
   end
 end
 
