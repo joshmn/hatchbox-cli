@@ -868,6 +868,7 @@ class Hatchbox::Target
     @resolved = true
     return by_app(session.app_flag) unless Hatchbox.blank?(session.app_flag)
     return by_remote(session.remote_flag) unless Hatchbox.blank?(session.remote_flag)
+    return by_app(ENV["HATCHBOX_APP"]) unless Hatchbox.blank?(ENV["HATCHBOX_APP"])
     return by_remote(ENV["HATCHBOX_ENV"]) unless Hatchbox.blank?(ENV["HATCHBOX_ENV"])
 
     by_default
