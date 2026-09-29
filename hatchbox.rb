@@ -258,9 +258,7 @@ module Hatchbox::Ui
     end
 
     def yes_no(value)
-      return "on" if value
-
-      "off"
+      value ? "on" : "off"
     end
 
     def paint(text, code, io: $stderr)
@@ -2045,7 +2043,7 @@ class Hatchbox::Command
   end
 
   def print_json(data)
-    $stdout.puts(JSON.pretty_generate(data))
+    puts(JSON.pretty_generate(data))
     0
   end
 
@@ -5735,11 +5733,7 @@ class Hatchbox::Cli
   end
 
   def help(name)
-    if Hatchbox.blank?(name)
-      Hatchbox::Help.root
-    else
-      Hatchbox::Help.show(name)
-    end
+    Hatchbox.blank?(name) ? Hatchbox::Help.root : Hatchbox::Help.show(name)
     0
   end
 
