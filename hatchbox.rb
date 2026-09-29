@@ -1903,6 +1903,7 @@ class Hatchbox::Command
   ].freeze
 
   WAIT_FLAG = [nil, "--no-wait", "return once Hatchbox has queued it, without waiting for it to finish"].freeze
+  JSON_FLAG = [nil, "--json", "output in json format"].freeze
 
   class << self
     attr_reader :meta
@@ -2037,6 +2038,15 @@ class Hatchbox::Command
 
   def ui
     Hatchbox::Ui
+  end
+
+  def json?
+    options[:json]
+  end
+
+  def print_json(data)
+    $stdout.puts(JSON.pretty_generate(data))
+    0
   end
 
   def operation
@@ -2192,7 +2202,7 @@ class Hatchbox::AppsList < Hatchbox::Command
     usage: "apps",
     aliases: ["apps:list", "list"],
     app: false,
-    flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"]],
+    flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"], JSON_FLAG],
     examples: ["$ hatchbox apps", "=== My Team Apps", "fpd (netcup)", "stox (purevoltage-ny)"]
 
   def call
@@ -2200,6 +2210,7 @@ class Hatchbox::AppsList < Hatchbox::Command
     catalog = session.catalog
     accounts = Hatchbox.blank?(options[:team]) ? catalog.accounts : [catalog.find_account(options[:team])]
     rows = catalog.entries.select { |row| accounts.any? { |account| account["id"].to_s == row[:account_record]["id"].to_s } }
+    return print_json(rows.map { |row| row[:record].merge("account" => row[:account]) }) if json?
 
     clusters = cluster_names(accounts: accounts, catalog: catalog)
     shown = 0
@@ -2242,11 +2253,12 @@ class Hatchbox::AppsInfo < Hatchbox::Command
     summary: "show detailed app information",
     usage: "apps:info [APP]",
     aliases: ["info"],
-    flags: [["-x", "--extended", "show the deploy scripts, the Caddyfile and the DNS settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"]]
+    flags: [["-x", "--extended", "show the deploy scripts, the Caddyfile and the DNS settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"], JSON_FLAG]
 
   def call
     usage_error("Only one app at a time.") if positionals.length > 1
     data = gather
+    return print_json(data) if json?
     return shell(data) if options[:shell]
 
     ui.header(data["name"])
@@ -2787,6 +2799,7 @@ class Hatchbox::ConfigShow < Hatchbox::Command
   describe "config",
     summary: "display the config vars set on an app",
     aliases: ["config:list"],
+    flags: [JSON_FLAG],
     help: [
       "Hatchbox's API returns config var names and never their values, so this lists",
       "names. Values set here still reach the servers."
@@ -2795,6 +2808,7 @@ class Hatchbox::ConfigShow < Hatchbox::Command
   def call
     none!
     names = app.env_var_names
+    return print_json(names) if json?
 
     ui.header("#{label} Config Vars")
     names.each { |name| puts(name.green) }
@@ -2910,13 +2924,14 @@ class Hatchbox::GitProviders < Hatchbox::Command
   describe "git:providers",
     summary: "list the connected git accounts apps can deploy from",
     app: false,
-    flags: [["-t", "--team TEAM", "only this account, by name or id"]]
+    flags: [["-t", "--team TEAM", "only this account, by name or id"], JSON_FLAG]
 
   def call
     none!
     catalog = session.catalog
     accounts = Hatchbox.blank?(options[:team]) ? catalog.usable_accounts : [catalog.find_account(options[:team])]
     found = accounts.to_h { |account| [account, catalog.git_providers_for(account)] }
+    return print_json(found.values.flatten) if json?
 
     found.each_with_index do |(account, rows), index|
       puts if index.positive?
@@ -3031,6 +3046,7 @@ class Hatchbox::Ps < Hatchbox::Command
   describe "ps",
     summary: "list processes for an app",
     usage: "ps [TYPE [TYPE ...]]",
+    flags: [JSON_FLAG],
     help: [
       "A process runs once on every active server carrying one of its roles, or on the",
       "one server it is pinned to, so each copy shows as TYPE.N. Hatchbox's API knows",
@@ -3043,6 +3059,7 @@ class Hatchbox::Ps < Hatchbox::Command
     formation = app.formation
     pool = positionals.empty? ? app.processes : positionals.map { |name| formation.find_process(name) }
     pool = pool.sort_by { |row| row["name"].to_s }
+    return print_json(pool.map { |row| row.merge("dynos" => dynos_json(formation, row)) }) if json?
 
     if pool.empty?
       puts("No processes on #{label}. Add one with hatchbox ps:create.")
@@ -3061,15 +3078,22 @@ class Hatchbox::Ps < Hatchbox::Command
     0
   end
 
+  private
+
+  def dynos_json(formation, process)
+    formation.dynos(process).map { |dyno| { "name" => dyno.name, "server" => dyno.server["name"], "server_id" => dyno.server["id"], "public_ip" => dyno.server["public_ip"] } }
+  end
 end
 
 class Hatchbox::PsInfo < Hatchbox::Command
   describe "ps:info",
     summary: "show everything about one process",
-    usage: "ps:info TYPE"
+    usage: "ps:info TYPE",
+    flags: [JSON_FLAG]
 
   def call
     process = app.formation.find_process(one_positional("TYPE"))
+    return print_json(process) if json?
 
     ui.header("#{process["name"]} on #{label}")
     ui.styled_hash([
@@ -3666,7 +3690,7 @@ end
 class Hatchbox::Releases < Hatchbox::Command
   describe "releases",
     summary: "display the app's release history",
-    flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer]],
+    flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer], JSON_FLAG],
     help: [
       "Everything Hatchbox did to the app: deploys, restarts and process changes, each",
       "with the id hatchbox releases:output reads."
@@ -3676,6 +3700,7 @@ class Hatchbox::Releases < Hatchbox::Command
     none!
     limit = options[:num] || 15
     rows = client.get("/apps/#{app_id}/logs?page=#{options[:page] || 1}&limit=#{limit}").json || []
+    return print_json(rows) if json?
 
     current = rows.find { |row| Hatchbox::Activity.deploy?(row) && row["state"] == "completed" }
     ui.header("#{label} Releases#{current ? " - Current: #{current["id"]}" : ""}")
@@ -3691,6 +3716,7 @@ class Hatchbox::ReleasesInfo < Hatchbox::Command
   describe "releases:info",
     summary: "view detailed information for a release",
     usage: "releases:info [RELEASE]",
+    flags: [JSON_FLAG],
     help: ["RELEASE is an id from hatchbox releases, or deploy or restart for the latest one. It defaults to the latest release."]
 
   def self.describe_log(log)
@@ -3710,6 +3736,7 @@ class Hatchbox::ReleasesInfo < Hatchbox::Command
   def call
     usage_error("One release at a time.") if positionals.length > 1
     log = operation.fetch(resolve_log(positionals.first))
+    return print_json(log) if json?
 
     ui.header("Release #{log["id"]}")
     self.class.describe_log(log)
@@ -3799,7 +3826,7 @@ end
 class Hatchbox::Builds < Hatchbox::Command
   describe "builds",
     summary: "list the app's deploys",
-    flags: [["-n", "--num NUM", "number of builds to display", Integer]]
+    flags: [["-n", "--num NUM", "number of builds to display", Integer], JSON_FLAG]
 
   def call
     none!
@@ -3814,6 +3841,7 @@ class Hatchbox::Builds < Hatchbox::Command
       pages += 1
     end
     rows = rows.first(limit)
+    return print_json(rows) if json?
 
     ui.header("#{label} Builds")
     return puts("No builds on record.") if rows.empty?
@@ -3830,11 +3858,13 @@ end
 class Hatchbox::BuildsInfo < Hatchbox::ReleasesInfo
   describe "builds:info",
     summary: "view detailed information for a build",
-    usage: "builds:info [BUILD]"
+    usage: "builds:info [BUILD]",
+    flags: [JSON_FLAG]
 
   def call
     usage_error("One build at a time.") if positionals.length > 1
     log = operation.fetch(resolve_log(positionals.first, kind: "Apps::Deploy"))
+    return print_json(log) if json?
 
     ui.header("Build #{log["id"]}")
     Hatchbox::ReleasesInfo.describe_log(log)
@@ -3844,11 +3874,13 @@ end
 
 class Hatchbox::Domains < Hatchbox::Command
   describe "domains",
-    summary: "list the app's domains"
+    summary: "list the app's domains",
+    flags: [JSON_FLAG]
 
   def call
     none!
     rows = app.domains
+    return print_json(rows) if json?
 
     ui.header("#{label} Custom Domains")
     return puts("#{label} has no domain names.") if rows.empty?
@@ -3912,11 +3944,13 @@ class Hatchbox::DomainsInfo < Hatchbox::Command
 
   describe "domains:info",
     summary: "show one of the app's domains",
-    usage: "domains:info HOSTNAME"
+    usage: "domains:info HOSTNAME",
+    flags: [JSON_FLAG]
 
   def call
     name = one_positional("HOSTNAME")
     row = client.get(domain_path(name)).json || {}
+    return print_json(row) if json?
 
     ui.header(row["name"].to_s)
     ui.styled_hash([["Id", row["id"].to_s], ["Created", ui.date(row["created_at"])], ["Updated", ui.date(row["updated_at"])], ["Points At", targets]])
@@ -4532,6 +4566,7 @@ class Hatchbox::PgBackups < Hatchbox::Command
   describe "pg:backups",
     summary: "list database backups and the backup schedule",
     usage: "pg:backups [DATABASE]",
+    flags: [JSON_FLAG],
     help: ["DATABASE defaults to the app's postgresql database. Backups work on any unmanaged database Hatchbox runs; managed ones are backed up by your provider."]
 
   def call
@@ -4539,6 +4574,7 @@ class Hatchbox::PgBackups < Hatchbox::Command
     record = backed_up(positionals.first)
     rows = backup_logs(record)
     config = backup_configuration(record)
+    return print_json("backups" => rows, "schedule" => config) if json?
 
     ui.header("Backups of #{title_for(record)}")
     if rows.empty?
@@ -4684,7 +4720,8 @@ class Hatchbox::PgBackupsSchedules < Hatchbox::Command
 
   describe "pg:backups:schedules",
     summary: "show the backup schedule of a database",
-    usage: "pg:backups:schedules [DATABASE]"
+    usage: "pg:backups:schedules [DATABASE]",
+    flags: [JSON_FLAG]
 
   def self.show(config)
     return Hatchbox::Ui.error(config["error"]) if config.key?("error")
@@ -4708,6 +4745,7 @@ class Hatchbox::PgBackupsSchedules < Hatchbox::Command
     usage_error("One database at a time.") if positionals.length > 1
     record = backed_up(positionals.first)
     config = backup_configuration(record)
+    return print_json(config) if json?
 
     ui.header("Backup Schedule for #{title_for(record)}")
     self.class.show(config)
@@ -4927,6 +4965,7 @@ class Hatchbox::Cron < Hatchbox::Command
   describe "cron",
     summary: "list the app's cron jobs",
     aliases: ["cron:list"],
+    flags: [JSON_FLAG],
     help: [
       "Cron jobs run from the app's current release as the deploy user, on every server",
       "in the cluster carrying the cron role. Cron keeps none of their output; read when",
@@ -4944,6 +4983,7 @@ class Hatchbox::Cron < Hatchbox::Command
   def call
     none!
     rows = client.get("/apps/#{app_id}/cron_jobs").json || []
+    return print_json(rows) if json?
 
     ui.header("#{label} Cron Jobs")
     return puts("No cron jobs on #{label}.") if rows.empty?
@@ -5022,10 +5062,12 @@ class Hatchbox::CronInfo < Hatchbox::Command
 
   describe "cron:info",
     summary: "show a cron job",
-    usage: "cron:info JOB"
+    usage: "cron:info JOB",
+    flags: [JSON_FLAG]
 
   def call
     row = Hatchbox::Cron.find(client: client, app_id: app_id, wanted: one_positional("JOB"))
+    return print_json(row) if json?
 
     ui.header(row["name"].to_s)
     show(row)
@@ -5113,7 +5155,7 @@ class Hatchbox::Servers < Hatchbox::Command
     summary: "list the servers in the app's cluster",
     aliases: ["servers:list"],
     app: :optional,
-    flags: [CLUSTER_FLAG]
+    flags: [CLUSTER_FLAG, JSON_FLAG]
 
   def self.table(servers)
     Hatchbox::Ui.table(servers, [
@@ -5131,6 +5173,7 @@ class Hatchbox::Servers < Hatchbox::Command
   def call
     none!
     servers = cluster_record["servers"] || []
+    return print_json(servers) if json?
 
     ui.header("#{cluster_record["name"]} Servers")
     return puts("No servers.") if servers.empty?
@@ -5147,10 +5190,11 @@ class Hatchbox::ServersInfo < Hatchbox::Command
     summary: "show one server",
     usage: "servers:info SERVER",
     app: :optional,
-    flags: [CLUSTER_FLAG]
+    flags: [CLUSTER_FLAG, JSON_FLAG]
 
   def call
     server = client.get(server_path(find_server(one_positional("SERVER")))).json || {}
+    return print_json(server) if json?
 
     ui.header(server["name"].to_s)
     ui.styled_hash([
@@ -5213,12 +5257,13 @@ class Hatchbox::ServersActivity < Hatchbox::Command
     summary: "list what Hatchbox has done to a server",
     usage: "servers:activity SERVER",
     app: :optional,
-    flags: [CLUSTER_FLAG, ["-n", "--num NUM", "number of entries", Integer], [nil, "--all", "include the per-server output of app deploys"]]
+    flags: [CLUSTER_FLAG, ["-n", "--num NUM", "number of entries", Integer], [nil, "--all", "include the per-server output of app deploys"], JSON_FLAG]
 
   def call
     server = find_server(one_positional("SERVER"))
     rows = client.get("#{server_path(server, "logs")}?limit=#{options[:all] ? options[:num] || 20 : 100}").json || []
     rows = rows.select { |row| row["parent_id"].nil? }.first(options[:num] || 20) unless options[:all]
+    return print_json(rows) if json?
 
     ui.header("#{server["name"]} Activity")
     return puts("Nothing on record.") if rows.empty?
@@ -5354,12 +5399,13 @@ class Hatchbox::Firewall < Hatchbox::Command
     usage: "firewall SERVER",
     aliases: ["firewall:list"],
     app: :optional,
-    flags: [CLUSTER_FLAG],
+    flags: [CLUSTER_FLAG, JSON_FLAG],
     help: ["Rules Hatchbox manages itself, like SSH and the web ports, cannot be removed."]
 
   def call
     server = find_server(one_positional("SERVER"))
     rows = client.all("#{server_path(server, "firewall_rules")}?limit=100")
+    return print_json(rows) if json?
 
     ui.header("#{server["name"]} Firewall Rules")
     return puts("No rules.") if rows.empty?
@@ -5383,13 +5429,14 @@ class Hatchbox::FirewallInfo < Hatchbox::Command
     summary: "show one firewall rule",
     usage: "firewall:info SERVER RULE",
     app: :optional,
-    flags: [CLUSTER_FLAG]
+    flags: [CLUSTER_FLAG, JSON_FLAG]
 
   def call
     usage_error("Must specify SERVER and RULE.") unless positionals.length == 2
 
     server = find_server(positionals.first)
     row = client.get(server_path(server, "firewall_rules/#{positionals.last}")).json || {}
+    return print_json(row) if json?
 
     ui.header("Rule #{row["id"]} on #{server["name"]}")
     ui.styled_hash([
@@ -5465,7 +5512,7 @@ class Hatchbox::ScriptsActivity < Hatchbox::Command
     summary: "list the runs of a custom script",
     usage: "scripts:activity SCRIPT",
     app: false,
-    flags: [["-n", "--num NUM", "number of runs", Integer]],
+    flags: [["-n", "--num NUM", "number of runs", Integer], JSON_FLAG],
     help: [
       "SCRIPT is the id from the script's dashboard url, like 42 in /scripts/42-clear-the-cache.",
       "A run only records the narrative; each server's output is in hatchbox servers:activity."
@@ -5474,6 +5521,7 @@ class Hatchbox::ScriptsActivity < Hatchbox::Command
   def call
     script = one_positional("SCRIPT")
     rows = client.get("/scripts/#{URI.encode_www_form_component(script)}/logs?limit=#{options[:num] || 20}").json || []
+    return print_json(rows) if json?
 
     ui.header("Script #{script} Activity")
     return puts("Nothing on record.") if rows.empty?
