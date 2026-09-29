@@ -1854,8 +1854,33 @@ module Hatchbox::Registry
       COMMANDS[name] || COMMANDS[ALIASES[name]]
     end
 
+    def names
+      COMMANDS.keys + ALIASES.keys
+    end
+
     def visible
       COMMANDS.values.reject { |klass| klass.meta[:hidden] }
+    end
+
+    def suggest(name)
+      best = names.min_by { |candidate| distance(name, candidate) }
+      best && distance(name, best) <= [name.length / 2, 3].max ? best : nil
+    end
+
+    private
+
+    def distance(left, right)
+      rows = (0..right.length).to_a
+      left.each_char.with_index(1) do |char, i|
+        previous = rows[0]
+        rows[0] = i
+        right.each_char.with_index(1) do |other, j|
+          current = rows[j]
+          rows[j] = [rows[j] + 1, rows[j - 1] + 1, previous + (char == other ? 0 : 1)].min
+          previous = current
+        end
+      end
+      rows[right.length]
     end
   end
 end
@@ -5647,7 +5672,11 @@ class Hatchbox::Cli
   end
 
   def unknown(name)
-    raise Hatchbox::Error, "`#{name}` is not a hatchbox command.\nSee `hatchbox help` for a list of available commands."
+    lines = ["`#{name}` is not a hatchbox command."]
+    guess = Hatchbox::Registry.suggest(name)
+    lines << "Perhaps you meant `#{guess}`." if guess
+    lines << "See `hatchbox help` for a list of available commands."
+    raise Hatchbox::Error, lines.join("\n")
   end
 end
 
