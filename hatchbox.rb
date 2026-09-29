@@ -1871,12 +1871,14 @@ class Hatchbox::Command
   class << self
     attr_reader :meta
 
-    def describe(name, summary:, usage: nil, flags: [], aliases: [], app: true, hidden: false, lenient: false)
+    def describe(name, summary:, usage: nil, help: nil, flags: [], examples: [], aliases: [], app: true, hidden: false, lenient: false)
       @meta = {
         name: name,
         summary: summary,
         usage: usage || name,
+        help: help,
         flags: flags,
+        examples: examples,
         aliases: aliases,
         app: app,
         hidden: hidden,
@@ -2073,7 +2075,13 @@ class Hatchbox::AuthLogin < Hatchbox::Command
     summary: "log in with a Hatchbox API token",
     aliases: ["login"],
     app: false,
-    flags: [[nil, "--token TOKEN", "use this token instead of asking for one, which puts it in your shell history"]]
+    flags: [[nil, "--token TOKEN", "use this token instead of asking for one, which puts it in your shell history"]],
+    help: [
+      "Hatchbox's API has no password login, so this asks for an API token, checks it",
+      "against your accounts, and saves it to ~/.hatchbox. Make one at",
+      "https://hatchbox.io/api_tokens."
+    ],
+    examples: ["$ hatchbox login", "Enter your Hatchbox API token. New ones are made at https://hatchbox.io/api_tokens", "Token:", "Logging in... done", "Logged in with access to My Team"]
 
   def call
     none!
@@ -2098,7 +2106,8 @@ class Hatchbox::AuthLogout < Hatchbox::Command
   describe "auth:logout",
     summary: "clear the saved API token",
     aliases: ["logout"],
-    app: false
+    app: false,
+    help: ["Removes every token line from ~/.hatchbox, the plain one and any token:ENV ones."]
 
   def call
     none!
@@ -2112,7 +2121,8 @@ end
 class Hatchbox::AuthToken < Hatchbox::Command
   describe "auth:token",
     summary: "display the API token in use",
-    app: false
+    app: false,
+    help: ["Prints the token hatchbox would use here, from HATCHBOX_API_TOKEN or ~/.hatchbox."]
 
   def call
     none!
@@ -2125,7 +2135,11 @@ class Hatchbox::AuthWhoami < Hatchbox::Command
   describe "auth:whoami",
     summary: "display the accounts the API token can reach",
     aliases: ["whoami"],
-    app: false
+    app: false,
+    help: [
+      "Hatchbox's API has no endpoint that says who a token belongs to, so this lists",
+      "the accounts it can act on and where the token came from."
+    ]
 
   def call
     none!
@@ -2142,7 +2156,8 @@ class Hatchbox::AppsList < Hatchbox::Command
     usage: "apps",
     aliases: ["apps:list", "list"],
     app: false,
-    flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"]]
+    flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"]],
+    examples: ["$ hatchbox apps", "=== My Team Apps", "fpd (netcup)", "stox (purevoltage-ny)"]
 
   def call
     none!
@@ -2310,7 +2325,13 @@ class Hatchbox::AppsCreate < Hatchbox::Command
       ["-b", "--branch BRANCH", "branch to deploy, main unless you say otherwise"],
       [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
       [nil, "--no-remote", "do not add the app to .hatchbox"]
-    ]
+    ],
+    help: [
+      "Creates the app with auto-deploy off. The app is added to the nearest .hatchbox",
+      "(or one at the root of the repo you are in) as the remote named by -r, which is",
+      "production unless you pass one."
+    ],
+    examples: ["$ hatchbox apps:create my-app --cluster netcup --repo myuser/my-app --git-provider joshmn", "Creating my-app on netcup... done", "set .hatchbox remote production to 14001-my-app"]
 
   def call
     name = positionals.first || session.app_flag
@@ -2390,7 +2411,12 @@ class Hatchbox::AppsDestroy < Hatchbox::Command
     summary: "permanently destroy an app",
     usage: "apps:destroy [APP]",
     aliases: ["destroy"],
-    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"], WAIT_FLAG]
+    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"], WAIT_FLAG],
+    help: [
+      "Deletes the app's folder and services from every server and detaches its",
+      "databases. The databases themselves are kept. This cannot be undone. Any",
+      ".hatchbox remote pointing at the app is removed."
+    ]
 
   def call
     usage_error("Only one app at a time.") if positionals.length > 1
@@ -2417,7 +2443,12 @@ class Hatchbox::AppsRename < Hatchbox::Command
     summary: "rename an app, which takes it down while it moves",
     usage: "apps:rename NEWNAME",
     aliases: ["rename"],
-    flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"], WAIT_FLAG]
+    flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"], WAIT_FLAG],
+    help: [
+      "Hatchbox stops the app's processes, moves its folder, reinstalls its services and",
+      "cron jobs under the new name and reapplies Caddy, so the app is down while this",
+      "runs. The app keeps its id, and any .hatchbox remote pointing at it is updated."
+    ]
 
   def call
     new_name = one_positional("NEWNAME")
@@ -2441,7 +2472,8 @@ class Hatchbox::AppsOpen < Hatchbox::Command
   describe "apps:open",
     summary: "open the app in a web browser",
     usage: "apps:open [PATH]",
-    aliases: ["open"]
+    aliases: ["open"],
+    help: ["Opens the first of the app's domains over https."]
 
   def call
     usage_error("Only one path at a time.") if positionals.length > 1
@@ -2486,6 +2518,11 @@ class Hatchbox::AppsUpdate < Hatchbox::Command
       [nil, "--dns-provider PROVIDER", "DNS provider for certificates"],
       [nil, "--dns-api-user USER", "DNS API user"],
       [nil, "--dns-access-token TOKEN", "DNS access token, which Hatchbox never returns"]
+    ],
+    help: [
+      "Sending --caddyfile or --health-check reapplies the app's Caddy configuration on",
+      "its servers, even when nothing changed. That is on purpose, since a Caddyfile",
+      "usually imports files out of the repo."
     ]
 
   def call
@@ -2571,7 +2608,32 @@ class Hatchbox::GitRemote < Hatchbox::Command
     usage: "git:remote [FILTER]",
     aliases: ["setup"],
     app: false,
-    flags: [[nil, "--as REMOTE", "the remote name, same as -r"]]
+    flags: [[nil, "--as REMOTE", "the remote name, same as -r"]],
+    help: [
+      "Picks an app off your accounts, or takes the one named with -a, and writes it to",
+      "the nearest .hatchbox (or a new one at the root of the repo you are in) under the",
+      "remote named with -r. Without -a it looks for the app whose repo matches one of",
+      "this repo's git remotes: one match is used as is, several are offered to pick",
+      "from, and none falls back to every app your token can reach, narrowed to FILTER",
+      "when you pass one. Without -r it asks, suggesting the end of the app's name when",
+      "that looks like an environment, like qa in fpd-qa, and production otherwise.",
+      "",
+      "A .hatchbox holds one line per app, written the way the dashboard url spells it,",
+      "then the remote name, and optionally which remote to use by default:",
+      "",
+      "  13673-fpd:production",
+      "  20001-fpd-qa:qa",
+      "  default = production",
+      "",
+      "Only the leading number is read by Hatchbox; the rest tells you which app it is.",
+      "It also takes per remote SSH settings for logs, run, ps:exec and pg:psql:",
+      "",
+      "  ssh_user:production = deploy",
+      "  ssh_host:production = 203.0.113.10",
+      "  ssh_port:production = 22",
+      "  app_dir:production = /home/deploy/fpd/current"
+    ],
+    examples: ["$ hatchbox git:remote -a fpd -r production", "set .hatchbox remote production to 13673-fpd"]
 
   def call
     usage_error("Only one filter at a time.") if positionals.length > 1
@@ -2688,7 +2750,11 @@ end
 class Hatchbox::ConfigShow < Hatchbox::Command
   describe "config",
     summary: "display the config vars set on an app",
-    aliases: ["config:list"]
+    aliases: ["config:list"],
+    help: [
+      "Hatchbox's API returns config var names and never their values, so this lists",
+      "names. Values set here still reach the servers."
+    ]
 
   def call
     none!
@@ -2703,7 +2769,8 @@ end
 class Hatchbox::ConfigGet < Hatchbox::Command
   describe "config:get",
     summary: "check whether a config var is set",
-    usage: "config:get KEY"
+    usage: "config:get KEY",
+    help: ["Hatchbox never returns config var values, so this can only say whether KEY is set, and exits 1 either way."]
 
   def call
     key = one_positional("KEY").upcase
@@ -2718,7 +2785,12 @@ class Hatchbox::ConfigSet < Hatchbox::Command
 
   describe "config:set",
     summary: "set one or more config vars",
-    usage: "config:set KEY1=VALUE1 [KEY2=VALUE2 ...]"
+    usage: "config:set KEY1=VALUE1 [KEY2=VALUE2 ...]",
+    help: [
+      "Hatchbox uppercases names and pushes the change to the servers itself. A value",
+      "typed here lands in your shell history like anything else on the command line."
+    ],
+    examples: ["$ hatchbox config:set RAILS_ENV=production RACK_ENV=production", "Setting RAILS_ENV, RACK_ENV on fpd... done", "RAILS_ENV: production", "RACK_ENV:  production"]
 
   def call
     usage_error("Must specify KEY and VALUE to set.") if positionals.empty?
@@ -2773,7 +2845,12 @@ end
 
 class Hatchbox::MaintenanceOn < Hatchbox::Command
   describe "maintenance:on",
-    summary: "put the app into maintenance mode"
+    summary: "put the app into maintenance mode",
+    help: [
+      "Caddy serves a maintenance page instead of the app. The processes keep running.",
+      "The change is queued on the web and load balancer servers, so a server can take",
+      "a moment to catch up. Running it again reapplies it."
+    ]
 
   def call
     none!
@@ -2917,7 +2994,14 @@ end
 class Hatchbox::Ps < Hatchbox::Command
   describe "ps",
     summary: "list processes for an app",
-    usage: "ps [TYPE [TYPE ...]]"
+    usage: "ps [TYPE [TYPE ...]]",
+    help: [
+      "A process runs once on every active server carrying one of its roles, or on the",
+      "one server it is pinned to, so each copy shows as TYPE.N. Hatchbox's API knows",
+      "whether a process is enabled, not whether it is up right now; hatchbox logs and",
+      "hatchbox ps:exec reach the servers for that."
+    ],
+    examples: ["$ hatchbox ps", "=== server (role web): bin/rails server (1)", "server.1: enabled  web-1  203.0.113.10"]
 
   def call
     formation = app.formation
@@ -2978,7 +3062,11 @@ class Hatchbox::PsRestart < Hatchbox::Command
     summary: "restart every process, or one process type",
     usage: "ps:restart [TYPE]",
     aliases: ["restart"],
-    flags: [WAIT_FLAG]
+    flags: [WAIT_FLAG],
+    help: [
+      "Hatchbox restarts a process on every server it runs on, so server.2 restarts",
+      "server everywhere."
+    ]
 
   def call
     usage_error("One process type at a time.") if positionals.length > 1
@@ -2998,7 +3086,11 @@ class Hatchbox::PsStop < Hatchbox::Command
     summary: "turn a process off and leave it off",
     usage: "ps:stop TYPE",
     aliases: ["ps:kill"],
-    flags: [WAIT_FLAG]
+    flags: [WAIT_FLAG],
+    help: [
+      "Unlike heroku, a stopped process stays stopped through deploys and restarts until",
+      "hatchbox ps:start turns it back on."
+    ]
 
   def call
     process = app.formation.find_process(one_positional("TYPE").sub(/\.[0-9]+\z/, ""))
@@ -3102,7 +3194,8 @@ class Hatchbox::PsCreate < Hatchbox::Command
   describe "ps:create",
     summary: "add a process to the app",
     usage: "ps:create NAME --start COMMAND (--roles LIST | --server SERVER)",
-    flags: Hatchbox::ProcessFields::FLAGS + [WAIT_FLAG]
+    flags: Hatchbox::ProcessFields::FLAGS + [WAIT_FLAG],
+    examples: ["$ hatchbox ps:create worker --start 'bundle exec sidekiq' --roles worker", "Creating worker on fpd... done"]
 
   def call
     usage_error("Only one name at a time.") if positionals.length > 1
@@ -3126,7 +3219,9 @@ class Hatchbox::PsUpdate < Hatchbox::Command
   describe "ps:update",
     summary: "change a process",
     usage: "ps:update TYPE [--start COMMAND] [--roles LIST] ...",
-    flags: Hatchbox::ProcessFields::FLAGS + [WAIT_FLAG]
+    flags: Hatchbox::ProcessFields::FLAGS + [WAIT_FLAG],
+    help: ["Renaming a process renames its systemd unit, so it stops and starts again under the new name."],
+    examples: ["$ hatchbox ps:update worker --start 'bundle exec sidekiq -c 10'", "Updating worker on fpd... done"]
 
   def call
     process = app.formation.find_process(one_positional("TYPE"))
@@ -3172,6 +3267,23 @@ class Hatchbox::Logs < Hatchbox::Command
       [nil, "--since WHEN", "only lines since this, anything journalctl --since takes, like '1 hour ago'"],
       [nil, "--units", "list the systemd units it would read on each server, and stop"],
       [nil, "--force-colors", "force use of colors even on non-tty output"]
+    ],
+    help: [
+      "Hatchbox keeps no runtime logs and has no API for them, so this goes to every",
+      "server the app's processes run on over SSH and reads the journal of each",
+      "process's systemd unit, which Hatchbox names APP-PROCESS. Lines from every server",
+      "are merged by time. It reaches the servers as the deploy user, with the same",
+      "ssh_user, ssh_host and ssh_port overrides as hatchbox ps:exec.",
+      "",
+      "app lines are the process's own output. systemd lines are systemd saying it",
+      "started, stopped or crashed the process."
+    ],
+    examples: [
+      "$ hatchbox logs --tail",
+      "2026-09-19T15:04:05.123456+00:00 app[server.1]: Started GET \"/\" for 203.0.113.9",
+      "2026-09-19T15:04:06.000000+00:00 systemd[sidekiq.1]: Started fpd-sidekiq.service.",
+      "",
+      "$ hatchbox logs -p sidekiq -n 500 --since '1 hour ago'"
     ]
 
   def call
@@ -3275,7 +3387,14 @@ class Hatchbox::Run < Hatchbox::Command
       ["-d", "--dyno DYNO", "run on the server this copy of a process is on, like sidekiq.2"],
       [nil, "--no-tty", "force the command to not run in a tty"],
       ["-x", "--exit-code", "passthrough the exit code of the remote command, which it always does"]
-    ]
+    ],
+    help: [
+      "Heroku starts a one-off dyno. Hatchbox has none, so this runs the command over",
+      "SSH on the first server carrying an app role, through a login shell, from the",
+      "app's current release. A command starting with rails runs as bin/rails and stops",
+      "if the release directory is missing. Flags meant for the command go after --."
+    ],
+    examples: ["$ hatchbox run rails console", "Running `rails console` on fpd... up, web-1", "", "$ hatchbox run -- ls -la"]
 
   def call
     command = (positionals + passthru).join(" ")
@@ -3323,7 +3442,13 @@ class Hatchbox::RunDetached < Hatchbox::Run
       ["-e", "--env ENV", "environment variables to set, like FOO=bar;BAZ=qux", :many],
       ["-s", "--server SERVER", "the server to run on, by name, id or role"],
       ["-d", "--dyno DYNO", "run on the server this copy of a process is on, like sidekiq.2"]
-    ]
+    ],
+    help: [
+      "Starts the command with nohup and setsid so it outlives the SSH session, and",
+      "sends its output to the journal through systemd-cat, tagged so hatchbox logs",
+      "--dyno run.ID reads it back."
+    ],
+    examples: ["$ hatchbox run:detached rake db:backfill", "Running `rake db:backfill` on fpd... done, run.20260919150405", "Run hatchbox logs --app fpd --dyno run.20260919150405 to view the output."]
 
   def call
     command = (positionals + passthru).join(" ")
@@ -3359,6 +3484,11 @@ class Hatchbox::PsExec < Hatchbox::Command
     flags: [
       ["-d", "--dyno DYNO", "the server this copy of a process is on, like sidekiq.2"],
       ["-s", "--server SERVER", "the server, by name, id or role"]
+    ],
+    help: [
+      "Lands in the app's current release, /home/deploy/APP/current, and falls back to",
+      "the home directory when nothing is deployed yet. COMMAND runs there and comes",
+      "back; quote it as one argument."
     ]
 
   def call
@@ -3378,7 +3508,8 @@ class Hatchbox::PsForward < Hatchbox::Command
       ["-p", "--local-port PORT", "local port to use, comma separated to match PORT"],
       ["-d", "--dyno DYNO", "the server this copy of a process is on"],
       ["-s", "--server SERVER", "the server, by name, id or role"]
-    ]
+    ],
+    examples: ["$ hatchbox ps:forward 9090", "SSH tunnel established.", "Forwarding localhost:9090 to web-1:9090", "Use CTRL+C to stop port forwarding"]
 
   def call
     remote = one_positional("PORT").split(",")
@@ -3422,7 +3553,9 @@ class Hatchbox::PsCopy < Hatchbox::Command
       ["-o", "--output FILE", "where to write it, the file's own name unless you say otherwise"],
       ["-d", "--dyno DYNO", "the server this copy of a process is on"],
       ["-s", "--server SERVER", "the server, by name, id or role"]
-    ]
+    ],
+    help: ["A relative FILE is read from the app's current release."],
+    examples: ["$ hatchbox ps:copy log/production.log", "Copying log/production.log to production.log... done"]
 
   def call
     file = one_positional("FILE")
@@ -3450,7 +3583,12 @@ class Hatchbox::Deploy < Hatchbox::Command
       [nil, "--no-follow", "same as --no-wait"],
       [nil, "--watch", "stream the log, which it does anyway"],
       [nil, "--status", "same as hatchbox status"]
-    ]
+    ],
+    help: [
+      "Heroku deploys on git push. Hatchbox pulls from your git host, so this asks it to",
+      "deploy and streams the build the way a push would."
+    ],
+    examples: ["$ hatchbox deploy", "Deploying main to fpd... queued, release 4212", "-----> Starting deployment", "...", "Verifying deploy... done"]
 
   def call
     return Hatchbox::Status.call(session: session, args: []) if options[:status] || positionals == ["status"]
@@ -3492,7 +3630,11 @@ end
 class Hatchbox::Releases < Hatchbox::Command
   describe "releases",
     summary: "display the app's release history",
-    flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer]]
+    flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer]],
+    help: [
+      "Everything Hatchbox did to the app: deploys, restarts and process changes, each",
+      "with the id hatchbox releases:output reads."
+    ]
 
   def call
     none!
@@ -3512,7 +3654,8 @@ end
 class Hatchbox::ReleasesInfo < Hatchbox::Command
   describe "releases:info",
     summary: "view detailed information for a release",
-    usage: "releases:info [RELEASE]"
+    usage: "releases:info [RELEASE]",
+    help: ["RELEASE is an id from hatchbox releases, or deploy or restart for the latest one. It defaults to the latest release."]
 
   def self.describe_log(log)
     Hatchbox::Ui.styled_hash([
@@ -3542,7 +3685,11 @@ class Hatchbox::ReleasesOutput < Hatchbox::Command
   describe "releases:output",
     summary: "view the output of a release, following it while it runs",
     usage: "releases:output [RELEASE]",
-    aliases: ["builds:output"]
+    aliases: ["builds:output"],
+    help: [
+      "RELEASE is an id from hatchbox releases, or deploy or restart for the latest one.",
+      "Any Hatchbox log id works here, including ones from server and database activity."
+    ]
 
   def call
     usage_error("One release at a time.") if positionals.length > 1
@@ -3569,7 +3716,12 @@ class Hatchbox::ReleasesRollback < Hatchbox::Command
     summary: "redeploy the commit of an earlier release",
     usage: "releases:rollback [RELEASE]",
     aliases: ["rollback"],
-    flags: [WAIT_FLAG]
+    flags: [WAIT_FLAG],
+    help: [
+      "Without RELEASE, goes back to the newest successful deploy of a different commit",
+      "than the one live now. Hatchbox has no releases to restore, so this is a deploy of",
+      "that commit: config vars, processes and databases stay as they are."
+    ]
 
   def call
     usage_error("One release at a time.") if positionals.length > 1
@@ -3692,7 +3844,8 @@ class Hatchbox::DomainsAdd < Hatchbox::Command
 
   describe "domains:add",
     summary: "add a domain to the app",
-    usage: "domains:add HOSTNAME"
+    usage: "domains:add HOSTNAME",
+    help: ["Accounts on a trial need a card on file before Hatchbox adds a domain."]
 
   def call
     name = one_positional("HOSTNAME")
@@ -3891,7 +4044,16 @@ class Hatchbox::Psql < Hatchbox::Command
       [nil, "--url", "print the connection URI instead of connecting"],
       [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"],
       [nil, "--dangerous", "a session that can write, which it cannot by default"]
-    ]
+    ],
+    help: [
+      "Connects to the postgresql database attached to the app. Unmanaged clusters",
+      "listen on their own machine's private address, so psql goes through an SSH",
+      "tunnel to the server holding the database, as the deploy user Hatchbox sets up.",
+      "Sessions are read only unless you pass --dangerous. DATABASE is a database name",
+      "or the config var it is attached as, like DATABASE_URL; anything else is run as",
+      "SQL. psql's own flags go after --."
+    ],
+    examples: ["$ hatchbox pg:psql", "$ hatchbox pg:psql -c 'select count(*) from users'", "$ hatchbox pg:psql RED_DATABASE_URL --dangerous"]
 
   def call
     usage_error("Only one statement at a time, quote it as one argument.") if positionals.length > 1
@@ -3995,7 +4157,13 @@ class Hatchbox::PgPull < Hatchbox::Command
     flags: [
       [nil, "--exclude-table-data TABLES", "tables to skip the data of, separated by semicolons"],
       [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"]
-    ]
+    ],
+    help: [
+      "SOURCE is the app's database, like DATABASE_URL. TARGET is a local database name",
+      "or URL, which must not exist yet; it is created with createdb. Needs pg_dump,",
+      "pg_restore and createdb at least as new as the server."
+    ],
+    examples: ["$ hatchbox pg:pull DATABASE_URL fpd_development"]
 
   def call
     usage_error("Must specify SOURCE and TARGET.") unless positionals.length == 2
@@ -4129,7 +4297,8 @@ class Hatchbox::PgOutliers < Hatchbox::PgQuery
   describe "pg:outliers",
     summary: "show the queries with the longest total execution time",
     usage: "pg:outliers [DATABASE]",
-    flags: [["-n", "--num NUM", "number of queries to show, 10 unless you say otherwise", Integer], ["-t", "--truncate", "cut queries off at 40 characters"]]
+    flags: [["-n", "--num NUM", "number of queries to show, 10 unless you say otherwise", Integer], ["-t", "--truncate", "cut queries off at 40 characters"]],
+    help: ["Needs the pg_stat_statements extension and PostgreSQL 13 or later."]
 
   def call
     shown = options[:truncate] ? "CASE WHEN length(query) <= 40 THEN query ELSE substr(query, 0, 39) || '...' END" : "query"
@@ -4283,7 +4452,8 @@ class Hatchbox::PgKillall < Hatchbox::PgQuery
   describe "pg:killall",
     summary: "terminate every other connection to the database",
     usage: "pg:killall [DATABASE]",
-    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
+    flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]],
+    help: ["Only touches connections to this database, not the rest of a shared cluster."]
 
   def call
     usage_error("One database at a time.") if positionals.length > 1
@@ -4325,7 +4495,8 @@ class Hatchbox::PgBackups < Hatchbox::Command
 
   describe "pg:backups",
     summary: "list database backups and the backup schedule",
-    usage: "pg:backups [DATABASE]"
+    usage: "pg:backups [DATABASE]",
+    help: ["DATABASE defaults to the app's postgresql database. Backups work on any unmanaged database Hatchbox runs; managed ones are backed up by your provider."]
 
   def call
     usage_error("One database at a time.") if positionals.length > 1
@@ -4358,7 +4529,8 @@ class Hatchbox::PgBackupsCapture < Hatchbox::Command
   describe "pg:backups:capture",
     summary: "take a backup now",
     usage: "pg:backups:capture [DATABASE]",
-    flags: [WAIT_FLAG]
+    flags: [WAIT_FLAG],
+    help: ["Backups have to be scheduled first, with hatchbox pg:backups:schedule, since that is where they are stored."]
 
   def call
     usage_error("One database at a time.") if positionals.length > 1
@@ -4374,7 +4546,8 @@ class Hatchbox::PgBackupsInfo < Hatchbox::Command
   describe "pg:backups:info",
     summary: "show the output of a backup",
     usage: "pg:backups:info [BACKUP_ID]",
-    flags: [["-d", "--database DATABASE", "which database, when the app has more than one"]]
+    flags: [["-d", "--database DATABASE", "which database, when the app has more than one"]],
+    help: ["Without BACKUP_ID, shows the most recent backup."]
 
   def call
     usage_error("One backup at a time.") if positionals.length > 1
@@ -4399,7 +4572,8 @@ class Hatchbox::PgBackupsUrl < Hatchbox::Command
 
   describe "pg:backups:url",
     summary: "get a temporary URL for the latest backup",
-    usage: "pg:backups:url [DATABASE]"
+    usage: "pg:backups:url [DATABASE]",
+    help: ["The URL expires a few minutes after it is issued. Only S3 compatible storage can hand one out."]
 
   def call
     usage_error("One database at a time.") if positionals.length > 1
@@ -4536,6 +4710,15 @@ class Hatchbox::PgBackupsSchedule < Hatchbox::Command
       [nil, "--retention PERIOD", "how long to keep them, like 7d or 6M"],
       [nil, "--honeybadger-checkin-id ID", "Honeybadger check-in to report runs to"],
       [nil, "--appsignal-push-api-key KEY", "AppSignal push key to monitor runs with"]
+    ],
+    help: [
+      "Only the settings you pass change, but every call turns backups on, so the first",
+      "one needs the provider and its settings. Hatchbox never returns credentials."
+    ],
+    examples: [
+      "$ hatchbox pg:backups:schedule --at @daily --provider s3 --region us-east-1 --bucket my-backups --access-key-id AKIA... --retention 7d",
+      "Secret access key:",
+      "Scheduling backups of DATABASE_URL (db_56237b230774)... done"
     ]
 
   def call
@@ -4573,7 +4756,8 @@ class Hatchbox::PgBackupsUnschedule < Hatchbox::Command
   describe "pg:backups:unschedule",
     summary: "stop backups and clear the storage settings",
     usage: "pg:backups:unschedule [DATABASE]",
-    flags: [[nil, "--confirm DATABASE", "the database's name, to skip the prompt"]]
+    flags: [[nil, "--confirm DATABASE", "the database's name, to skip the prompt"]],
+    help: ["Hatchbox clears the provider, bucket and credentials when backups are turned off, so turning them back on means passing those again."]
 
   def call
     usage_error("One database at a time.") if positionals.length > 1
@@ -4615,7 +4799,8 @@ class Hatchbox::RedisCli < Hatchbox::Command
   describe "redis:cli",
     summary: "open a redis-cli session to the app's redis",
     usage: "redis:cli [DATABASE]",
-    flags: [[nil, "--direct", "connect straight to the redis host instead of through an SSH tunnel"]]
+    flags: [[nil, "--direct", "connect straight to the redis host instead of through an SSH tunnel"]],
+    help: ["Tunnels through the server holding redis, like pg:psql. redis-cli's own arguments go after --."]
 
   def call
     usage_error("One database at a time.") if positionals.length > 1
@@ -4644,7 +4829,15 @@ class Hatchbox::MysqlCli < Hatchbox::Command
       [nil, "--url", "print the connection URI instead of connecting"],
       [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"],
       [nil, "--dangerous", "a session that can write, which it cannot by default"]
-    ]
+    ],
+    help: [
+      "Connects to the mysql database attached to the app, through an SSH tunnel to the",
+      "server holding it, like pg:psql. Sessions start with SET SESSION TRANSACTION READ",
+      "ONLY unless you pass --dangerous. The password goes in a temporary option file, so",
+      "it stays out of the process list. DATABASE is a database name or the config var",
+      "it is attached as; anything else is run as SQL. mysql's own flags go after --."
+    ],
+    examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"]
 
   def call
     usage_error("Only one statement at a time, quote it as one argument.") if positionals.length > 1
@@ -4697,7 +4890,12 @@ end
 class Hatchbox::Cron < Hatchbox::Command
   describe "cron",
     summary: "list the app's cron jobs",
-    aliases: ["cron:list"]
+    aliases: ["cron:list"],
+    help: [
+      "Cron jobs run from the app's current release as the deploy user, on every server",
+      "in the cluster carrying the cron role. Cron keeps none of their output; read when",
+      "they ran with hatchbox run 'journalctl -u cron'."
+    ]
 
   def self.find(client:, app_id:, wanted:)
     rows = client.get("/apps/#{app_id}/cron_jobs").json || []
@@ -4765,7 +4963,9 @@ class Hatchbox::CronAdd < Hatchbox::Command
     usage: "cron:add COMMAND --at SCHEDULE",
     aliases: ["cron:create"],
     lenient: true,
-    flags: Hatchbox::CronFields::FLAGS
+    flags: Hatchbox::CronFields::FLAGS,
+    help: ["The name defaults to the command. Flags meant for the command go after --."],
+    examples: ["$ hatchbox cron:add bin/rails sync:nightly --at '0 0 * * *' --name 'Nightly sync'", "Adding Nightly sync to fpd... done"]
 
   def call
     command = (positionals + passthru).join(" ")
@@ -4959,7 +5159,8 @@ class Hatchbox::ServersProvision < Hatchbox::Command
     summary: "rerun provisioning on a server, the dashboard's Update button",
     usage: "servers:provision SERVER",
     app: :optional,
-    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to skip the prompt"], WAIT_FLAG]
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to skip the prompt"], WAIT_FLAG],
+    help: ["Takes several minutes, and processes may restart while it runs."]
 
   def call
     server = find_server(one_positional("SERVER"))
@@ -5014,7 +5215,14 @@ class Hatchbox::ServersRolesSet < Hatchbox::Command
     summary: "set a server's roles, adding and removing to match",
     usage: "servers:roles:set SERVER ROLE [ROLE ...]",
     app: :optional,
-    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"], WAIT_FLAG]
+    flags: [CLUSTER_FLAG, [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"], WAIT_FLAG],
+    help: [
+      "Roles are app, web, worker, cron, load_balancer, postgresql, mysql, redis,",
+      "memcached and elasticsearch. Adding an app role deploys every app in the cluster.",
+      "Removing a database role uninstalls it and destroys its data, and so does",
+      "dropping a server's last app role when it holds sqlite databases; those need",
+      "the server's name typed back."
+    ]
 
   def call
     usage_error("Must specify SERVER and at least one ROLE.") if positionals.length < 2
@@ -5110,7 +5318,8 @@ class Hatchbox::Firewall < Hatchbox::Command
     usage: "firewall SERVER",
     aliases: ["firewall:list"],
     app: :optional,
-    flags: [CLUSTER_FLAG]
+    flags: [CLUSTER_FLAG],
+    help: ["Rules Hatchbox manages itself, like SSH and the web ports, cannot be removed."]
 
   def call
     server = find_server(one_positional("SERVER"))
@@ -5172,7 +5381,8 @@ class Hatchbox::FirewallAdd < Hatchbox::Command
       [nil, "--deny", "deny the traffic instead of allowing it"],
       [nil, "--description TEXT", "a note for yourself"],
       WAIT_FLAG
-    ]
+    ],
+    examples: ["$ hatchbox firewall:add web-1 9000 --from 203.0.113.0/24 --description 'Metrics scraper'", "Allowing port 9000 from 203.0.113.0/24 on web-1... done"]
 
   def call
     usage_error("Must specify SERVER and PORT.") unless positionals.length == 2
@@ -5202,7 +5412,8 @@ class Hatchbox::FirewallRemove < Hatchbox::Command
     usage: "firewall:remove SERVER RULE",
     aliases: ["firewall:delete"],
     app: :optional,
-    flags: [CLUSTER_FLAG, WAIT_FLAG]
+    flags: [CLUSTER_FLAG, WAIT_FLAG],
+    help: ["The rule stays in force, and listed, until ufw on the server accepts the change."]
 
   def call
     usage_error("Must specify SERVER and RULE.") unless positionals.length == 2
@@ -5218,7 +5429,11 @@ class Hatchbox::ScriptsActivity < Hatchbox::Command
     summary: "list the runs of a custom script",
     usage: "scripts:activity SCRIPT",
     app: false,
-    flags: [["-n", "--num NUM", "number of runs", Integer]]
+    flags: [["-n", "--num NUM", "number of runs", Integer]],
+    help: [
+      "SCRIPT is the id from the script's dashboard url, like 42 in /scripts/42-clear-the-cache.",
+      "A run only records the narrative; each server's output is in hatchbox servers:activity."
+    ]
 
   def call
     script = one_positional("SCRIPT")
@@ -5229,6 +5444,138 @@ class Hatchbox::ScriptsActivity < Hatchbox::Command
 
     ui.columns(Hatchbox::Activity.rows(rows))
     0
+  end
+end
+
+module Hatchbox::Help
+  PRIMARY = {
+    "apps" => "manage apps (create, destroy, info, rename, open)",
+    "auth" => "log in and out, and see what the token reaches",
+    "config" => "manage app config vars",
+    "domains" => "manage the app's domains",
+    "logs" => "display logs for an app, read from its servers over SSH",
+    "maintenance" => "turn maintenance mode on and off",
+    "pg" => "manage postgresql databases",
+    "ps" => "manage processes (restart, stop, start, exec)",
+    "releases" => "manage app releases and roll back",
+    "run" => "run a command on one of the app's servers"
+  }.freeze
+
+  ADDITIONAL = {
+    "builds" => "list the app's deploys",
+    "cron" => "manage the app's cron jobs",
+    "deploy" => "deploy the app and stream the build",
+    "firewall" => "manage a server's firewall rules",
+    "git" => "add apps to .hatchbox, list git providers",
+    "mysql" => "open a mysql shell on the app's mysql",
+    "redis" => "open redis-cli on the app's redis",
+    "remotes" => "list the apps named in .hatchbox",
+    "scripts" => "list the runs of custom scripts",
+    "servers" => "manage servers, their roles and reboots",
+    "status" => "show the latest deploy"
+  }.freeze
+
+  FOOTER = [
+    "The app comes from -a/--app, then -r/--remote (a remote in the nearest .hatchbox),",
+    "then HATCHBOX_APP, then the .hatchbox default. hatchbox help git:remote explains",
+    "the file. The token comes from HATCHBOX_API_TOKEN, then ~/.hatchbox.",
+    "",
+    "Environment:",
+    "  HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox",
+    "  HATCHBOX_APP           app to use when -a and -r are left off",
+    "  HATCHBOX_SSH_OPTIONS   extra ssh flags, like '-i ~/.ssh/hatchbox'",
+    "  HATCHBOX_API_BASE      defaults to https://hatchbox.io/api/v1",
+    "  NO_COLOR               turns colors off"
+  ].freeze
+
+  class << self
+    def root
+      puts("Usage: hatchbox COMMAND [--app APP] [command-specific-options]")
+      puts
+      puts("Commands, type \"hatchbox help COMMAND\" for more details:")
+      visible = Hatchbox::Registry.visible
+      groups = visible.group_by { |klass| klass.meta[:name].split(":").first }
+      order = PRIMARY.keys + ADDITIONAL.keys
+      width = visible.map { |klass| klass.meta[:name].length }.max
+      groups.keys.sort_by { |topic| [order.index(topic) || order.length, topic] }.each do |topic|
+        puts
+        groups[topic].sort_by { |klass| klass.meta[:name] }.each { |klass| puts("  #{klass.meta[:name].ljust(width)}  #  #{klass.meta[:summary]}") }
+      end
+      puts
+      FOOTER.each { |line| puts(line) }
+    end
+
+    def show(name)
+      command = Hatchbox::Registry.find(name)
+      topic = name.to_s.split(":").first
+      return topic_help(topic: topic, command: command) if command && command.meta[:name] == topic && members(topic).length > 1
+      return command_help(command) if command
+      return topic_help(topic: topic, command: nil) if members(topic).any?
+
+      raise Hatchbox::Error, "No help for #{name}.\nSee `hatchbox help` for a list of topics."
+    end
+
+    private
+
+    def listing(topics)
+      width = topics.keys.map { |key| key.length }.max
+      topics.each { |key, text| puts("  #{key.ljust(width)}  #  #{text}") }
+    end
+
+    def members(topic)
+      Hatchbox::Registry.visible.select { |klass| klass.meta[:name].split(":").first == topic }.sort_by { |klass| klass.meta[:name] }
+    end
+
+    def topic_help(topic:, command:)
+      if command
+        usage_block(command)
+      else
+        puts("Usage: hatchbox #{topic}:COMMAND")
+        puts
+        puts(" #{PRIMARY[topic] || ADDITIONAL[topic]}") if PRIMARY[topic] || ADDITIONAL[topic]
+      end
+      others = members(topic).reject { |klass| klass == command }
+      return if others.empty?
+
+      puts
+      puts("Additional commands, type \"hatchbox help COMMAND\" for more details:")
+      puts
+      width = others.map { |klass| klass.meta[:usage].length }.max
+      others.each { |klass| puts("  #{klass.meta[:usage].ljust(width)}  #  #{klass.meta[:summary]}") }
+    end
+
+    def command_help(command)
+      usage_block(command)
+      meta = command.meta
+      if meta[:help]
+        puts
+        Array(meta[:help]).each { |line| puts(" #{line}".rstrip) }
+      end
+      if meta[:aliases].any?
+        puts
+        puts("Aliases: #{meta[:aliases].join(", ")}")
+      end
+      return if meta[:examples].empty?
+
+      puts
+      puts("Examples:")
+      puts
+      meta[:examples].each { |line| puts(" #{line}".rstrip) }
+    end
+
+    def usage_block(command)
+      meta = command.meta
+      puts("Usage: hatchbox #{meta[:usage]}")
+      puts
+      puts(" #{meta[:summary]}")
+      flags = (meta[:app] ? Hatchbox::Command::APP_FLAGS : []) + meta[:flags]
+      return if flags.empty?
+
+      puts
+      labels = flags.map { |short, long, _description, _type| short ? "#{short}, #{long}" : "    #{long}" }
+      width = labels.map { |text| text.length }.max
+      flags.each_with_index { |(_short, _long, description, _type), index| puts(" #{labels[index].ljust(width)}  #  #{description}") }
+    end
   end
 end
 
@@ -5291,33 +5638,12 @@ class Hatchbox::Cli
   end
 
   def help(name)
-    command = Hatchbox.blank?(name) ? nil : Hatchbox::Registry.find(name)
-    raise Hatchbox::Error, "No help for #{name}.\nSee `hatchbox help` for a list of commands." if command.nil? && !Hatchbox.blank?(name)
-
-    command ? usage(command) : listing
+    if Hatchbox.blank?(name)
+      Hatchbox::Help.root
+    else
+      Hatchbox::Help.show(name)
+    end
     0
-  end
-
-  def listing
-    puts("Usage: hatchbox COMMAND [--app APP] [command-specific-options]")
-    puts
-    rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }
-    width = rows.map { |klass| klass.meta[:name].length }.max
-    rows.each { |klass| puts("  #{klass.meta[:name].ljust(width)}  #  #{klass.meta[:summary]}") }
-  end
-
-  def usage(command)
-    meta = command.meta
-    puts("Usage: hatchbox #{meta[:usage]}")
-    puts
-    puts(" #{meta[:summary]}")
-    flags = (meta[:app] ? Hatchbox::Command::APP_FLAGS : []) + meta[:flags]
-    return if flags.empty?
-
-    puts
-    labels = flags.map { |short, long, _description, _type| short ? "#{short}, #{long}" : "    #{long}" }
-    width = labels.map { |text| text.length }.max
-    flags.each_with_index { |(_short, _long, description, _type), index| puts(" #{labels[index].ljust(width)}  #  #{description}") }
   end
 
   def unknown(name)
