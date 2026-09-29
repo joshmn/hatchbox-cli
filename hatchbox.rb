@@ -58,6 +58,7 @@ class String
 end
 
 module Hatchbox
+  VERSION = "2.0.0"
   API_BASE = ENV["HATCHBOX_API_BASE"] || "https://hatchbox.io/api/v1"
   GLOBAL_CONFIG = File.join(Dir.home, ".hatchbox")
   POLL_SECONDS = 3
@@ -110,6 +111,10 @@ module Hatchbox
 
     def ssh_options
       Shellwords.split(ENV["HATCHBOX_SSH_OPTIONS"].to_s)
+    end
+
+    def platform
+      "hatchbox/#{VERSION} #{RbConfig::CONFIG["host_os"]}-#{RbConfig::CONFIG["host_cpu"]} ruby-#{RUBY_VERSION}"
     end
 
     def slug_id(slug)
@@ -350,6 +355,7 @@ class Hatchbox::Http
     message = METHODS.fetch(method).new(uri.request_uri)
     message["Authorization"] = "Bearer #{token}"
     message["Accept"] = "application/json"
+    message["User-Agent"] = Hatchbox.platform
     if body
       message["Content-Type"] = "application/json"
       message.body = JSON.dump(body)
@@ -5547,6 +5553,12 @@ module Hatchbox::Help
       raise Hatchbox::Error, "No help for #{name}.\nSee `hatchbox help` for a list of topics."
     end
 
+    def commands
+      rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }.map { |klass| [klass.meta[:usage], klass.meta[:summary]] }
+      width = rows.map { |usage, _summary| usage.length }.max
+      rows.each { |usage, summary| puts("#{usage.ljust(width)}  #  #{summary}") }
+    end
+
     private
 
     def listing(topics)
@@ -5625,8 +5637,11 @@ class Hatchbox::Cli
   def call
     rest = scan
     name = rest.shift
+    return version if @version
     return help(rest.first) if name.nil? || name == "help"
     return help(name) if @help
+    return commands if name == "commands"
+    return version if name == "version"
 
     command = Hatchbox::Registry.find(name)
     unknown(name) unless command
@@ -5656,6 +5671,8 @@ class Hatchbox::Cli
       when /\A--remote=(.*)\z/ then @remote = Regexp.last_match(1)
       when /\A-r(.+)\z/ then @remote = Regexp.last_match(1)
       when "-h", "--help" then @help = true
+      when "--version" then @version = true
+      when "-v" then rest.empty? ? @version = true : rest << token
       else rest << token
       end
     end
@@ -5675,6 +5692,16 @@ class Hatchbox::Cli
     else
       Hatchbox::Help.show(name)
     end
+    0
+  end
+
+  def commands
+    Hatchbox::Help.commands
+    0
+  end
+
+  def version
+    puts(Hatchbox.platform)
     0
   end
 
