@@ -1851,7 +1851,12 @@ module Hatchbox::Registry
     end
 
     def find(name)
-      COMMANDS[name] || COMMANDS[ALIASES[name]]
+      key = canonical(name)
+      COMMANDS[key] || COMMANDS[ALIASES[key]]
+    end
+
+    def canonical(name)
+      name.to_s.sub(/\Apostgresql(?=:|\z)/, "pg")
     end
 
     def names
@@ -5504,6 +5509,7 @@ module Hatchbox::Help
     "The app comes from -a/--app, then -r/--remote (a remote in the nearest .hatchbox),",
     "then HATCHBOX_APP, then the .hatchbox default. hatchbox help git:remote explains",
     "the file. The token comes from HATCHBOX_API_TOKEN, then ~/.hatchbox.",
+    "postgresql:COMMAND works anywhere pg:COMMAND does.",
     "",
     "Environment:",
     "  HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox",
@@ -5531,6 +5537,7 @@ module Hatchbox::Help
     end
 
     def show(name)
+      name = Hatchbox::Registry.canonical(name)
       command = Hatchbox::Registry.find(name)
       topic = name.to_s.split(":").first
       return topic_help(topic: topic, command: command) if command && command.meta[:name] == topic && members(topic).length > 1
