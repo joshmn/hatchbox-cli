@@ -6,14 +6,13 @@ module Hatchbox
       class List < Hatchbox::Command
         include Hatchbox::Commands::Servers::Lookup
 
-        describe("servers",
+        describe "servers",
           summary: "list the servers in the app's cluster",
           aliases: ["servers:list"],
           app: :optional,
-          flags: [CLUSTER_FLAG, JSON_FLAG])
+          flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call
-          none!
           servers = cluster_record["servers"] || []
           return print_json(servers) if json?
 

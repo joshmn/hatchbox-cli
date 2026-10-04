@@ -6,14 +6,14 @@ module Hatchbox
       class Update < Hatchbox::Command
         include Hatchbox::Commands::Domains::Paths
 
-        describe("domains:update",
+        describe "domains:update",
           summary: "rename one of the app's domains",
-          usage: "domains:update HOSTNAME NEWHOSTNAME")
+          usage: "domains:update HOSTNAME NEWHOSTNAME",
+          args: { hostname: "HOSTNAME", new_hostname: "NEWHOSTNAME" }
 
         def call
-          usage_error("Must specify HOSTNAME and NEWHOSTNAME.") unless positionals.length == 2
-
-          old, name = positionals
+          old = args.hostname
+          name = args.new_hostname
           ui.action("Updating #{old} to #{name} on #{label}") { client.patch(domain_path(old), body: { "domain" => { "name" => name } }) }
           0
         end

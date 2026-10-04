@@ -6,14 +6,14 @@ module Hatchbox
       class CredentialsUrl < Hatchbox::Command
         include Hatchbox::Commands::Pg::Tools
 
-        describe("pg:credentials:url",
+        describe "pg:credentials:url",
           summary: "show the connection information for a database",
           usage: "pg:credentials:url [DATABASE]",
-          aliases: ["pg:credentials"])
+          args: { database: "[DATABASE]" },
+          aliases: ["pg:credentials"]
 
         def call
-          usage_error("One database at a time.") if positionals.length > 1
-          record = postgres(positionals.first)
+          record = postgres(args.database)
           text = connection_text(record)
           database = Hatchbox::Database.new(text)
           puts("Connection information for #{record["name"]}.")

@@ -34,7 +34,7 @@ module Hatchbox
     end
 
     def messages
-      Hatchbox::TargetMessages.new(config: config)
+      Hatchbox::Target::Messages.new(config: config)
     end
 
     def by_app(value)
@@ -66,28 +66,28 @@ module Hatchbox
       raise Hatchbox::Error, messages.no_app unless config.exists?
 
       found = config.app_for(name)
-      raise Hatchbox::Error, "No remote named #{name} in #{config.path}.\n#{messages.remotes}" if Hatchbox.blank?(found)
+      raise Hatchbox::Error, "No remote named #{name} for #{config.location}.\n#{messages.remotes}" if Hatchbox.blank?(found)
 
       @env = name
       @slug = found
       @app_id = Hatchbox.slug_id(found)
-      raise Hatchbox::Error, "#{found} in #{config.path} does not start with the app's id, the way the dashboard url spells it." if Hatchbox.blank?(@app_id)
+      raise Hatchbox::Error, "#{found} for #{config.location} does not start with the app's id, the way the dashboard url spells it." if Hatchbox.blank?(@app_id)
 
       self
     end
 
     def by_default
-      raise Hatchbox::Error, messages.no_app if !config.exists? || config.envs.empty?
+      raise Hatchbox::Error, messages.no_app unless config.exists?
 
-      name = config.get("default")
-      name = config.envs.first if Hatchbox.blank?(name) && config.envs.uniq.length == 1
+      name = config.default
+      name = config.envs.first if Hatchbox.blank?(name) && config.envs.length == 1
       raise Hatchbox::Error, messages.multiple if Hatchbox.blank?(name)
 
       by_remote(name)
     end
 
     def lookup
-      found = Hatchbox::AppCatalog.new(client: session.client).named(@wanted)
+      found = Hatchbox::App::Catalog.new(client: session.client).named(@wanted)
       raise Hatchbox::Error, "Couldn't find that app." if found.empty?
       raise Hatchbox::Error, messages.ambiguous(name: @wanted, rows: found) if found.length > 1
 

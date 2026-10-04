@@ -3,16 +3,15 @@
 module Hatchbox
   module Commands
     class Remotes < Hatchbox::Command
-      describe("remotes",
-        summary: "list the apps named in .hatchbox",
+      describe "remotes",
+        summary: "list the remotes saved for this repo",
         aliases: ["envs", "git:remotes"],
-        app: false)
+        app: false
 
       def call
-        none!
-        raise Hatchbox::Error, "No .hatchbox here or above #{Dir.pwd}. Add one with hatchbox git:remote." unless config.exists?
+        raise Hatchbox::Error, "No remotes for #{config.location}. Add one with hatchbox git:remote." unless config.exists?
 
-        ui.header(config.path)
+        ui.header(config.location)
         current = current_env
         width = config.envs.map { |name| name.length }.max.to_i
         config.apps.each do |name, slug|

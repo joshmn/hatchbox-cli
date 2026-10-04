@@ -6,14 +6,15 @@ module Hatchbox
       class Info < Hatchbox::Command
         include Hatchbox::Commands::Servers::Lookup
 
-        describe("servers:info",
+        describe "servers:info",
           summary: "show one server",
           usage: "servers:info SERVER",
+          args: { server: "SERVER" },
           app: :optional,
-          flags: [CLUSTER_FLAG, JSON_FLAG])
+          flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call
-          server = client.get(server_path(find_server(one_positional("SERVER")))).json || {}
+          server = client.get(server_path(find_server(args.server))).json || {}
           return print_json(server) if json?
 
           ui.header(server["name"].to_s)

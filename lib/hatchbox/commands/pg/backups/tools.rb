@@ -25,9 +25,7 @@ module Hatchbox
           end
 
           def one_database
-            usage_error("One database at a time.") if positionals.length > 1
-
-            backed_up(positionals.first)
+            backed_up(args.database)
           end
         end
       end

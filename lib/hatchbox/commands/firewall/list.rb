@@ -6,16 +6,17 @@ module Hatchbox
       class List < Hatchbox::Command
         include Hatchbox::Commands::Servers::Lookup
 
-        describe("firewall",
+        describe "firewall",
           summary: "list a server's firewall rules",
           usage: "firewall SERVER",
+          args: { server: "SERVER" },
           aliases: ["firewall:list"],
           app: :optional,
           flags: [CLUSTER_FLAG, JSON_FLAG],
-          help: ["Rules Hatchbox manages itself, like SSH and the web ports, cannot be removed."])
+          help: ["Rules Hatchbox manages itself, like SSH and the web ports, cannot be removed."]
 
         def call
-          server = find_server(one_positional("SERVER"))
+          server = find_server(args.server)
           rows = client.all("#{server_path(server, suffix: "firewall_rules")}?limit=100")
           return print_json(rows) if json?
 

@@ -4,48 +4,50 @@ module Hatchbox
   module Commands
     module Apps
       class Info < Hatchbox::Command
-        describe("apps:info",
+        describe "apps:info",
           summary: "show detailed app information",
           usage: "apps:info [APP]",
+          args: { app: "[APP]" },
           aliases: ["info"],
-          flags: [["-x", "--extended", "show the deploy scripts, the Caddyfile and the DNS settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"], JSON_FLAG])
+          flags: [["-x", "--extended", "show the deploy scripts, the Caddyfile and the DNS settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"], JSON_FLAG]
 
         def call
-          usage_error("Only one app at a time.") if positionals.length > 1
           data = gather
           return print_json(data) if json?
 
-          details = Hatchbox::AppDetails.new(data: data, formation: app.formation)
-          return shell(details) if options[:shell]
+          details = Hatchbox::App::Details.new(data: data, formation: app.formation)
+          return shell(details) if options.shell
 
           ui.header(data["name"])
-          printer.styled_hash(details.pairs(extended: options[:extended]))
+          printer.styled_hash(details.pairs(extended: options.extended))
           0
         end
 
         private
 
         def positional_app
-          positionals.first
+          args.app
         end
 
         def gather
+          current = app
+          details = current.details
+          catalog = session.catalog
           found = Hatchbox.parallel(
-            details: -> { app.details },
-            cluster: -> { app.cluster },
-            processes: -> { app.processes },
-            domains: -> { app.domains },
-            databases: -> { app.databases },
-            account: -> { session.catalog.account_for(app.id) }
+            cluster: -> { current.cluster },
+            processes: -> { current.processes },
+            domains: -> { current.domains },
+            databases: -> { current.databases },
+            account: -> { catalog.account_for(current.id) }
           )
-          found[:details].merge(
+          details.merge(
             "cluster" => found[:cluster].reject { |key, _value| key == "servers" },
             "servers" => found[:cluster]["servers"] || [],
             "processes" => found[:processes],
             "domains" => found[:domains].map { |row| row["name"] },
             "databases" => found[:databases].map { |record| database(record) },
             "team" => found[:account] ? found[:account]["name"] : nil,
-            "git_provider" => git_provider(account: found[:account], id: found[:details]["connected_account_id"]),
+            "git_provider" => git_provider(account: found[:account], id: details["connected_account_id"]),
             "web_url" => app.web_url
           )
         end

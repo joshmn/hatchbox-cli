@@ -4,19 +4,20 @@ module Hatchbox
   module Commands
     module Scripts
       class Activity < Hatchbox::Command
-        describe("scripts:activity",
+        describe "scripts:activity",
           summary: "list the runs of a custom script",
           usage: "scripts:activity SCRIPT",
+          args: { script: "SCRIPT" },
           app: false,
           flags: [["-n", "--num NUM", "number of runs", Integer], JSON_FLAG],
           help: [
             "SCRIPT is the id from the script's dashboard url, like 42 in /scripts/42-clear-the-cache.",
             "A run only records the narrative; each server's output is in hatchbox servers:activity."
-          ])
+          ]
 
         def call
-          script = one_positional("SCRIPT")
-          rows = client.get("/scripts/#{URI.encode_www_form_component(script)}/logs?limit=#{options[:num] || 20}").json || []
+          script = args.script
+          rows = client.get("/scripts/#{URI.encode_www_form_component(script)}/logs?limit=#{options.num || 20}").json || []
           return print_json(rows) if json?
 
           ui.header("Script #{script} Activity")

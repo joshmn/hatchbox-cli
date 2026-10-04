@@ -18,7 +18,7 @@ module Hatchbox
     end
 
     def open
-      server = Hatchbox::SshTarget.pinned?(session) ? nil : Hatchbox::DatabasePicker.new(session: session, role: role).pick
+      server = Hatchbox::SshTarget.pinned?(session) ? nil : Hatchbox::Database::Picker.new(session: session, role: role).pick
       @target = Hatchbox::SshTarget.new(session: session, server: server)
       @local_port = free_port
       @dir = Dir.mktmpdir("hbx", "/tmp")
@@ -49,7 +49,7 @@ module Hatchbox
 
     def failure_message
       "Could not open an SSH tunnel. Hatchbox puts your key on the deploy user, so\n" \
-        "check that ssh #{target.address} works, or set ssh_user:#{session.env || "ENV"} in #{session.config.path}."
+        "check that ssh #{target.address} works. #{session.config.ssh_hint(env: session.env, key: "user")}"
     end
 
     def free_port

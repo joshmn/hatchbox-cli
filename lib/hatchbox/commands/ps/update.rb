@@ -6,15 +6,16 @@ module Hatchbox
       class Update < Hatchbox::Command
         include Hatchbox::Commands::Ps::Fields
 
-        describe("ps:update",
+        describe "ps:update",
           summary: "change a process",
           usage: "ps:update TYPE [--start COMMAND] [--roles LIST] ...",
+          args: { type: "TYPE" },
           flags: Hatchbox::Commands::Ps::Fields::FLAGS + [WAIT_FLAG],
           help: ["Renaming a process renames its systemd unit, so it stops and starts again under the new name."],
-          examples: ["$ hatchbox ps:update worker --start 'bundle exec sidekiq -c 10'", "Updating worker on fpd... done"])
+          examples: ["$ hatchbox ps:update worker --start 'bundle exec sidekiq -c 10'", "Updating worker on fpd... done"]
 
         def call
-          process = app.formation.find_process(one_positional("TYPE"))
+          process = app.formation.find_process(args.type)
           body = process_body
           usage_error("Nothing to change. See hatchbox help ps:update.") if body.empty?
 

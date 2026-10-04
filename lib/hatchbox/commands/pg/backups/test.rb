@@ -7,9 +7,10 @@ module Hatchbox
         class Test < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups:test",
+          describe "pg:backups:test",
             summary: "upload a test file to the backup storage",
-            usage: "pg:backups:test [DATABASE]")
+            usage: "pg:backups:test [DATABASE]",
+            args: { database: "[DATABASE]" }
 
           def call
             record = one_database

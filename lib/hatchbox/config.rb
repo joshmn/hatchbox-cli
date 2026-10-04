@@ -2,97 +2,93 @@
 
 module Hatchbox
   class Config
-    HEADER = [
-      "# the apps this repo deploys to, written the way the dashboard url spells them,",
-      "# then the environment each one is. pick one with -r, or run hatchbox git:remote to add another."
-    ].freeze
+    SSH_KEYS = ["host", "port", "user", "app_dir"].freeze
 
-    def initialize(path)
-      @file = Hatchbox::ConfigFile.new(path)
+    attr_reader :root
+
+    def initialize(store:, root:)
+      @store = store
+      @root = root
     end
 
-    def path
-      file.path
+    def location
+      "#{root.sub(/\A#{Regexp.escape(Dir.home)}/, "~")} in #{store.display_path}"
     end
 
     def exists?
-      file.exists?
-    end
-
-    def get(key)
-      value = file.settings[key]
-      Hatchbox.blank?(value) ? nil : value
-    end
-
-    def set(key:, value:)
-      raise Hatchbox::Error, "#{path} is not writable." unless file.writable?
-
-      file.rewrite("#{key} = #{value}") { |line| Hatchbox::ConfigLine.key(line) == key }
-    end
-
-    def unset(key)
-      return unless exists? && file.writable?
-
-      file.rewrite(nil) { |line| Hatchbox::ConfigLine.key(line) == key }
+      apps.any?
     end
 
     def apps
-      file.lines.map { |line| Hatchbox::ConfigLine.remote(line) }.compact
+      remotes.to_a
     end
 
     def envs
-      apps.map { |env, _app| env }
+      remotes.keys
     end
 
     def app_for(env)
-      found = apps.select { |name, _app| name == env }.last
-      found ? found.last : nil
+      remotes[env]
+    end
+
+    def default
+      value = project["default"]
+      Hatchbox.blank?(value) ? nil : value
+    end
+
+    def ssh(env:, key:)
+      return nil if env.nil?
+
+      value = (project.fetch("ssh", {})[env] || {})[key]
+      Hatchbox.blank?(value) ? nil : value.to_s
+    end
+
+    def ssh_hint(env:, key:)
+      "Set \"#{key}\" under ssh.#{env || "REMOTE"} for #{location}."
     end
 
     def set_app(env:, app:)
-      file.write(HEADER.dup) unless exists?
-      raise Hatchbox::Error, "#{path} is not writable." unless file.writable?
+      change { |entry| (entry["remotes"] ||= {})[env] = app }
+    end
 
-      file.rewrite("#{app}:#{env}") { |line| line_env(line) == env }
+    def set_default(env)
+      change { |entry| entry["default"] = env }
     end
 
     def remove_app_id(app_id)
-      return [] unless exists? && file.writable?
-
       gone = apps.select { |_env, slug| Hatchbox.slug_id(slug) == app_id.to_s }.map { |env, _slug| env }
-      file.write(file.lines.reject { |line| points_at?(line: line, app_id: app_id) })
+      change { |entry| forget(entry: entry, envs: gone) } if gone.any?
       gone
     end
 
     def rename_app_id(app_id:, slug:)
-      return [] unless exists? && file.writable?
-
-      moved = []
-      rows = file.lines.map do |line|
-        next line unless points_at?(line: line, app_id: app_id)
-
-        env = line_env(line)
-        moved << env
-        "#{slug}:#{env}"
-      end
-      file.write(rows)
+      moved = apps.select { |_env, existing| Hatchbox.slug_id(existing) == app_id.to_s }.map { |env, _slug| env }
+      change { |entry| moved.each { |env| entry["remotes"][env] = slug } } if moved.any?
       moved
     end
 
     private
 
-    attr_reader :file
+    attr_reader :store
 
-    def line_env(line)
-      pair = Hatchbox::ConfigLine.remote(line)
-      pair ? pair.first : nil
+    def project
+      store.data.fetch("projects", {})[root] || {}
     end
 
-    def points_at?(line:, app_id:)
-      pair = Hatchbox::ConfigLine.remote(line)
-      return false unless pair
+    def remotes
+      project.fetch("remotes", {})
+    end
 
-      Hatchbox.slug_id(pair.last) == app_id.to_s
+    def forget(entry:, envs:)
+      envs.each { |env| entry["remotes"].delete(env) }
+      entry.delete("default") if envs.include?(entry["default"])
+    end
+
+    def change
+      store.update do |data|
+        entry = (data["projects"] ||= {})[root] ||= {}
+        yield(entry)
+      end
     end
   end
 end

@@ -7,11 +7,12 @@ module Hatchbox
         class Add < Hatchbox::Command
           include Hatchbox::Commands::Servers::Roles::Change
 
-          describe("servers:roles:add",
+          describe "servers:roles:add",
             summary: "give a server more roles",
             usage: "servers:roles:add SERVER ROLE [ROLE ...]",
+            args: { server: "SERVER", roles: "ROLE..." },
             app: :optional,
-            flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG])
+            flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG]
 
           private
 

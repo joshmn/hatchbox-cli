@@ -6,7 +6,7 @@ module Hatchbox
       class List < Hatchbox::Command
         include Hatchbox::Commands::Cron::Fields
 
-        describe("cron",
+        describe "cron",
           summary: "list the app's cron jobs",
           aliases: ["cron:list"],
           flags: [JSON_FLAG],
@@ -14,10 +14,9 @@ module Hatchbox
             "Cron jobs run from the app's current release as the deploy user, on every server",
             "in the cluster carrying the cron role. Cron keeps none of their output; read when",
             "they ran with hatchbox run 'journalctl -u cron'."
-          ])
+          ]
 
         def call
-          none!
           rows = cron_jobs
           return print_json(rows) if json?
 

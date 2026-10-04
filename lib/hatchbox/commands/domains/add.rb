@@ -6,13 +6,14 @@ module Hatchbox
       class Add < Hatchbox::Command
         include Hatchbox::Commands::Domains::Paths
 
-        describe("domains:add",
+        describe "domains:add",
           summary: "add a domain to the app",
           usage: "domains:add HOSTNAME",
-          help: ["Accounts on a trial need a card on file before Hatchbox adds a domain."])
+          args: { hostname: "HOSTNAME" },
+          help: ["Accounts on a trial need a card on file before Hatchbox adds a domain."]
 
         def call
-          name = one_positional("HOSTNAME")
+          name = args.hostname
           ui.action("Adding #{name} to #{label}") { client.post("/apps/#{app_id}/domains", body: { "domain" => { "name" => name } }) }
           ips = targets
           ui.warning("Configure your app's DNS provider to point #{name} at #{formatter.list(ips)}") if ips.any?

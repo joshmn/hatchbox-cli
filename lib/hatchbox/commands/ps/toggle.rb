@@ -7,7 +7,7 @@ module Hatchbox
         private
 
         def toggled_process
-          app.formation.find_process(one_positional("TYPE").sub(/\.[0-9]+\z/, ""))
+          app.formation.find_process(args.type)
         end
 
         def toggled(data:, message:, already:)

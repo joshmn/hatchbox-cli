@@ -6,15 +6,16 @@ module Hatchbox
       class Cli < Hatchbox::Command
         include Hatchbox::Commands::DatabaseConnection
 
-        describe("redis:cli",
+        describe "redis:cli",
           summary: "open a redis-cli session to the app's redis",
           usage: "redis:cli [DATABASE]",
+          args: { database: "[DATABASE]" },
+          ssh: :tunnel,
           flags: [[nil, "--direct", "connect straight to the redis host instead of through an SSH tunnel"]],
-          help: ["Tunnels through the server holding redis, like pg:psql. redis-cli's own arguments go after --."])
+          help: ["Tunnels through the server holding redis, like pg:psql. redis-cli's own arguments go after --."]
 
         def call
-          usage_error("One database at a time.") if positionals.length > 1
-          record = attached(positionals.first, engines: ["redis"])
+          record = attached(args.database, engines: ["redis"])
           with_connection(record, role: "redis") do |database, host, port|
             argv = ["redis-cli", "-h", host, "-p", port]
             argv << "--tls" if database.scheme == "rediss"

@@ -6,9 +6,11 @@ module Hatchbox
       class Blocking < Hatchbox::Command
         include Hatchbox::Commands::Pg::Query
 
-        describe("pg:blocking",
+        describe "pg:blocking",
           summary: "display queries holding locks other queries are waiting to be released",
-          usage: "pg:blocking [DATABASE]")
+          usage: "pg:blocking [DATABASE]",
+          args: { database: "[DATABASE]" },
+          ssh: :tunnel
 
         def call
           query(<<~SQL)

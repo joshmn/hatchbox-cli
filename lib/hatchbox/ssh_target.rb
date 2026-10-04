@@ -6,7 +6,7 @@ module Hatchbox
       def pinned?(session)
         return false if session.env.nil?
 
-        !Hatchbox.blank?(session.config.get("ssh_host:#{session.env}"))
+        !session.config.ssh(env: session.env, key: "host").nil?
       end
     end
 
@@ -15,12 +15,12 @@ module Hatchbox
     def initialize(session:, server: nil)
       @session = session
       @server = server
-      @host = setting("ssh_host") || (server ? server["public_ip"].to_s : "")
-      @user = setting("ssh_user") || Hatchbox::DEFAULT_SSH_USER
-      @port = setting("ssh_port") || server_port
+      @host = setting("host") || (server ? server["public_ip"].to_s : "")
+      @user = setting("user") || Hatchbox::DEFAULT_SSH_USER
+      @port = setting("port") || server_port
       return unless Hatchbox.blank?(host)
 
-      raise Hatchbox::Error, "#{label} has no public IP.\nSet ssh_host:#{session.env || "ENV"} in #{session.config.path}."
+      raise Hatchbox::Error, "#{label} has no public IP.\n#{session.config.ssh_hint(env: session.env, key: "host")}"
     end
 
     def address
@@ -54,9 +54,9 @@ module Hatchbox
 
     def enter_or_stop
       dir = app_dir
-      raise Hatchbox::Error, "No release directory to run in. Set app_dir:#{session.env || "ENV"} in #{session.config.path}." if Hatchbox.blank?(dir)
+      raise Hatchbox::Error, "No release directory to run in. #{session.config.ssh_hint(env: session.env, key: "app_dir")}" if Hatchbox.blank?(dir)
 
-      complaint = "#{dir} is not there, so nothing is deployed yet. set app_dir:#{session.env || "ENV"} in .hatchbox if the app lives somewhere else"
+      complaint = "#{dir} is not there, so nothing is deployed yet. If the app lives somewhere else: #{session.config.ssh_hint(env: session.env, key: "app_dir")}"
       "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
     end
 
@@ -79,9 +79,7 @@ module Hatchbox
     attr_reader :session
 
     def setting(key)
-      return nil if session.env.nil?
-
-      session.config.get("#{key}:#{session.env}")
+      session.config.ssh(env: session.env, key: key)
     end
 
     def server_port

@@ -6,13 +6,14 @@ module Hatchbox
       class Info < Hatchbox::Command
         include Hatchbox::Commands::Cron::Fields
 
-        describe("cron:info",
+        describe "cron:info",
           summary: "show a cron job",
           usage: "cron:info JOB",
-          flags: [JSON_FLAG])
+          args: { job: "JOB" },
+          flags: [JSON_FLAG]
 
         def call
-          row = find_job(one_positional("JOB"))
+          row = find_job(args.job)
           return print_json(row) if json?
 
           ui.header(row["name"].to_s)

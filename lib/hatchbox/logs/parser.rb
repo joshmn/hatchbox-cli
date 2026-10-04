@@ -37,17 +37,17 @@ module Hatchbox
 
       def build(plan:, data:)
         unit, kind = locate(plan: plan, data: data)
-        dyno = unit ? plan.units[unit] : nil
+        found = unit ? plan.units[unit] : nil
         ident = data["SYSLOG_IDENTIFIER"].to_s
-        dyno ||= plan.identifiers[ident]
-        dyno ||= { name: (data["_SYSTEMD_USER_UNIT"] || data["_SYSTEMD_UNIT"] || ident).to_s.sub(/\.service\z/, ""), color: 37 }
+        found ||= plan.identifiers[ident]
+        found ||= { name: (data["_SYSTEMD_USER_UNIT"] || data["_SYSTEMD_UNIT"] || ident).to_s.sub(/\.service\z/, ""), color: 37 }
         @order += 1
         Hatchbox::Logs::Entry.new(
           time: time_of(data),
           source: kind || "app",
-          dyno: dyno[:name],
+          label: found[:name],
           message: message_of(data["MESSAGE"]),
-          color: dyno[:color],
+          color: found[:color],
           order: @order
         )
       end

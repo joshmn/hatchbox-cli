@@ -7,11 +7,12 @@ module Hatchbox
         class Capture < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups:capture",
+          describe "pg:backups:capture",
             summary: "take a backup now",
             usage: "pg:backups:capture [DATABASE]",
+            args: { database: "[DATABASE]" },
             flags: [WAIT_FLAG],
-            help: ["Backups have to be scheduled first, with hatchbox pg:backups:schedule, since that is where they are stored."])
+            help: ["Backups have to be scheduled first, with hatchbox pg:backups:schedule, since that is where they are stored."]
 
           def call
             record = one_database

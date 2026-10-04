@@ -6,15 +6,16 @@ module Hatchbox
       class Update < Hatchbox::Command
         include Hatchbox::Commands::Cron::Fields
 
-        describe("cron:update",
+        describe "cron:update",
           summary: "change a cron job",
           usage: "cron:update JOB",
-          flags: Hatchbox::Commands::Cron::Fields::FLAGS + [[nil, "--command COMMAND", "the command to run"]])
+          args: { job: "JOB" },
+          flags: Hatchbox::Commands::Cron::Fields::FLAGS + [[nil, "--command COMMAND", "the command to run"]]
 
         def call
-          row = find_job(one_positional("JOB"))
+          row = find_job(args.job)
           body = cron_body
-          body["command"] = options[:command] if options.key?(:command)
+          body["command"] = options.command if options.key?(:command)
           usage_error("Nothing to change. See hatchbox help cron:update.") if body.empty?
 
           updated = nil

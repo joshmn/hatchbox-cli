@@ -4,7 +4,7 @@ module Hatchbox
   class Operation
     def initialize(client:, app: nil)
       @client = client
-      @output = Hatchbox::OperationOutput.new(app: app)
+      @output = Hatchbox::Operation::Output.new(app: app)
     end
 
     def fetch(log_id)
@@ -35,13 +35,13 @@ module Hatchbox
       waited = 0
       loop do
         response = client.raw(method: "GET", path: "/logs/#{log_id}")
-        return Hatchbox::OperationResult.new(log: nil, state: "completed", gone: true) if response.code == 404 && gone_ok
+        return Hatchbox::Operation::Result.new(log: nil, state: "completed", gone: true) if response.code == 404 && gone_ok
         raise Hatchbox::Error, client.error_message(response) unless response.ok?
 
         log = response.json || {}
         yield(log)
         state = log["state"].to_s
-        return Hatchbox::OperationResult.new(log: log, state: state, gone: false) if Hatchbox::FINISHED.include?(state)
+        return Hatchbox::Operation::Result.new(log: log, state: state, gone: false) if Hatchbox::FINISHED.include?(state)
         raise Hatchbox::Error, gave_up_message(log_id: log_id, state: state) if waited >= Hatchbox::MAX_WAIT_SECONDS
 
         sleep(Hatchbox::POLL_SECONDS)

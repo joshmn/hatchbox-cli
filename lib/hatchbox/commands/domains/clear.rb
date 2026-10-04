@@ -6,12 +6,11 @@ module Hatchbox
       class Clear < Hatchbox::Command
         include Hatchbox::Commands::Domains::Paths
 
-        describe("domains:clear",
+        describe "domains:clear",
           summary: "remove every domain from the app",
-          flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]])
+          flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
 
         def call
-          none!
           rows = app.domains
           return puts("#{label} has no domain names.") if rows.empty?
 

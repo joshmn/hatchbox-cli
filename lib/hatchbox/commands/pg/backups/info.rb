@@ -7,15 +7,15 @@ module Hatchbox
         class Info < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups:info",
+          describe "pg:backups:info",
             summary: "show the output of a backup",
             usage: "pg:backups:info [BACKUP_ID]",
+            args: { backup: "[BACKUP_ID]" },
             flags: [["-d", "--database DATABASE", "which database, when the app has more than one"]],
-            help: ["Without BACKUP_ID, shows the most recent backup."])
+            help: ["Without BACKUP_ID, shows the most recent backup."]
 
           def call
-            usage_error("One backup at a time.") if positionals.length > 1
-            log_id = positionals.first
+            log_id = args.backup
             log_id = latest_id if Hatchbox.blank?(log_id)
             log = operation.fetch(log_id)
             ui.header("Backup #{log["id"]}")
@@ -28,7 +28,7 @@ module Hatchbox
           private
 
           def latest_id
-            latest = backup_logs(backed_up(options[:database])).first
+            latest = backup_logs(backed_up(options.database)).first
             raise Hatchbox::Error, "No backups on record." unless latest
 
             latest["id"]

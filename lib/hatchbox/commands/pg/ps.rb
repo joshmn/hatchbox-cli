@@ -6,10 +6,12 @@ module Hatchbox
       class Ps < Hatchbox::Command
         include Hatchbox::Commands::Pg::Query
 
-        describe("pg:ps",
+        describe "pg:ps",
           summary: "view the queries running on the database",
           usage: "pg:ps [DATABASE]",
-          flags: [["-v", "--verbose", "include idle connections"]])
+          args: { database: "[DATABASE]" },
+          ssh: :tunnel,
+          flags: [["-v", "--verbose", "include idle connections"]]
 
         def call
           query(<<~SQL)
@@ -24,7 +26,7 @@ module Hatchbox
               query
             FROM pg_stat_activity
             WHERE query <> '<insufficient privilege>'
-              #{options[:verbose] ? "" : "AND state <> 'idle'"}
+              #{options.verbose ? "" : "AND state <> 'idle'"}
               AND pid <> pg_backend_pid()
               AND datname = current_database()
             ORDER BY query_start DESC;

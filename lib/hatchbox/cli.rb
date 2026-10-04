@@ -36,7 +36,7 @@ module Hatchbox
 
       command = Hatchbox::Registry.find(name)
       unknown(name) unless command
-      command.call(session: Hatchbox::Session.new(app_flag: flags.app, remote_flag: flags.remote), args: rest)
+      command.call(session: Hatchbox::Session.new(app_flag: flags.app, remote_flag: flags.remote), argv: rest)
     end
 
     private

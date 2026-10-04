@@ -21,9 +21,10 @@ module Hatchbox
             appsignal_push_api_key: "appsignal_app_push_api_key"
           }.freeze
 
-          describe("pg:backups:schedule",
+          describe "pg:backups:schedule",
             summary: "schedule backups, or change where and how often they run",
             usage: "pg:backups:schedule [DATABASE] --at SCHEDULE",
+            args: { database: "[DATABASE]" },
             flags: [
               [nil, "--at SCHEDULE", "cron expression or @hourly, @daily, @weekly, @monthly"],
               [nil, "--provider PROVIDER", "local, s3, azureblob, r2, spaces, gcs, wasabi or other"],
@@ -44,7 +45,7 @@ module Hatchbox
               "$ hatchbox pg:backups:schedule --at @daily --provider s3 --region us-east-1 --bucket my-backups --access-key-id AKIA... --retention 7d",
               "Secret access key:",
               "Scheduling backups of DATABASE_URL (db_56237b230774)... done"
-            ])
+            ]
 
           def call
             record = one_database

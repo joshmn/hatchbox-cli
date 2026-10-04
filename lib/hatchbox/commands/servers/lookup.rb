@@ -10,7 +10,7 @@ module Hatchbox
         private
 
         def cluster_record
-          @cluster_record ||= Hatchbox.blank?(options[:cluster]) ? app.cluster : named_cluster(options[:cluster])
+          @cluster_record ||= Hatchbox.blank?(options.cluster) ? app.cluster : named_cluster(options.cluster)
         end
 
         def named_cluster(wanted)

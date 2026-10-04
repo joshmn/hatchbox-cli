@@ -18,7 +18,7 @@ module Hatchbox
           dns_access_token: "dns_access_token"
         }.freeze
 
-        describe("apps:update",
+        describe "apps:update",
           summary: "change an app's branch, repo, deploy scripts or Caddy settings",
           flags: [
             ["-b", "--branch BRANCH", "branch to deploy"],
@@ -39,14 +39,13 @@ module Hatchbox
             "Sending --caddyfile or --health-check reapplies the app's Caddy configuration on",
             "its servers, even when nothing changed. That is on purpose, since a Caddyfile",
             "usually imports files out of the repo."
-          ])
+          ]
 
         def call
-          none!
           body = {}
           FIELDS.each { |flag, field| body[field] = expand(options[flag]) if options.key?(flag) }
-          body["caddyfile"] = caddyfile(options[:caddyfile]) if options.key?(:caddyfile)
-          body["connected_account_id"] = provider_id(options[:git_provider]) if options.key?(:git_provider)
+          body["caddyfile"] = caddyfile(options.caddyfile) if options.key?(:caddyfile)
+          body["connected_account_id"] = provider_id(options.git_provider) if options.key?(:git_provider)
           usage_error("Nothing to change. See hatchbox help apps:update.") if body.empty?
           raise Hatchbox::Error, "--health-check must be a relative path like /up." if body.key?("health_check_uri") && !body["health_check_uri"].to_s.start_with?("/")
 

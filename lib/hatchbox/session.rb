@@ -10,7 +10,7 @@ module Hatchbox
     end
 
     def config
-      @config ||= Hatchbox::Config.new(Hatchbox::ConfigLocator.find || File.join(Dir.pwd, ".hatchbox"))
+      @config ||= Hatchbox::Config.new(store: Hatchbox::Store.new, root: Hatchbox::ProjectRoot.find)
     end
 
     def target
@@ -38,7 +38,7 @@ module Hatchbox
     end
 
     def catalog
-      @catalog ||= Hatchbox::AppCatalog.new(client: client)
+      @catalog ||= Hatchbox::App::Catalog.new(client: client)
     end
 
     def prompt

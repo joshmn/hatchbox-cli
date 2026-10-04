@@ -7,11 +7,12 @@ module Hatchbox
         class Unschedule < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups:unschedule",
+          describe "pg:backups:unschedule",
             summary: "stop backups and clear the storage settings",
             usage: "pg:backups:unschedule [DATABASE]",
+            args: { database: "[DATABASE]" },
             flags: [[nil, "--confirm DATABASE", "the database's name, to skip the prompt"]],
-            help: ["Hatchbox clears the provider, bucket and credentials when backups are turned off, so turning them back on means passing those again."])
+            help: ["Hatchbox clears the provider, bucket and credentials when backups are turned off, so turning them back on means passing those again."]
 
           def call
             record = one_database

@@ -4,13 +4,14 @@ module Hatchbox
   module Commands
     module Ps
       class Info < Hatchbox::Command
-        describe("ps:info",
+        describe "ps:info",
           summary: "show everything about one process",
           usage: "ps:info TYPE",
-          flags: [JSON_FLAG])
+          args: { type: "TYPE" },
+          flags: [JSON_FLAG]
 
         def call
-          process = app.formation.find_process(one_positional("TYPE"))
+          process = app.formation.find_process(args.type)
           return print_json(process) if json?
 
           ui.header("#{process["name"]} on #{label}")
@@ -18,7 +19,7 @@ module Hatchbox
             ["Id", process["id"].to_s],
             ["State", process["active"] ? "enabled" : "disabled"],
             ["Runs On", app.formation.where(process)],
-            ["Dynos", app.formation.dynos(process).map { |dyno| "#{dyno.name} #{dyno.server["name"]}" }],
+            ["Servers", app.formation.servers_for(process).map { |server| server["name"] }],
             ["Start", process["start_command"]],
             ["Stop", process["stop_command"]],
             ["Reload", process["reload_command"]],

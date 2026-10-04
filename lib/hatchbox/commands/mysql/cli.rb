@@ -6,9 +6,11 @@ module Hatchbox
       class Cli < Hatchbox::Command
         include Hatchbox::Commands::DatabaseConnection
 
-        describe("mysql:cli",
+        describe "mysql:cli",
           summary: "open a mysql shell to the app's mysql database",
           usage: "mysql:cli [DATABASE | SQL]",
+          args: { statement: "[DATABASE or SQL]" },
+          ssh: :tunnel,
           aliases: ["mysql"],
           flags: [
             ["-c", "--command SQL", "SQL statement to run"],
@@ -24,23 +26,22 @@ module Hatchbox
             "it stays out of the process list. DATABASE is a database name or the config var",
             "it is attached as; anything else is run as SQL. mysql's own flags go after --."
           ],
-          examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"])
+          examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"]
 
         def call
-          usage_error("Only one statement at a time, quote it as one argument.") if positionals.length > 1
-          wanted = options[:database]
-          sql = options[:command].to_s
-          if positionals.any?
-            if app.find_database(positionals.first, engines: ["mysql"]).any? && Hatchbox.blank?(wanted)
-              wanted = positionals.first
+          wanted = options.database
+          sql = options.command.to_s
+          if args.statement
+            if app.find_database(args.statement, engines: ["mysql"]).any? && Hatchbox.blank?(wanted)
+              wanted = args.statement
             else
               usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
-              sql = positionals.first
+              sql = args.statement
             end
           end
 
           record = attached(wanted, engines: ["mysql"])
-          return print_url(record) if options[:url]
+          return print_url(record) if options.url
 
           open_mysql(record: record, sql: sql)
         end
@@ -49,7 +50,7 @@ module Hatchbox
 
         def open_mysql(record:, sql:)
           with_connection(record, role: "mysql") do |database, host, port|
-            $stderr.puts(options[:dangerous] ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
+            $stderr.puts(options.dangerous ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
             Dir.mktmpdir("hbx") do |dir|
               defaults = File.join(dir, "my.cnf")
               write_defaults(path: defaults, password: database.password)
@@ -68,7 +69,7 @@ module Hatchbox
         def mysql_command(database:, host:, port:, defaults:, sql:)
           argv = ["mysql", "--defaults-extra-file=#{defaults}", "-h", host, "-P", port, "-u", database.user]
           argv << "--ssl-mode=REQUIRED" if database.sslmode.start_with?("require", "verify")
-          argv << "--init-command=SET SESSION TRANSACTION READ ONLY" unless options[:dangerous]
+          argv << "--init-command=SET SESSION TRANSACTION READ ONLY" unless options.dangerous
           argv.concat(["-e", sql]) unless Hatchbox.blank?(sql)
           argv.concat(passthru)
           argv << database.name unless database.name.empty?

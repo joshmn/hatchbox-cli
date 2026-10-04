@@ -4,18 +4,17 @@ module Hatchbox
   module Commands
     module Apps
       class List < Hatchbox::Command
-        describe("apps",
+        describe "apps",
           summary: "list your apps",
           usage: "apps",
           aliases: ["apps:list", "list"],
           app: false,
           flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"], JSON_FLAG],
-          examples: ["$ hatchbox apps", "=== My Team Apps", "fpd (netcup)", "stox (purevoltage-ny)"])
+          examples: ["$ hatchbox apps", "=== My Team Apps", "fpd (netcup)", "stox (purevoltage-ny)"]
 
         def call
-          none!
           catalog = session.catalog
-          accounts = Hatchbox.blank?(options[:team]) ? catalog.accounts : [catalog.find_account(options[:team])]
+          accounts = Hatchbox.blank?(options.team) ? catalog.accounts : [catalog.find_account(options.team)]
           rows = catalog.entries.select { |row| accounts.any? { |account| same?(account: account, record: row[:account_record]) } }
           return print_json(rows.map { |row| row[:record].merge("account" => row[:account]) }) if json?
 

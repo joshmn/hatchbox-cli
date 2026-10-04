@@ -6,10 +6,11 @@ module Hatchbox
       class Start < Hatchbox::Command
         include Hatchbox::Commands::Ps::Toggle
 
-        describe("ps:start",
+        describe "ps:start",
           summary: "turn a stopped process back on",
           usage: "ps:start TYPE",
-          flags: [WAIT_FLAG])
+          args: { type: "TYPE" },
+          flags: [WAIT_FLAG]
 
         def call
           process = toggled_process

@@ -16,7 +16,7 @@ module Hatchbox
       end
 
       def tunnelled?(record)
-        Hatchbox.blank?(record["public_connection_uri"]) && !options[:direct]
+        Hatchbox.blank?(record["public_connection_uri"]) && !options.key?(:direct)
       end
 
       def with_connection(record, role: "postgresql")

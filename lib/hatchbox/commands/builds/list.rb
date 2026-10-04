@@ -6,13 +6,12 @@ module Hatchbox
       class List < Hatchbox::Command
         MAX_PAGES = 10
 
-        describe("builds",
+        describe "builds",
           summary: "list the app's deploys",
-          flags: [["-n", "--num NUM", "number of builds to display", Integer], JSON_FLAG])
+          flags: [["-n", "--num NUM", "number of builds to display", Integer], JSON_FLAG]
 
         def call
-          none!
-          rows = deploys(options[:num] || 15)
+          rows = deploys(options.num || 15)
           return print_json(rows) if json?
 
           ui.header("#{label} Builds")

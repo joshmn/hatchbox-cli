@@ -6,9 +6,11 @@ module Hatchbox
       class Psql < Hatchbox::Command
         include Hatchbox::Commands::Pg::Tools
 
-        describe("pg:psql",
+        describe "pg:psql",
           summary: "open a psql shell to the database",
           usage: "pg:psql [DATABASE | SQL]",
+          args: { statement: "[DATABASE or SQL]" },
+          ssh: :tunnel,
           aliases: ["psql"],
           flags: [
             ["-c", "--command SQL", "SQL command to run"],
@@ -26,23 +28,22 @@ module Hatchbox
             "or the config var it is attached as, like DATABASE_URL; anything else is run as",
             "SQL. psql's own flags go after --."
           ],
-          examples: ["$ hatchbox pg:psql", "$ hatchbox pg:psql -c 'select count(*) from users'", "$ hatchbox pg:psql RED_DATABASE_URL --dangerous"])
+          examples: ["$ hatchbox pg:psql", "$ hatchbox pg:psql -c 'select count(*) from users'", "$ hatchbox pg:psql RED_DATABASE_URL --dangerous"]
 
         def call
-          usage_error("Only one statement at a time, quote it as one argument.") if positionals.length > 1
-          wanted = options[:database]
-          sql = options[:command].to_s.sub(/\A=/, "")
-          if positionals.any?
-            if app.find_database(positionals.first, engines: ["postgresql"]).any? && Hatchbox.blank?(wanted)
-              wanted = positionals.first
+          wanted = options.database
+          sql = options.command.to_s.sub(/\A=/, "")
+          if args.statement
+            if app.find_database(args.statement, engines: ["postgresql"]).any? && Hatchbox.blank?(wanted)
+              wanted = args.statement
             else
               usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
-              sql = positionals.first
+              sql = args.statement
             end
           end
 
           record = postgres(wanted)
-          return print_url(record) if options[:url]
+          return print_url(record) if options.url
 
           open_psql(record: record, sql: sql)
         end
@@ -51,12 +52,12 @@ module Hatchbox
 
         def open_psql(record:, sql:)
           with_connection(record) do |database, host, port|
-            $stderr.puts(options[:dangerous] ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
+            $stderr.puts(options.dangerous ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
             argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
             argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
-            argv.concat(["-f", options[:file]]) unless Hatchbox.blank?(options[:file])
+            argv.concat(["-f", options.file]) unless Hatchbox.blank?(options.file)
             argv.concat(passthru)
-            Hatchbox.run(argv, env: pg_environment(database: database, dangerous: options[:dangerous]))
+            Hatchbox.run(argv, env: pg_environment(database: database, dangerous: options.dangerous))
           end
         end
       end

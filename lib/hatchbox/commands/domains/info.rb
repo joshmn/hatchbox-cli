@@ -6,13 +6,14 @@ module Hatchbox
       class Info < Hatchbox::Command
         include Hatchbox::Commands::Domains::Paths
 
-        describe("domains:info",
+        describe "domains:info",
           summary: "show one of the app's domains",
           usage: "domains:info HOSTNAME",
-          flags: [JSON_FLAG])
+          args: { hostname: "HOSTNAME" },
+          flags: [JSON_FLAG]
 
         def call
-          name = one_positional("HOSTNAME")
+          name = args.hostname
           row = client.get(domain_path(name)).json || {}
           return print_json(row) if json?
 

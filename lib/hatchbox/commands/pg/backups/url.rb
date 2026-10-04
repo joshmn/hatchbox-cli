@@ -7,10 +7,11 @@ module Hatchbox
         class Url < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups:url",
+          describe "pg:backups:url",
             summary: "get a temporary URL for the latest backup",
             usage: "pg:backups:url [DATABASE]",
-            help: ["The URL expires a few minutes after it is issued. Only S3 compatible storage can hand one out."])
+            args: { database: "[DATABASE]" },
+            help: ["The URL expires a few minutes after it is issued. Only S3 compatible storage can hand one out."]
 
           def call
             record = one_database

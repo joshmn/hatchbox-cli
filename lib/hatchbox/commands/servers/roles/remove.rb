@@ -7,11 +7,12 @@ module Hatchbox
         class Remove < Hatchbox::Command
           include Hatchbox::Commands::Servers::Roles::Change
 
-          describe("servers:roles:remove",
+          describe "servers:roles:remove",
             summary: "take roles off a server",
             usage: "servers:roles:remove SERVER ROLE [ROLE ...]",
+            args: { server: "SERVER", roles: "ROLE..." },
             app: :optional,
-            flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG])
+            flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG]
 
           private
 

@@ -4,19 +4,20 @@ module Hatchbox
   module Commands
     module Apps
       class Rename < Hatchbox::Command
-        describe("apps:rename",
+        describe "apps:rename",
           summary: "rename an app, which takes it down while it moves",
           usage: "apps:rename NEWNAME",
+          args: { new_name: "NEWNAME" },
           aliases: ["rename"],
           flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"], WAIT_FLAG],
           help: [
             "Hatchbox stops the app's processes, moves its folder, reinstalls its services and",
             "cron jobs under the new name and reapplies Caddy, so the app is down while this",
-            "runs. The app keeps its id, and any .hatchbox remote pointing at it is updated."
-          ])
+            "runs. The app keeps its id, and any remote this repo has pointing at it is updated."
+          ]
 
         def call
-          new_name = one_positional("NEWNAME")
+          new_name = args.new_name
           Hatchbox.check_name!(new_name)
 
           old = app.name
@@ -28,7 +29,7 @@ module Hatchbox
           return code unless code.zero?
 
           moved = config.rename_app_id(app_id: app_id, slug: "#{app_id}-#{new_name}")
-          moved.each { |remote| puts(".hatchbox remote #{remote} updated") }
+          moved.each { |remote| puts("remote #{remote} updated") }
           0
         end
       end

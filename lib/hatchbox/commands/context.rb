@@ -33,15 +33,9 @@ module Hatchbox
         app.label
       end
 
-      def ssh_target(dyno: nil, server: nil)
-        Hatchbox::SshTarget.new(session: session, server: dyno_server(dyno: dyno, server: server))
-      end
-
-      def dyno_server(dyno:, server:)
-        return nil if Hatchbox::SshTarget.pinned?(session)
-        return app.formation.find_dyno(dyno).server unless Hatchbox.blank?(dyno)
-
-        app.fleet.find_server(server)
+      def ssh_target(server: nil)
+        picked = Hatchbox::SshTarget.pinned?(session) ? nil : app.fleet.find_server(server)
+        Hatchbox::SshTarget.new(session: session, server: picked)
       end
     end
   end

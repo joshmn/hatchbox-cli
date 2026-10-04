@@ -3,11 +3,10 @@
 module Hatchbox
   module Commands
     class Status < Hatchbox::Command
-      describe("status",
-        summary: "show the latest deploy and its output")
+      describe "status",
+        summary: "show the latest deploy and its output"
 
       def call
-        none!
         log = operation.fetch(resolve_log(nil, kind: Hatchbox::Activity::DEPLOY))
         ui.header("#{label} Deploy #{log["id"]}")
         Hatchbox::ReleaseSummary.show(log)

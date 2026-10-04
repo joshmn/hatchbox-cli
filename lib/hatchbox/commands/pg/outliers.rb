@@ -6,14 +6,16 @@ module Hatchbox
       class Outliers < Hatchbox::Command
         include Hatchbox::Commands::Pg::Query
 
-        describe("pg:outliers",
+        describe "pg:outliers",
           summary: "show the queries with the longest total execution time",
           usage: "pg:outliers [DATABASE]",
+          args: { database: "[DATABASE]" },
+          ssh: :tunnel,
           flags: [["-n", "--num NUM", "number of queries to show, 10 unless you say otherwise", Integer], ["-t", "--truncate", "cut queries off at 40 characters"]],
-          help: ["Needs the pg_stat_statements extension and PostgreSQL 13 or later."])
+          help: ["Needs the pg_stat_statements extension and PostgreSQL 13 or later."]
 
         def call
-          shown = options[:truncate] ? "CASE WHEN length(query) <= 40 THEN query ELSE substr(query, 0, 39) || '...' END" : "query"
+          shown = options.truncate ? "CASE WHEN length(query) <= 40 THEN query ELSE substr(query, 0, 39) || '...' END" : "query"
           query(<<~SQL)
             SELECT
               interval '1 millisecond' * total_exec_time AS total_exec_time,
@@ -23,7 +25,7 @@ module Hatchbox
             FROM pg_stat_statements
             WHERE userid = (SELECT usesysid FROM pg_user WHERE usename = current_user LIMIT 1)
             ORDER BY total_exec_time DESC
-            LIMIT #{(options[:num] || 10).to_i};
+            LIMIT #{(options.num || 10).to_i};
           SQL
         end
       end

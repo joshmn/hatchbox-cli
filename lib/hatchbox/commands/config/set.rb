@@ -4,18 +4,18 @@ module Hatchbox
   module Commands
     module Config
       class Set < Hatchbox::Command
-        describe("config:set",
+        describe "config:set",
           summary: "set one or more config vars",
           usage: "config:set KEY1=VALUE1 [KEY2=VALUE2 ...]",
+          args: { pairs: "KEY=VALUE..." },
           help: [
             "Hatchbox uppercases names and pushes the change to the servers itself. A value",
             "typed here lands in your shell history like anything else on the command line."
           ],
-          examples: ["$ hatchbox config:set RAILS_ENV=production RACK_ENV=production", "Setting RAILS_ENV, RACK_ENV on fpd... done", "RAILS_ENV: production", "RACK_ENV:  production"])
+          examples: ["$ hatchbox config:set RAILS_ENV=production RACK_ENV=production", "Setting RAILS_ENV, RACK_ENV on fpd... done", "RAILS_ENV: production", "RACK_ENV:  production"]
 
         def call
-          usage_error("Must specify KEY and VALUE to set.") if positionals.empty?
-          vars = positionals.map { |pair| pair_for(pair) }
+          vars = args.pairs.map { |pair| pair_for(pair) }
           names = vars.map { |var| var["name"] }
           ui.action("Setting #{names.join(", ")} on #{label}") { client.put("/apps/#{app_id}/env_vars", body: { "env_vars" => vars }) }
           printer.styled_hash(vars.map { |var| [color.green(var["name"]), var["value"]] })

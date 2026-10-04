@@ -4,12 +4,11 @@ module Hatchbox
   module Commands
     module Domains
       class List < Hatchbox::Command
-        describe("domains",
+        describe "domains",
           summary: "list the app's domains",
-          flags: [JSON_FLAG])
+          flags: [JSON_FLAG]
 
         def call
-          none!
           rows = app.domains
           return print_json(rows) if json?
 

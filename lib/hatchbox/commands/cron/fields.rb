@@ -29,15 +29,15 @@ module Hatchbox
 
         def cron_body
           body = {}
-          body["run_at"] = options[:at] if options.key?(:at)
-          body["name"] = options[:name] if options.key?(:name)
-          body["appsignal"] = options[:appsignal] if options.key?(:appsignal)
+          body["run_at"] = options.at if options.key?(:at)
+          body["name"] = options.name if options.key?(:name)
+          body["appsignal"] = options.appsignal if options.key?(:appsignal)
           body["honeybadger_checkin_id"] = checkin_id if options.key?(:honeybadger_checkin_id)
           body
         end
 
         def checkin_id
-          options[:honeybadger_checkin_id].to_s.empty? ? nil : options[:honeybadger_checkin_id]
+          options.honeybadger_checkin_id.to_s.empty? ? nil : options.honeybadger_checkin_id
         end
 
         def show(row)

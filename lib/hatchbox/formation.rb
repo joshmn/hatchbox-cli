@@ -16,11 +16,9 @@ module Hatchbox
       fleet.with_roles(Array(process["roles"]).map { |role| role.to_s })
     end
 
-    def dynos(process = nil)
+    def placements(process = nil)
       pool = process ? [process] : processes
-      pool.flat_map do |row|
-        servers_for(row).each_with_index.map { |server, index| Hatchbox::Dyno.new(process: row, server: server, index: index + 1) }
-      end
+      pool.flat_map { |row| servers_for(row).map { |server| Hatchbox::Placement.new(process: row, server: server) } }
     end
 
     def where(process)
@@ -46,20 +44,6 @@ module Hatchbox
       raise Hatchbox::Error, "#{wanted} matches more than one process: #{near.map { |row| row["name"] }.join(", ")}." if near.length > 1
 
       raise Hatchbox::Error, "No process named #{wanted}.\n#{names_line}"
-    end
-
-    def find_dyno(wanted)
-      type, _dot, number = wanted.to_s.rpartition(".")
-      type, number = wanted.to_s, nil if type.empty? || number !~ /\A[0-9]+\z/
-      process = find_process(type)
-      pool = dynos(process)
-      raise Hatchbox::Error, "#{process["name"]} runs on no active server, #{where(process)}." if pool.empty?
-      return pool.first if number.nil?
-
-      found = pool.find { |dyno| dyno.index == number.to_i }
-      raise Hatchbox::Error, "There is no #{wanted}. #{process["name"]} runs as #{pool.map { |dyno| dyno.name }.join(", ")}." unless found
-
-      found
     end
 
     private

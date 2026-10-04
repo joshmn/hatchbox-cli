@@ -3,8 +3,9 @@
 module Hatchbox
   module Commands
     class Deploy < Hatchbox::Command
-      describe("deploy",
+      describe "deploy",
         summary: "deploy the app's branch, or one commit, and stream the build",
+        args: { status: "[status]" },
         flags: [
           [nil, "--sha SHA", "deploy this commit instead of the tip of the branch"],
           WAIT_FLAG,
@@ -13,16 +14,16 @@ module Hatchbox
           [nil, "--status", "same as hatchbox status"]
         ],
         help: [
-          "Heroku deploys on git push. Hatchbox pulls from your git host, so this asks it to",
-          "deploy and streams the build the way a push would."
+          "Hatchbox pulls from your git host, so this asks it to deploy and streams the",
+          "build as it runs."
         ],
-        examples: ["$ hatchbox deploy", "Deploying main to fpd... queued, release 4212", "-----> Starting deployment", "...", "Verifying deploy... done"])
+        examples: ["$ hatchbox deploy", "Deploying main to fpd... queued, release 4212", "-----> Starting deployment", "...", "Verifying deploy... done"]
 
       def call
-        return Hatchbox::Commands::Status.call(session: session, args: []) if options[:status] || positionals == ["status"]
+        return Hatchbox::Commands::Status.call(session: session, argv: []) if options.status || args.status == "status"
 
-        none!
-        sha = options[:sha]
+        usage_error("Unexpected argument: #{args.status}") if args.status
+        sha = options.sha
         ref = Hatchbox.blank?(sha) ? app.details["branch"] : sha[0, 7]
         log_id = nil
         ui.action("Deploying #{ref} to #{label}") do |step|
@@ -39,7 +40,7 @@ module Hatchbox
       private
 
       def detached?
-        options[:no_wait] || options[:no_follow]
+        options.no_wait || options.no_follow
       end
     end
   end

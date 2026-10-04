@@ -4,31 +4,31 @@ module Hatchbox
   module Commands
     module Releases
       class Rollback < Hatchbox::Command
-        describe("releases:rollback",
+        describe "releases:rollback",
           summary: "redeploy the commit of an earlier release",
           usage: "releases:rollback [RELEASE]",
+          args: { release: "[RELEASE]" },
           aliases: ["rollback"],
           flags: [WAIT_FLAG],
           help: [
             "Without RELEASE, goes back to the newest successful deploy of a different commit",
             "than the one live now. Hatchbox has no releases to restore, so this is a deploy of",
             "that commit: config vars, processes and databases stay as they are."
-          ])
+          ]
 
         def call
-          usage_error("One release at a time.") if positionals.length > 1
           deploys = (client.get("/apps/#{app_id}/logs?limit=100").json || []).select { |row| rollbackable?(row) }
           live = deploys.first
-          chosen = positionals.empty? ? previous(deploys) : lookup(positionals.first)
+          chosen = args.release.nil? ? previous(deploys) : lookup(args.release)
           sha = chosen["commit_sha"].to_s
           log_id = nil
           ui.action("Rolling back #{label} to #{chosen["id"]} (#{sha[0, 7]})") do |step|
             log_id = (client.post("/apps/#{app_id}/deploy", body: { "sha" => sha }).json || {})["id"]
-            step.status = options[:no_wait] ? "done, queued as #{log_id}" : "queued, release #{log_id}"
+            step.status = options.no_wait ? "done, queued as #{log_id}" : "queued, release #{log_id}"
           end
           ui.warning("Rollback redeploys that commit. Config vars, processes and databases are left as they are.")
           ui.warning("To undo, run: hatchbox releases:rollback #{live["id"]}") if live
-          return 0 if options[:no_wait]
+          return 0 if options.no_wait
 
           follow_deploy(log_id)
         end

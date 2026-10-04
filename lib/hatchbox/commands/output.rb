@@ -22,7 +22,7 @@ module Hatchbox
       end
 
       def json?
-        options[:json]
+        options.key?(:json)
       end
 
       def print_json(data)

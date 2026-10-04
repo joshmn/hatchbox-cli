@@ -4,15 +4,14 @@ module Hatchbox
   module Commands
     module Git
       class Providers < Hatchbox::Command
-        describe("git:providers",
+        describe "git:providers",
           summary: "list the connected git accounts apps can deploy from",
           app: false,
-          flags: [["-t", "--team TEAM", "only this account, by name or id"], JSON_FLAG])
+          flags: [["-t", "--team TEAM", "only this account, by name or id"], JSON_FLAG]
 
         def call
-          none!
           catalog = session.catalog
-          accounts = Hatchbox.blank?(options[:team]) ? catalog.usable_accounts : [catalog.find_account(options[:team])]
+          accounts = Hatchbox.blank?(options.team) ? catalog.usable_accounts : [catalog.find_account(options.team)]
           found = accounts.to_h { |account| [account, catalog.git_providers_for(account)] }
           return print_json(found.values.flatten) if json?
 

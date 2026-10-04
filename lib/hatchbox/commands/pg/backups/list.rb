@@ -7,11 +7,12 @@ module Hatchbox
         class List < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups",
+          describe "pg:backups",
             summary: "list database backups and the backup schedule",
             usage: "pg:backups [DATABASE]",
+            args: { database: "[DATABASE]" },
             flags: [JSON_FLAG],
-            help: ["DATABASE defaults to the app's postgresql database. Backups work on any unmanaged database Hatchbox runs; managed ones are backed up by your provider."])
+            help: ["DATABASE defaults to the app's postgresql database. Backups work on any unmanaged database Hatchbox runs; managed ones are backed up by your provider."]
 
           def call
             record = one_database

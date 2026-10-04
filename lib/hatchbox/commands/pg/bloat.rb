@@ -6,9 +6,11 @@ module Hatchbox
       class Bloat < Hatchbox::Command
         include Hatchbox::Commands::Pg::Query
 
-        describe("pg:bloat",
+        describe "pg:bloat",
           summary: "show table and index bloat, the space dead rows are holding",
-          usage: "pg:bloat [DATABASE]")
+          usage: "pg:bloat [DATABASE]",
+          args: { database: "[DATABASE]" },
+          ssh: :tunnel
 
         def call
           query(<<~SQL)

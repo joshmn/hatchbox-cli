@@ -4,23 +4,24 @@ module Hatchbox
   module Commands
     module Ps
       class List < Hatchbox::Command
-        describe("ps",
+        describe "ps",
           summary: "list processes for an app",
           usage: "ps [TYPE [TYPE ...]]",
+          args: { types: "[TYPE...]" },
           flags: [JSON_FLAG],
           help: [
             "A process runs once on every active server carrying one of its roles, or on the",
-            "one server it is pinned to, so each copy shows as TYPE.N. Hatchbox's API knows",
-            "whether a process is enabled, not whether it is up right now; hatchbox logs and",
-            "hatchbox ps:exec reach the servers for that."
+            "one server it is pinned to, and each of those servers is listed under it.",
+            "Hatchbox's API knows whether a process is enabled, not whether it is up right",
+            "now; hatchbox logs and hatchbox ps:exec reach the servers for that."
           ],
-          examples: ["$ hatchbox ps", "=== server (role web): bin/rails server (1)", "server.1: enabled  web-1  203.0.113.10"])
+          examples: ["$ hatchbox ps", "=== server (role web): bin/rails server (1)", "web-1  enabled  203.0.113.10"]
 
         def call
           formation = app.formation
-          pool = positionals.empty? ? app.processes : positionals.map { |name| formation.find_process(name) }
+          pool = args.types.empty? ? app.processes : args.types.map { |name| formation.find_process(name) }
           pool = pool.sort_by { |row| row["name"].to_s }
-          return print_json(pool.map { |row| row.merge("dynos" => dynos_json(formation: formation, process: row)) }) if json?
+          return print_json(pool.map { |row| row.merge("servers" => servers_json(formation: formation, process: row)) }) if json?
           return empty if pool.empty?
 
           pool.each_with_index do |process, index|
@@ -38,17 +39,15 @@ module Hatchbox
         end
 
         def show(formation:, process:)
-          dynos = formation.dynos(process)
-          ui.header("#{process["name"]} (#{formation.where(process)}): #{process["start_command"]} (#{dynos.length})")
+          servers = formation.servers_for(process)
+          ui.header("#{process["name"]} (#{formation.where(process)}): #{process["start_command"]} (#{servers.length})")
           state = process["active"] ? color.green("enabled") : color.yellow("disabled")
-          printer.columns(dynos.map { |dyno| ["#{dyno.name}:", state, dyno.server["name"], dyno.server["public_ip"]] })
-          puts(color.dim("No active server carries #{formation.where(process)}.")) if dynos.empty?
+          printer.columns(servers.map { |server| [server["name"], state, server["public_ip"]] })
+          puts(color.dim("No active server carries #{formation.where(process)}.")) if servers.empty?
         end
 
-        def dynos_json(formation:, process:)
-          formation.dynos(process).map do |dyno|
-            { "name" => dyno.name, "server" => dyno.server["name"], "server_id" => dyno.server["id"], "public_ip" => dyno.server["public_ip"] }
-          end
+        def servers_json(formation:, process:)
+          formation.servers_for(process).map { |server| { "name" => server["name"], "id" => server["id"], "public_ip" => server["public_ip"] } }
         end
       end
     end

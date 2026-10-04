@@ -6,9 +6,11 @@ module Hatchbox
       class Pull < Hatchbox::Command
         include Hatchbox::Commands::Pg::Tools
 
-        describe("pg:pull",
+        describe "pg:pull",
           summary: "pull the database into a new local database",
           usage: "pg:pull SOURCE TARGET",
+          args: { source: "SOURCE", target: "TARGET" },
+          ssh: :tunnel,
           flags: [
             [nil, "--exclude-table-data TABLES", "tables to skip the data of, separated by semicolons"],
             [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"]
@@ -18,12 +20,11 @@ module Hatchbox
             "or URL, which must not exist yet; it is created with createdb. Needs pg_dump,",
             "pg_restore and createdb at least as new as the server."
           ],
-          examples: ["$ hatchbox pg:pull DATABASE_URL fpd_development"])
+          examples: ["$ hatchbox pg:pull DATABASE_URL fpd_development"]
 
         def call
-          usage_error("Must specify SOURCE and TARGET.") unless positionals.length == 2
-
-          source, target = positionals
+          source = args.source
+          target = args.target
           record = postgres(source)
           create(target)
           code = nil
@@ -48,7 +49,7 @@ module Hatchbox
 
         def dump(database:, host:, port:)
           argv = ["pg_dump", "-F", "c", "-Z", "0", "--no-acl", "--no-owner", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
-          tables = options[:exclude_table_data].to_s.split(";").map { |table| table.strip }.reject { |table| table.empty? }
+          tables = options.exclude_table_data.to_s.split(";").map { |table| table.strip }.reject { |table| table.empty? }
           argv + tables.map { |table| "--exclude-table-data=#{table}" }
         end
 

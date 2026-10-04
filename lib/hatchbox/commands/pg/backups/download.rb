@@ -9,10 +9,11 @@ module Hatchbox
 
           MAX_REDIRECTS = 3
 
-          describe("pg:backups:download",
+          describe "pg:backups:download",
             summary: "download the latest backup",
             usage: "pg:backups:download [DATABASE]",
-            flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]])
+            args: { database: "[DATABASE]" },
+            flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]]
 
           def call
             record = one_database
@@ -20,8 +21,8 @@ module Hatchbox
             url = data["url"].to_s
             raise Hatchbox::Error, "Hatchbox returned no download URL." if url.empty?
 
-            output = options[:output] || default_name(url)
-            raise Hatchbox::Error, "#{output} already exists. Pick another name with --output." if File.exist?(output) && options[:output].nil?
+            output = options.output || default_name(url)
+            raise Hatchbox::Error, "#{output} already exists. Pick another name with --output." if File.exist?(output) && options.output.nil?
 
             ui.action("Downloading backup of #{record["name"]} from #{formatter.short_date(data["last_backup_at"])} to #{output}") do |step|
               size = fetch(uri: URI.parse(url), output: output)

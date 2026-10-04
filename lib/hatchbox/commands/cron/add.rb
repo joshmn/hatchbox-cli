@@ -6,17 +6,18 @@ module Hatchbox
       class Add < Hatchbox::Command
         include Hatchbox::Commands::Cron::Fields
 
-        describe("cron:add",
+        describe "cron:add",
           summary: "add a cron job",
           usage: "cron:add COMMAND --at SCHEDULE",
+          args: { command: "[COMMAND...]" },
           aliases: ["cron:create"],
           lenient: true,
           flags: Hatchbox::Commands::Cron::Fields::FLAGS,
           help: ["The name defaults to the command. Flags meant for the command go after --."],
-          examples: ["$ hatchbox cron:add bin/rails sync:nightly --at '0 0 * * *' --name 'Nightly sync'", "Adding Nightly sync to fpd... done"])
+          examples: ["$ hatchbox cron:add bin/rails sync:nightly --at '0 0 * * *' --name 'Nightly sync'", "Adding Nightly sync to fpd... done"]
 
         def call
-          command = (positionals + passthru).join(" ")
+          command = (args.command + passthru).join(" ")
           usage_error("Must specify COMMAND.") if command.strip.empty?
 
           body = cron_body.merge("command" => command)

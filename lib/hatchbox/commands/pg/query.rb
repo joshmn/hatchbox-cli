@@ -8,9 +8,7 @@ module Hatchbox
 
         private
 
-        def query(sql, database: positionals.first)
-          usage_error("One database at a time.") if positionals.length > 1
-
+        def query(sql, database: args.database)
           run_sql(record: postgres(database), sql: sql)
         end
       end

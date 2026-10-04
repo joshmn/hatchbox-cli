@@ -4,13 +4,14 @@ module Hatchbox
   module Commands
     module Ps
       class Destroy < Hatchbox::Command
-        describe("ps:destroy",
+        describe "ps:destroy",
           summary: "stop a process and delete it from every server",
           usage: "ps:destroy TYPE",
-          flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"], WAIT_FLAG])
+          args: { type: "TYPE" },
+          flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"], WAIT_FLAG]
 
         def call
-          process = app.formation.find_process(one_positional("TYPE"))
+          process = app.formation.find_process(args.type)
           name = process["name"].to_s
           confirm(expected: name, lines: ["This command will stop #{name} and remove its systemd unit from every server on #{label}."])
           log_id = (client.delete("/apps/#{app_id}/processes/#{process["id"]}").json || {})["id"]

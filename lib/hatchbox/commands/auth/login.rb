@@ -4,7 +4,7 @@ module Hatchbox
   module Commands
     module Auth
       class Login < Hatchbox::Command
-        describe("auth:login",
+        describe "auth:login",
           summary: "log in with a Hatchbox API token",
           aliases: ["login"],
           app: false,
@@ -14,28 +14,17 @@ module Hatchbox
             "against your accounts, and saves it to ~/.hatchbox. Make one at",
             "https://hatchbox.io/api_tokens."
           ],
-          examples: ["$ hatchbox login", "Enter your Hatchbox API token. New ones are made at https://hatchbox.io/api_tokens", "Token:", "Logging in... done", "Logged in with access to My Team"])
+          examples: ["$ hatchbox login", "Enter your Hatchbox API token. New ones are made at https://hatchbox.io/api_tokens", "Token:", "Logging in... done", "Logged in with access to My Team"]
 
         def call
-          none!
           store = Hatchbox::TokenStore.new(prompt: prompt)
-          token = Hatchbox.blank?(options[:token]) ? store.ask : options[:token]
+          token = Hatchbox.blank?(options.token) ? store.ask : options.token
           accounts = []
-          ui.action("Logging in") { accounts = check(token) }
+          ui.action("Logging in") { accounts = store.verify(token) }
           store.save(token)
           puts("Logged in with access to #{formatter.list(accounts.map { |account| account["name"] })}")
           ui.warning("HATCHBOX_API_TOKEN is set in your environment, and it wins over #{store.path} until you unset it.") unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
           0
-        end
-
-        private
-
-        def check(token)
-          probe = Hatchbox::Client.new(token: token)
-          response = probe.raw(method: "GET", path: "/accounts")
-          raise Hatchbox::Error, probe.error_message(response) unless response.ok?
-
-          response.json || []
         end
       end
     end

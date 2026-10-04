@@ -6,9 +6,11 @@ module Hatchbox
       class Locks < Hatchbox::Command
         include Hatchbox::Commands::Pg::Query
 
-        describe("pg:locks",
+        describe "pg:locks",
           summary: "display queries with active locks",
-          usage: "pg:locks [DATABASE]")
+          usage: "pg:locks [DATABASE]",
+          args: { database: "[DATABASE]" },
+          ssh: :tunnel
 
         def call
           query(<<~SQL)

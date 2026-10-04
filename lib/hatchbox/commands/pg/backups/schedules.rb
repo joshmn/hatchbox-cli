@@ -7,10 +7,11 @@ module Hatchbox
         class Schedules < Hatchbox::Command
           include Hatchbox::Commands::Pg::Backups::Tools
 
-          describe("pg:backups:schedules",
+          describe "pg:backups:schedules",
             summary: "show the backup schedule of a database",
             usage: "pg:backups:schedules [DATABASE]",
-            flags: [JSON_FLAG])
+            args: { database: "[DATABASE]" },
+            flags: [JSON_FLAG]
 
           def call
             record = one_database

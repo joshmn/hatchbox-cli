@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.authors = ["Josh"]
   spec.email = ["git@josh.mn"]
 
-  spec.summary = "A heroku-style command line for Hatchbox."
+  spec.summary = "A command line for Hatchbox."
   spec.description = "Manage Hatchbox apps, processes, config vars, domains, databases, backups, servers and firewalls from the terminal, with logs, run and psql over SSH."
   spec.homepage = "https://github.com/joshdotmn/hatchbox"
   spec.license = "MIT"
@@ -30,4 +30,6 @@ Gem::Specification.new do |spec|
   spec.bindir = "exe"
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
+
+  spec.add_dependency("zeitwerk", "~> 2.6")
 end

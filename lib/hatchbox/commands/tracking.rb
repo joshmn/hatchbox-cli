@@ -10,7 +10,7 @@ module Hatchbox
       end
 
       def progress
-        Hatchbox::Progress.new(operation: operation, no_wait: options[:no_wait])
+        Hatchbox::Progress.new(operation: operation, no_wait: options.fetch(:no_wait))
       end
 
       def queued(message:, log_id:, gone_ok: false)

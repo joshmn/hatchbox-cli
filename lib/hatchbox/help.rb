@@ -20,28 +20,14 @@ module Hatchbox
       "cron" => "manage the app's cron jobs",
       "deploy" => "deploy the app and stream the build",
       "firewall" => "manage a server's firewall rules",
-      "git" => "add apps to .hatchbox, list git providers",
+      "git" => "save apps as remotes for this repo, list git providers",
       "mysql" => "open a mysql shell on the app's mysql",
       "redis" => "open redis-cli on the app's redis",
-      "remotes" => "list the apps named in .hatchbox",
+      "remotes" => "list the remotes saved for this repo",
       "scripts" => "list the runs of custom scripts",
       "servers" => "manage servers, their roles and reboots",
       "status" => "show the latest deploy"
     }.freeze
-
-    FOOTER = [
-      "The app comes from -a/--app, then -r/--remote (a remote in the nearest .hatchbox),",
-      "then HATCHBOX_APP, then the .hatchbox default. hatchbox help git:remote explains",
-      "the file. The token comes from HATCHBOX_API_TOKEN, then ~/.hatchbox.",
-      "postgresql:COMMAND works anywhere pg:COMMAND does.",
-      "",
-      "Environment:",
-      "  HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox",
-      "  HATCHBOX_APP           app to use when -a and -r are left off",
-      "  HATCHBOX_SSH_OPTIONS   extra ssh flags, like '-i ~/.ssh/hatchbox'",
-      "  HATCHBOX_API_BASE      defaults to https://hatchbox.io/api/v1",
-      "  NO_COLOR               turns colors off"
-    ].freeze
 
     class << self
       def root
@@ -54,25 +40,25 @@ module Hatchbox
         width = visible.map { |klass| klass.meta[:name].length }.max
         groups.keys.sort_by { |topic| [order.index(topic) || order.length, topic] }.each do |topic|
           puts
-          groups[topic].sort_by { |klass| klass.meta[:name] }.each { |klass| puts("  #{klass.meta[:name].ljust(width)}  #  #{klass.meta[:summary]}") }
+          groups[topic].sort_by { |klass| klass.meta[:name] }.each { |klass| puts("  #{klass.meta[:name].ljust(width)}  #  #{summary(klass)}") }
         end
         puts
-        FOOTER.each { |line| puts(line) }
+        Hatchbox::Help::Page::FOOTER.each { |line| puts(line) }
       end
 
       def show(name)
         name = Hatchbox::Registry.canonical(name)
         command = Hatchbox::Registry.find(name)
         topic = name.to_s.split(":").first
-        return Hatchbox::HelpPage.topic(topic: topic, command: command) if command && command.meta[:name] == topic && members(topic).length > 1
-        return Hatchbox::HelpPage.command(command) if command
-        return Hatchbox::HelpPage.topic(topic: topic, command: nil) if members(topic).any?
+        return Hatchbox::Help::Page.topic(topic: topic, command: command) if command && command.meta[:name] == topic && members(topic).length > 1
+        return Hatchbox::Help::Page.command(command) if command
+        return Hatchbox::Help::Page.topic(topic: topic, command: nil) if members(topic).any?
 
         raise Hatchbox::Error, "No help for #{name}.\nSee `hatchbox help` for a list of topics."
       end
 
       def commands
-        rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }.map { |klass| [klass.meta[:usage], klass.meta[:summary]] }
+        rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }.map { |klass| [klass.meta[:usage], summary(klass)] }
         width = rows.map { |usage, _summary| usage.length }.max
         rows.each { |usage, summary| puts("#{usage.ljust(width)}  #  #{summary}") }
       end
@@ -83,6 +69,10 @@ module Hatchbox
 
       def blurb(topic)
         PRIMARY[topic] || ADDITIONAL[topic]
+      end
+
+      def summary(klass)
+        klass.meta[:ssh] ? "#{klass.meta[:summary]} (ssh)" : klass.meta[:summary]
       end
 
       private

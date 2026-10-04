@@ -4,60 +4,61 @@ module Hatchbox
   module Commands
     module Git
       class Remote < Hatchbox::Command
-        describe("git:remote",
-          summary: "add an app to .hatchbox, the way heroku adds a git remote",
+        describe "git:remote",
+          summary: "save an app as a remote for this repo",
           usage: "git:remote [FILTER]",
+          args: { filter: "[FILTER]" },
           aliases: ["setup"],
           app: false,
           flags: [[nil, "--as REMOTE", "the remote name, same as -r"]],
           help: [
-            "Picks an app off your accounts, or takes the one named with -a, and writes it to",
-            "the nearest .hatchbox (or a new one at the root of the repo you are in) under the",
-            "remote named with -r. Without -a it looks for the app whose repo matches one of",
-            "this repo's git remotes: one match is used as is, several are offered to pick",
-            "from, and none falls back to every app your token can reach, narrowed to FILTER",
-            "when you pass one. Without -r it asks, suggesting the end of the app's name when",
-            "that looks like an environment, like qa in fpd-qa, and production otherwise.",
+            "Picks an app off your accounts, or takes the one named with -a, and saves it in",
+            "~/.hatchbox for the repo you are in (or this folder, outside a repo) under the",
+            "remote named with -r. Without -a it guesses from this repo's git remotes and puts",
+            "that app at the top of the list, so enter takes it; otherwise pick one by number,",
+            "id or name. FILTER narrows the list. Without a terminal, a single match is used",
+            "as is. Without -r it asks, suggesting the end of the app's name when that looks",
+            "like an environment, like qa in fpd-qa, and production otherwise.",
             "",
-            "A .hatchbox holds one line per app, written the way the dashboard url spells it,",
-            "then the remote name, and optionally which remote to use by default:",
+            "~/.hatchbox is JSON. Each project is keyed by its repo's path and holds its",
+            "remotes, an optional default, and optional SSH settings per remote for logs, run,",
+            "ps:exec and the database commands:",
             "",
-            "  13673-fpd:production",
-            "  20001-fpd-qa:qa",
-            "  default = production",
+            "  \"projects\": {",
+            "    \"/Users/you/code/fpd\": {",
+            "      \"remotes\": { \"production\": \"13673-fpd\", \"qa\": \"20001-fpd-qa\" },",
+            "      \"default\": \"production\",",
+            "      \"ssh\": {",
+            "        \"production\": {",
+            "          \"user\": \"deploy\", \"host\": \"203.0.113.10\", \"port\": 22,",
+            "          \"app_dir\": \"/home/deploy/fpd/current\"",
+            "        }",
+            "      }",
+            "    }",
+            "  }",
             "",
-            "Only the leading number is read by Hatchbox; the rest tells you which app it is.",
-            "It also takes per remote SSH settings for logs, run, ps:exec and pg:psql:",
-            "",
-            "  ssh_user:production = deploy",
-            "  ssh_host:production = 203.0.113.10",
-            "  ssh_port:production = 22",
-            "  app_dir:production = /home/deploy/fpd/current"
+            "Only the leading number of each app is read; the rest tells you which app it is."
           ],
-          examples: ["$ hatchbox git:remote -a fpd -r production", "set .hatchbox remote production to 13673-fpd"])
+          examples: ["$ hatchbox git:remote -a fpd -r production", "set remote production to 13673-fpd for ~/code/fpd in ~/.hatchbox"]
 
         def call
-          usage_error("Only one filter at a time.") if positionals.length > 1
           Hatchbox::TokenStore.new(prompt: prompt).ensure_token
-          @file = Hatchbox::Config.new(Hatchbox::ConfigLocator.target)
           slug = Hatchbox.blank?(session.app_flag) ? choose_app : resolve(session.app_flag)
-          remote = options[:as] || session.remote_flag
+          remote = options.as || session.remote_flag
           remote = ask_remote(Hatchbox::RemoteName.guess(slug)) if Hatchbox.blank?(remote)
           Hatchbox::RemoteName.validate(remote)
           return 1 unless replace?(remote: remote, slug: slug)
 
-          file.set_app(env: remote, app: slug)
-          puts("set .hatchbox remote #{remote} to #{slug}")
+          config.set_app(env: remote, app: slug)
+          puts("set remote #{remote} to #{slug} for #{config.location}")
           choose_default
           0
         end
 
         private
 
-        attr_reader :file
-
         def choose_app
-          Hatchbox::AppChooser.new(catalog: session.catalog, prompt: prompt).choose(positionals.first)
+          Hatchbox::App::Chooser.new(catalog: session.catalog, prompt: prompt).choose(args.filter)
         end
 
         def resolve(value)
@@ -73,10 +74,10 @@ module Hatchbox
         end
 
         def replace?(remote:, slug:)
-          existing = file.exists? ? file.app_for(remote) : nil
+          existing = config.app_for(remote)
           return true if Hatchbox.blank?(existing) || existing == slug
 
-          ui.warning("#{remote} is already #{existing} in #{file.path}.")
+          ui.warning("#{remote} is already #{existing} for #{config.location}.")
           return true unless prompt.available? && Hatchbox.blank?(ENV["HATCHBOX_ASSUME_YES"])
           return true if prompt.yes?(question: "Point it at #{slug} instead? [y/N] ")
 
@@ -85,17 +86,17 @@ module Hatchbox
         end
 
         def choose_default
-          remotes = file.envs.uniq
-          return if remotes.length < 2 || !Hatchbox.blank?(file.get("default"))
+          remotes = config.envs
+          return if remotes.length < 2 || !config.default.nil?
 
-          ui.warning("#{file.path} has more than one remote now, so every command wants -r unless one is the default.")
+          ui.warning("#{config.location} has more than one remote now, so every command wants -r unless one is the default.")
           return unless prompt.available?
 
           answer = prompt.ask(question: "Default remote (blank to always pass -r): ")
           return if Hatchbox.blank?(answer)
           return ui.warning("No remote called #{answer}, so the default is unset.") unless remotes.include?(answer)
 
-          file.set(key: "default", value: answer)
+          config.set_default(answer)
           puts("default remote is #{answer}")
         end
       end

@@ -8,7 +8,7 @@ module Hatchbox
 
     APP_FLAGS = [
       ["-a", "--app APP", "app to run command against"],
-      ["-r", "--remote REMOTE", "environment in .hatchbox to run command against"]
+      ["-r", "--remote REMOTE", "remote saved for this repo in ~/.hatchbox to run command against"]
     ].freeze
 
     WAIT_FLAG = [nil, "--no-wait", "return once Hatchbox has queued it, without waiting for it to finish"].freeze
@@ -17,35 +17,38 @@ module Hatchbox
     class << self
       attr_reader :meta
 
-      def describe(name, summary:, usage: nil, help: nil, flags: [], examples: [], aliases: [], app: true, hidden: false, lenient: false)
+      def describe(name, summary:, usage: nil, help: nil, args: {}, flags: [], examples: [], aliases: [], app: true, ssh: nil, hidden: false, lenient: false)
         @meta = {
           name: name,
           summary: summary,
           usage: usage || name,
           help: help,
-          flags: flags,
+          args: args.map { |key, text| Hatchbox::Arguments::Spec.new(name: key, text: text) },
+          flags: flags.map { |spec| Hatchbox::Flag.new(spec) },
           examples: examples,
           aliases: aliases,
           app: app,
+          ssh: ssh,
           hidden: hidden,
           lenient: lenient
         }
         Hatchbox::Registry.add(self)
       end
 
-      def call(session:, args:)
-        command = new(session: session, args: args)
+      def call(session:, argv:)
+        command = new(session: session, argv: argv)
         command.prepare
         command.call
       end
     end
 
-    def initialize(session:, args:)
+    def initialize(session:, argv:)
       @session = session
-      @args = args
+      @argv = argv
     end
 
     def prepare
+      usage_error(args.problem) if args.problem
       return unless meta[:app] == true
 
       wanted = positional_app
@@ -55,41 +58,30 @@ module Hatchbox
 
     private
 
-    attr_reader :session, :args
+    attr_reader :session, :argv
 
     def meta
       self.class.meta
     end
 
-    def arguments
-      @arguments ||= Hatchbox::ArgumentParser.new(flags: meta[:flags], lenient: meta[:lenient]).parse(args)
+    def parsed
+      @parsed ||= Hatchbox::Arguments::Parser.new(flags: meta[:flags], lenient: meta[:lenient]).parse(argv)
     end
 
     def options
-      arguments.options
+      @options ||= Hatchbox::Options.new(flags: meta[:flags], values: parsed.options)
     end
 
-    def positionals
-      arguments.positionals
+    def args
+      @args ||= Hatchbox::Arguments.new(specs: meta[:args], values: parsed.positionals)
     end
 
     def passthru
-      arguments.passthru
+      parsed.passthru
     end
 
     def positional_app
       nil
-    end
-
-    def none!
-      usage_error("Unexpected argument: #{positionals.join(" ")}") if positionals.any?
-    end
-
-    def one_positional(what)
-      usage_error("Must specify #{what}.") if positionals.empty?
-      usage_error("Only one #{what} at a time, got #{positionals.join(" ")}.") if positionals.length > 1
-
-      positionals.first
     end
 
     def usage_error(message)
@@ -97,7 +89,7 @@ module Hatchbox
     end
 
     def confirm(expected:, lines:)
-      ui.confirm(expected: expected, supplied: options[:confirm], lines: lines, prompt: prompt)
+      ui.confirm(expected: expected, supplied: options.fetch(:confirm), lines: lines, prompt: prompt)
     end
   end
 end

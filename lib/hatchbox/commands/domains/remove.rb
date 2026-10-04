@@ -6,13 +6,14 @@ module Hatchbox
       class Remove < Hatchbox::Command
         include Hatchbox::Commands::Domains::Paths
 
-        describe("domains:remove",
+        describe "domains:remove",
           summary: "remove a domain from the app",
           usage: "domains:remove HOSTNAME",
-          aliases: ["domains:delete"])
+          args: { hostname: "HOSTNAME" },
+          aliases: ["domains:delete"]
 
         def call
-          name = one_positional("HOSTNAME")
+          name = args.hostname
           ui.action("Removing #{name} from #{label}") { client.delete(domain_path(name)) }
           0
         end

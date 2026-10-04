@@ -10,10 +10,8 @@ module Hatchbox
           DESTRUCTIVE_FLAG = [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"].freeze
 
           def call
-            usage_error("Must specify SERVER and at least one ROLE.") if positionals.length < 2
-
-            server = find_server(positionals.first)
-            wanted = positionals.drop(1).flat_map { |role| role.split(",") }.map { |role| role.strip.downcase }
+            server = find_server(args.server)
+            wanted = args.roles.flat_map { |role| role.split(",") }.map { |role| role.strip.downcase }
             apply(server: server, roles: desired(server: server, roles: wanted))
           end
 

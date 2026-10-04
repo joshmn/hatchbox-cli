@@ -35,8 +35,8 @@ module Hatchbox
         def process_body
           body = {}
           MAP.each { |flag, field| body[field] = options[flag] if options.key?(flag) }
-          body["roles"] = options[:roles].split(",").map { |role| role.strip }.reject { |role| role.empty? } if options.key?(:roles)
-          body["server_id"] = server_id_for(options[:server]) if options.key?(:server)
+          body["roles"] = options.roles.split(",").map { |role| role.strip }.reject { |role| role.empty? } if options.key?(:roles)
+          body["server_id"] = server_id_for(options.server) if options.key?(:server)
           raise Hatchbox::Error, "A process runs on --roles or on one --server, not both." if body.key?("roles") && body.key?("server_id") && body["roles"].any?
 
           Hatchbox.check_name!(body["name"]) if body.key?("name")

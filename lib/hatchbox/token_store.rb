@@ -2,30 +2,29 @@
 
 module Hatchbox
   class TokenStore
-    def initialize(prompt: Hatchbox::Prompt.new)
+    def initialize(prompt: Hatchbox::Prompt.new, store: Hatchbox::Store.new)
       @prompt = prompt
-      @global = Hatchbox::Config.new(Hatchbox::GLOBAL_CONFIG)
-      @file = Hatchbox::ConfigFile.new(Hatchbox::GLOBAL_CONFIG)
+      @store = store
     end
 
     def path
-      global.path
+      store.display_path
     end
 
     def read(env: nil)
       from_env = ENV["HATCHBOX_API_TOKEN"]
       return from_env unless Hatchbox.blank?(from_env)
 
-      scoped = env ? global.get("token:#{env}") : nil
+      scoped = scoped(env)
       return scoped unless Hatchbox.blank?(scoped)
 
-      global.get("token")
+      blank_to_nil(store.data["token"])
     end
 
     def source(env: nil)
       return "the HATCHBOX_API_TOKEN environment variable" unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
-      return "token:#{env} in #{path}" if env && !Hatchbox.blank?(global.get("token:#{env}"))
-      return path.to_s unless Hatchbox.blank?(global.get("token"))
+      return "tokens.#{env} in #{path}" unless Hatchbox.blank?(scoped(env))
+      return path unless Hatchbox.blank?(store.data["token"])
 
       nil
     end
@@ -45,33 +44,46 @@ module Hatchbox
       return token unless Hatchbox.blank?(token)
 
       token = ask
+      Hatchbox::Ui.action("Checking token") { verify(token) }
       save(token)
       token
     end
 
+    def verify(token)
+      probe = Hatchbox::Client.new(token: token)
+      response = probe.raw(method: "GET", path: "/accounts")
+      raise Hatchbox::Error, probe.error_message(response) unless response.ok?
+
+      response.json || []
+    end
+
     def save(token)
-      kept = file.lines.reject { |line| Hatchbox::ConfigLine.key(line) == "token" }
-      File.open(path, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |handle|
-        (kept + ["token = #{token}"]).each { |line| handle.puts(line) }
-      end
-      File.chmod(0o600, path)
+      store.update { |data| data["token"] = token }
     end
 
     def forget
-      found = file.lines.select { |line| token_key?(Hatchbox::ConfigLine.key(line)) }
-      return 0 if found.empty?
+      count = (Hatchbox.blank?(store.data["token"]) ? 0 : 1) + store.data.fetch("tokens", {}).length
+      return 0 if count.zero?
 
-      kept = file.lines.reject { |line| token_key?(Hatchbox::ConfigLine.key(line)) }
-      File.open(path, File::WRONLY | File::TRUNC, 0o600) { |handle| kept.each { |line| handle.puts(line) } }
-      found.length
+      store.update do |data|
+        data.delete("token")
+        data.delete("tokens")
+      end
+      count
     end
 
     private
 
-    attr_reader :prompt, :global, :file
+    attr_reader :prompt, :store
 
-    def token_key?(key)
-      key == "token" || key.to_s.start_with?("token:")
+    def scoped(env)
+      return nil if env.nil?
+
+      blank_to_nil(store.data.fetch("tokens", {})[env])
+    end
+
+    def blank_to_nil(value)
+      Hatchbox.blank?(value) ? nil : value
     end
   end
 end
