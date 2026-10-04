@@ -1,0 +1,100 @@
+# frozen_string_literal: true
+
+module Hatchbox
+  module Commands
+    module Apps
+      class Update < Hatchbox::Command
+        FIELDS = {
+          branch: "branch",
+          repo: "repo_path",
+          pre_build_script: "pre_build_script",
+          build_script: "build_script",
+          post_build_script: "post_build_script",
+          post_deploy_script: "post_deploy_script",
+          failed_deploy_script: "failed_deploy_script",
+          health_check: "health_check_uri",
+          dns_provider: "dns_provider",
+          dns_api_user: "dns_api_user",
+          dns_access_token: "dns_access_token"
+        }.freeze
+
+        describe("apps:update",
+          summary: "change an app's branch, repo, deploy scripts or Caddy settings",
+          flags: [
+            ["-b", "--branch BRANCH", "branch to deploy"],
+            [nil, "--repo REPO", "repository to deploy, e.g. myuser/my-app"],
+            [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
+            [nil, "--pre-build-script SCRIPT", "script run before the build, or @FILE to read it from a file"],
+            [nil, "--build-script SCRIPT", "build script, or @FILE"],
+            [nil, "--post-build-script SCRIPT", "script run after the build, or @FILE"],
+            [nil, "--post-deploy-script SCRIPT", "script run after the deploy, or @FILE"],
+            [nil, "--failed-deploy-script SCRIPT", "script run once when a deploy fails, or @FILE"],
+            [nil, "--health-check PATH", "relative path for Caddy to health check, e.g. /up"],
+            [nil, "--caddyfile FILE", "Caddyfile to apply, or - to read it from stdin"],
+            [nil, "--dns-provider PROVIDER", "DNS provider for certificates"],
+            [nil, "--dns-api-user USER", "DNS API user"],
+            [nil, "--dns-access-token TOKEN", "DNS access token, which Hatchbox never returns"]
+          ],
+          help: [
+            "Sending --caddyfile or --health-check reapplies the app's Caddy configuration on",
+            "its servers, even when nothing changed. That is on purpose, since a Caddyfile",
+            "usually imports files out of the repo."
+          ])
+
+        def call
+          none!
+          body = {}
+          FIELDS.each { |flag, field| body[field] = expand(options[flag]) if options.key?(flag) }
+          body["caddyfile"] = caddyfile(options[:caddyfile]) if options.key?(:caddyfile)
+          body["connected_account_id"] = provider_id(options[:git_provider]) if options.key?(:git_provider)
+          usage_error("Nothing to change. See hatchbox help apps:update.") if body.empty?
+          raise Hatchbox::Error, "--health-check must be a relative path like /up." if body.key?("health_check_uri") && !body["health_check_uri"].to_s.start_with?("/")
+
+          ui.action("Updating #{label}") { client.patch("/apps/#{app_id}", body: { "app" => body }) }
+          printer.styled_hash(body.map { |key, value| [key, summary(key: key, value: value)] })
+          ui.note("Caddy is being reapplied on the servers") if body.key?("caddyfile") || body.key?("health_check_uri")
+          0
+        end
+
+        private
+
+        def expand(value)
+          text = value.to_s
+          return text unless text.start_with?("@")
+
+          read_file(text[1..-1])
+        end
+
+        def caddyfile(path)
+          return $stdin.read if path == "-"
+
+          read_file(path)
+        end
+
+        def read_file(path)
+          File.read(path)
+        rescue Errno::ENOENT
+          raise Hatchbox::Error, "No file at #{path}."
+        end
+
+        def provider_id(wanted)
+          account = session.catalog.account_for(app_id)
+          raise Hatchbox::Error, "Could not tell which account #{label} is on." unless account
+
+          providers = session.catalog.git_providers_for(account)
+          found = providers.select { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted.to_s) }
+          return found.first["id"] if found.length == 1
+
+          raise Hatchbox::Error, (["Could not pick a git provider from #{wanted}. Providers:"] + providers.map { |row| "#{row["provider"]}:#{row["name"]} (#{row["id"]})" }).join("\n")
+        end
+
+        def summary(key:, value:)
+          return "(set)" if key == "dns_access_token"
+
+          lines = value.to_s.split("\n")
+          lines.length > 1 ? "#{lines.length} lines" : value.to_s
+        end
+      end
+    end
+  end
+end

@@ -1,0 +1,31 @@
+# frozen_string_literal: true
+
+module Hatchbox
+  module Commands
+    module Ps
+      class Update < Hatchbox::Command
+        include Hatchbox::Commands::Ps::Fields
+
+        describe("ps:update",
+          summary: "change a process",
+          usage: "ps:update TYPE [--start COMMAND] [--roles LIST] ...",
+          flags: Hatchbox::Commands::Ps::Fields::FLAGS + [WAIT_FLAG],
+          help: ["Renaming a process renames its systemd unit, so it stops and starts again under the new name."],
+          examples: ["$ hatchbox ps:update worker --start 'bundle exec sidekiq -c 10'", "Updating worker on fpd... done"])
+
+        def call
+          process = app.formation.find_process(one_positional("TYPE"))
+          body = process_body
+          usage_error("Nothing to change. See hatchbox help ps:update.") if body.empty?
+
+          message = "Updating #{process["name"]} on #{label}"
+          data = client.patch("/apps/#{app_id}/processes/#{process["id"]}", body: { "process" => body }).json || {}
+          return queued(message: message, log_id: data["log_id"]) unless Hatchbox.blank?(data["log_id"])
+
+          ui.action(message) { nil }
+          0
+        end
+      end
+    end
+  end
+end

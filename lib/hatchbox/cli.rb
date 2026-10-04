@@ -1,0 +1,69 @@
+# frozen_string_literal: true
+
+module Hatchbox
+  class Cli
+    class << self
+      def start(argv)
+        call(argv).to_i
+      rescue Hatchbox::Error => e
+        Hatchbox::Ui.error(e.message)
+        1
+      rescue Errno::EPIPE
+        0
+      rescue Interrupt
+        $stderr.puts
+        130
+      end
+
+      def call(argv)
+        new(argv).call
+      end
+    end
+
+    def initialize(argv)
+      @argv = argv
+    end
+
+    def call
+      flags = Hatchbox::GlobalFlags.new(argv).parse
+      rest = flags.rest
+      name = rest.shift
+      return version if flags.version?
+      return help(rest.first) if name.nil? || name == "help"
+      return help(name) if flags.help?
+      return commands if name == "commands"
+      return version if name == "version"
+
+      command = Hatchbox::Registry.find(name)
+      unknown(name) unless command
+      command.call(session: Hatchbox::Session.new(app_flag: flags.app, remote_flag: flags.remote), args: rest)
+    end
+
+    private
+
+    attr_reader :argv
+
+    def help(name)
+      Hatchbox.blank?(name) ? Hatchbox::Help.root : Hatchbox::Help.show(name)
+      0
+    end
+
+    def commands
+      Hatchbox::Help.commands
+      0
+    end
+
+    def version
+      puts(Hatchbox.platform)
+      0
+    end
+
+    def unknown(name)
+      lines = ["`#{name}` is not a hatchbox command."]
+      guess = Hatchbox::Registry.suggest(name)
+      lines << "Perhaps you meant `#{guess}`." if guess
+      lines << "See `hatchbox help` for a list of available commands."
+      raise Hatchbox::Error, lines.join("\n")
+    end
+  end
+end
