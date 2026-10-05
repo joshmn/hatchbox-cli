@@ -14,7 +14,7 @@ module Hatchbox
             "against your accounts, and saves it to ~/.hatchbox. Make one at",
             "https://hatchbox.io/api_tokens."
           ],
-          examples: ["$ hatchbox login", "Enter your Hatchbox API token. New ones are made at https://hatchbox.io/api_tokens", "Token:", "Logging in... done", "Logged in with access to My Team"]
+          examples: ["$ hatchbox login", "Enter your Hatchbox API token. Make one at https://hatchbox.io/api_tokens", "Token:", "Logging in... done", "Logged in with access to My Team"]
 
         def call
           store = Hatchbox::TokenStore.new(prompt: prompt)

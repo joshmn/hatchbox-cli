@@ -20,7 +20,7 @@ module Hatchbox
           puts("   \"dbname=#{database.name} host=#{database.host} port=#{database.port} user=#{database.user} password=#{database.password} sslmode=#{database.sslmode}\"")
           puts("Connection URL:")
           puts("   #{text}")
-          ui.warning("That host is the database's own machine, so these only work from the servers. hatchbox pg:psql tunnels to it.") if Hatchbox.blank?(record["public_connection_uri"])
+          ui.warning("That's the private connection URI, so these only work from the servers. hatchbox pg:psql tunnels to it.") if Hatchbox.blank?(record["public_connection_uri"])
           0
         end
       end

@@ -7,24 +7,24 @@ module Hatchbox
         include Hatchbox::Commands::DatabaseConnection
 
         describe "mysql:cli",
-          summary: "open a mysql shell to the app's mysql database",
+          summary: "open a mysql shell to the app's MySQL database",
           usage: "mysql:cli [DATABASE | SQL]",
           args: { statement: "[DATABASE or SQL]" },
           ssh: :tunnel,
           aliases: ["mysql"],
           flags: [
             ["-c", "--command SQL", "SQL statement to run"],
-            ["-d", "--database NAME", "which mysql database, when the app has more than one"],
+            ["-d", "--database NAME", "which MySQL database, when the app has more than one"],
             [nil, "--url", "print the connection URI instead of connecting"],
             [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"],
             [nil, "--dangerous", "a session that can write, which it cannot by default"]
           ],
           help: [
-            "Connects to the mysql database attached to the app, through an SSH tunnel to the",
-            "server holding it, like pg:psql. Sessions start with SET SESSION TRANSACTION READ",
-            "ONLY unless you pass --dangerous. The password goes in a temporary option file, so",
-            "it stays out of the process list. DATABASE is a database name or the config var",
-            "it is attached as; anything else is run as SQL. mysql's own flags go after --."
+            "Connects to the MySQL database attached to the app. Sessions start with",
+            "SET SESSION TRANSACTION READ ONLY unless you pass --dangerous. The password goes",
+            "in a temporary option file, so it stays out of the process list. DATABASE is a",
+            "database name or the config var it is attached as; anything else is run as SQL.",
+            "mysql's own flags go after --."
           ],
           examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"]
 

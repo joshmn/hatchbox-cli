@@ -7,7 +7,7 @@ module Hatchbox
         include Hatchbox::Commands::Servers::Lookup
 
         describe "servers:reboot",
-          summary: "reboot a server, taking everything on it down until it is back",
+          summary: "reboot a server, which takes everything on it down until it is back",
           args: { server: "SERVER" },
           app: :optional,
           flags: [CLUSTER_FLAG, CONFIRM_FLAG, WAIT_FLAG]

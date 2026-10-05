@@ -7,7 +7,8 @@ module Hatchbox
         describe "builds:info",
           summary: "view detailed information for a build",
           args: { build: "[BUILD]" },
-          flags: [JSON_FLAG]
+          flags: [JSON_FLAG],
+          help: ["BUILD is an id from hatchbox builds. It defaults to the latest deploy."]
 
         def call
           log = operation.fetch(resolve_log(args.build, kind: Hatchbox::Activity::DEPLOY))

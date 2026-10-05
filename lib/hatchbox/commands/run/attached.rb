@@ -17,10 +17,10 @@ module Hatchbox
             ["-x", "--exit-code", "passthrough the exit code of the remote command, which it always does"]
           ],
           help: [
-            "Runs the command over SSH on the first server carrying an app role, or the one",
-            "-s picks, through a login shell, from the app's current release. A command",
-            "starting with rails runs as bin/rails and stops if the release directory is",
-            "missing. Flags meant for the command go after --."
+            "Runs in a login shell from the app's current release, on the first server",
+            "carrying an app role unless -s picks one. A command starting with rails runs as",
+            "bin/rails and stops if the release directory is missing. Flags meant for the",
+            "command go after --."
           ],
           examples: ["$ hatchbox run rails console", "Running `rails console` on fpd... up, web-1", "", "$ hatchbox run -- ls -la"]
 

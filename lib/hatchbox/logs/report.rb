@@ -52,7 +52,7 @@ module Hatchbox
       def warn_gaps
         missing.each { |label, unit| Hatchbox::Ui.warning("There is no #{unit} on #{label}.") }
         blind.uniq.each do |label|
-          Hatchbox::Ui.warning("The deploy user on #{label} cannot read the system journal. Add it to the systemd-journal group to see those lines.")
+          Hatchbox::Ui.warning("The SSH user on #{label} cannot read the system journal. Add it to the systemd-journal group to see those lines.")
         end
       end
     end

@@ -19,11 +19,11 @@ module Hatchbox
         }.freeze
 
         describe "apps:update",
-          summary: "change an app's branch, repo, deploy scripts or Caddy settings",
+          summary: "change an app's repo, branch, deploy scripts, Caddy or DNS settings",
           flags: [
             ["-b", "--branch BRANCH", "branch to deploy"],
             [nil, "--repo REPO", "repository to deploy, e.g. myuser/my-app"],
-            [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
+            [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name, provider:name or id"],
             [nil, "--pre-build-script SCRIPT", "script run before the build, or @FILE to read it from a file"],
             [nil, "--build-script SCRIPT", "build script, or @FILE"],
             [nil, "--post-build-script SCRIPT", "script run after the build, or @FILE"],
@@ -36,7 +36,7 @@ module Hatchbox
             [nil, "--dns-access-token TOKEN", "DNS access token, which Hatchbox never returns"]
           ],
           help: [
-            "Sending --caddyfile or --health-check reapplies the app's Caddy configuration on",
+            "Passing --caddyfile or --health-check reapplies the app's Caddy configuration on",
             "its servers, even when nothing changed. That is on purpose, since a Caddyfile",
             "usually imports files out of the repo."
           ]
@@ -81,7 +81,7 @@ module Hatchbox
           found = providers.select { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted.to_s) }
           return found.first["id"] if found.length == 1
 
-          raise Hatchbox::Error, (["Could not pick a git provider from #{wanted}. Providers:"] + providers.map { |row| "#{row["provider"]}:#{row["name"]} (#{row["id"]})" }).join("\n")
+          raise Hatchbox::Error, (["#{wanted} doesn't match exactly one git provider. Use provider:name or the id:"] + providers.map { |row| "#{row["provider"]}:#{row["name"]} (#{row["id"]})" }).join("\n")
         end
 
         def summary(key:, value:)

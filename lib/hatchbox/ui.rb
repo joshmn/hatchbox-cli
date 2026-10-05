@@ -38,7 +38,7 @@ module Hatchbox
         raise Hatchbox::Error, "Confirmation #{supplied} did not match #{expected}. Aborted." unless Hatchbox.blank?(supplied)
         raise Hatchbox::Error, (lines + ["To proceed, re-run this command with --confirm #{expected}"]).join("\n") unless prompt.available?
 
-        warning((["WARNING: Potentially Destructive Action"] + lines + ["To proceed, type \"#{expected}\" or re-run this command with --confirm #{expected}"]).join("\n"))
+        warning((["Warning: potentially destructive action"] + lines + ["To proceed, type \"#{expected}\" or re-run this command with --confirm #{expected}"]).join("\n"))
         $stderr.puts
         answer = prompt.ask(question: "> ", io: $stderr)
         raise Hatchbox::Error, "Confirmation did not match #{expected}. Aborted." unless answer == expected

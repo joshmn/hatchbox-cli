@@ -46,7 +46,7 @@ module Hatchbox
         else
           pool.each { |child| report_child(child) }
         end
-        Hatchbox::Ui.error("#{log["name"] || "The operation"} #{result.state || "failed"}. The full log is hatchbox releases:output #{log["id"]}")
+        Hatchbox::Ui.error("#{log["name"] || "The operation"} #{result.state || "failed"}. Read the full log with hatchbox releases:output #{log["id"]}")
       end
 
       private

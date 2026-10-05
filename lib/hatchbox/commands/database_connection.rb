@@ -10,7 +10,7 @@ module Hatchbox
       def connection_text(record)
         public_uri = record["public_connection_uri"].to_s
         text = Hatchbox.blank?(public_uri) ? record["private_connection_uri"].to_s : public_uri
-        raise Hatchbox::Error, "That database has no connection URI, which happens on sqlite." if Hatchbox.blank?(text)
+        raise Hatchbox::Error, "That database has no connection URI, which happens on SQLite." if Hatchbox.blank?(text)
 
         text
       end
@@ -33,7 +33,7 @@ module Hatchbox
 
       def print_url(record)
         puts(connection_text(record))
-        ui.warning("That host is the database's own machine, so the URI only works from the servers.") if Hatchbox.blank?(record["public_connection_uri"])
+        ui.warning("That's the private connection URI, so it only works from the servers.") if Hatchbox.blank?(record["public_connection_uri"])
         0
       end
 
@@ -42,7 +42,7 @@ module Hatchbox
         return [wanted, sql] unless args.statement
         return [args.statement, sql] if app.find_database(args.statement, engines: [engine]).any? && Hatchbox.blank?(wanted)
 
-        usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
+        usage_error("Only one statement at a time. Quote it as one argument.") unless sql.empty?
         [wanted, args.statement]
       end
 

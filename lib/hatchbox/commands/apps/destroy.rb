@@ -23,7 +23,7 @@ module Hatchbox
           return code unless code.zero?
 
           gone = config.remove_app_id(app_id)
-          ui.note("removed #{formatter.list(gone)} from #{config.location}") if gone.any?
+          ui.note("removed #{formatter.list(gone)} from the remotes for #{config.location}") if gone.any?
           0
         end
       end

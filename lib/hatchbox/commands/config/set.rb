@@ -9,8 +9,9 @@ module Hatchbox
           usage: "config:set KEY1=VALUE1 [KEY2=VALUE2 ...]",
           args: { pairs: "KEY=VALUE..." },
           help: [
-            "Hatchbox uppercases names and pushes the change to the servers itself. A value",
-            "typed here lands in your shell history like anything else on the command line."
+            "Names are uppercased before they're sent and can only use letters, numbers and",
+            "underscores. Hatchbox pushes the change to the servers itself. A value typed",
+            "here lands in your shell history like anything else on the command line."
           ],
           examples: ["$ hatchbox config:set RAILS_ENV=production RACK_ENV=production", "Setting RAILS_ENV, RACK_ENV on fpd... done", "RAILS_ENV: production", "RACK_ENV:  production"]
 

@@ -28,7 +28,7 @@ module Hatchbox
             ["Action", ->(row) { row["action"] == "deny" ? color.red(row["action"].to_s) : row["action"] }],
             ["From", ->(row) { row["from"] || "anywhere" }],
             ["Description", ->(row) { row["description"] }],
-            ["Managed", ->(row) { row["removable"] ? "" : "hatchbox" }]
+            ["Managed", ->(row) { row["removable"] ? "" : "Hatchbox" }]
           ])
           0
         end

@@ -10,8 +10,9 @@ module Hatchbox
           app: false,
           flags: [["-n", "--num NUM", "number of runs", Integer], JSON_FLAG],
           help: [
-            "SCRIPT is the id from the script's dashboard url, like 42 in /scripts/42-clear-the-cache.",
-            "A run only records the narrative; each server's output is in hatchbox servers:activity."
+            "SCRIPT is the id from the script's dashboard URL, like 42 in",
+            "/scripts/42-clear-the-cache. What the script printed on each server isn't here;",
+            "that's in hatchbox servers:activity."
           ]
 
         def call

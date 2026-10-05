@@ -15,7 +15,7 @@ module Hatchbox
 
         def call
           server = find_server(args.server)
-          confirm(expected: server["name"].to_s, lines: ["This command reprovisions #{server["name"]}. Processes on it may restart while it runs."])
+          confirm(expected: server["name"].to_s, lines: ["This command will reprovision #{server["name"]}. Processes on it may restart while it runs."])
           log_id = (client.post(server_path(server, suffix: "provision")).json || {})["id"]
           queued(message: "Provisioning #{server["name"]}", log_id: log_id)
         end

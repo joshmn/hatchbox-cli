@@ -23,7 +23,7 @@ module Hatchbox
             ["Action", row["action"]],
             ["From", row["from"] || "anywhere"],
             ["Description", row["description"]],
-            ["Managed", row["removable"] ? "no" : "yes, by hatchbox"],
+            ["Managed", row["removable"] ? "no" : "yes, by Hatchbox"],
             ["Created", formatter.date(row["created_at"])]
           ])
           0

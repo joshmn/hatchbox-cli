@@ -24,7 +24,7 @@ module Hatchbox
     def ask
       raise Hatchbox::Error, "No terminal to ask for a token on. Set HATCHBOX_API_TOKEN instead." unless prompt.available?
 
-      $stderr.puts("Enter your Hatchbox API token. New ones are made at https://hatchbox.io/api_tokens")
+      $stderr.puts("Enter your Hatchbox API token. Make one at https://hatchbox.io/api_tokens")
       token = prompt.secret(question: "Token: ")
       raise Hatchbox::Error, "Nothing entered." if Hatchbox.blank?(token)
 

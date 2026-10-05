@@ -32,7 +32,7 @@ module Hatchbox
               [nil, "--region REGION", "for s3, spaces and wasabi"],
               [nil, "--endpoint URL", "for other, and optionally r2"],
               [nil, "--access-key-id KEY", "access key, or the storage account name on Azure"],
-              [nil, "--secret-access-key SECRET", "secret key, asked for when you leave it off"],
+              [nil, "--secret-access-key SECRET", "secret key, asked for with --provider if none is stored or you pass --access-key-id"],
               [nil, "--retention PERIOD", "how long to keep them, like 7d or 6M"],
               [nil, "--honeybadger-checkin-id ID", "Honeybadger check-in to report runs to"],
               [nil, "--appsignal-push-api-key KEY", "AppSignal push key to monitor runs with"]
@@ -51,7 +51,7 @@ module Hatchbox
             record = one_database
             body = {}
             FIELDS.each { |flag, field| body[field] = options[flag] if options.key?(flag) }
-            usage_error("Nothing to change. Pass --at, --provider and the rest.") if body.empty?
+            usage_error("Nothing to change. Pass at least one setting, like --at or --provider.") if body.empty?
             raise Hatchbox::Error, "#{body["backup_provider"]} is not a provider Hatchbox takes: #{PROVIDERS.join(", ")}." if body.key?("backup_provider") && !PROVIDERS.include?(body["backup_provider"])
 
             ask_secret(body: body, record: record)

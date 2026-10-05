@@ -56,7 +56,7 @@ module Hatchbox
       dir = app_dir
       raise Hatchbox::Error, "No release directory to run in. #{session.config.ssh_hint(env: session.env, key: "app_dir")}" if Hatchbox.blank?(dir)
 
-      complaint = "#{dir} is not there, so nothing is deployed yet. If the app lives somewhere else: #{session.config.ssh_hint(env: session.env, key: "app_dir")}"
+      complaint = "#{dir} is not there, so either nothing is deployed yet or the app lives somewhere else. #{session.config.ssh_hint(env: session.env, key: "app_dir")}"
       "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
     end
 

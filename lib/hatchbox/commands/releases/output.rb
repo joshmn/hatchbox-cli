@@ -9,8 +9,9 @@ module Hatchbox
           args: { release: "[RELEASE]" },
           aliases: ["builds:output"],
           help: [
-            "RELEASE is an id from hatchbox releases, or deploy or restart for the latest one.",
-            "Any Hatchbox log id works here, including ones from server and database activity."
+            "RELEASE is an id from hatchbox releases, or deploy or restart for the latest",
+            "one. Any Hatchbox log id works here, including ones from server and",
+            "database activity."
           ]
 
         def call

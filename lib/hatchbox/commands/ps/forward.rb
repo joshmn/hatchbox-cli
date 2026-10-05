@@ -9,8 +9,8 @@ module Hatchbox
           usage: "ps:forward PORT[,PORT...]",
           args: { ports: "PORT" },
           ssh: :shell,
-          flags: [["-p", "--local-port PORT", "local port to use, comma separated to match PORT"], SERVER_FLAG],
-          examples: ["$ hatchbox ps:forward 9090", "SSH tunnel established.", "Forwarding localhost:9090 to web-1:9090", "Use CTRL+C to stop port forwarding"]
+          flags: [["-p", "--local-port PORT", "local port to use, comma-separated to match PORT"], SERVER_FLAG],
+          examples: ["$ hatchbox ps:forward 9090", "SSH tunnel established.", "Forwarding localhost:9090 to web-1:9090", "Use Ctrl+C to stop port forwarding"]
 
         def call
           remote = args.ports.split(",")
@@ -22,7 +22,7 @@ module Hatchbox
           forwards = local.zip(remote).flat_map { |mine, theirs| ["-L", "127.0.0.1:#{mine}:localhost:#{theirs}"] }
           $stderr.puts("SSH tunnel established.")
           local.zip(remote).each { |mine, theirs| $stderr.puts("Forwarding localhost:#{mine} to #{target.label}:#{theirs}") }
-          $stderr.puts("Use CTRL+C to stop port forwarding")
+          $stderr.puts("Use Ctrl+C to stop port forwarding")
           Hatchbox.run(target.ssh(extra: ["-N", "-o", "ExitOnForwardFailure=yes"] + forwards))
         end
       end

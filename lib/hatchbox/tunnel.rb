@@ -22,7 +22,7 @@ module Hatchbox
       @target = Hatchbox::SshTarget.new(session: session, server: server)
       @local_port = free_port
       @dir = Dir.mktmpdir("hbx", "/tmp")
-      Hatchbox::Ui.note("Tunnelling to #{host}:#{port} through #{target.address}")
+      Hatchbox::Ui.note("Tunneling to #{host}:#{port} through #{target.address}")
       raise Hatchbox::Error, failure_message unless Hatchbox.run(ssh_command).zero?
 
       self

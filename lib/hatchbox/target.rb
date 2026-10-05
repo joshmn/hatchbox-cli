@@ -71,7 +71,7 @@ module Hatchbox
       @env = name
       @slug = found
       @app_id = Hatchbox.slug_id(found)
-      raise Hatchbox::Error, "#{found} for #{config.location} does not start with the app's id, the way the dashboard url spells it." if Hatchbox.blank?(@app_id)
+      raise Hatchbox::Error, "#{found} for #{config.location} does not start with the app's id. Use the id-name form from the app's dashboard URL." if Hatchbox.blank?(@app_id)
 
       self
     end

@@ -13,7 +13,7 @@ module Hatchbox
         def call
           old = args.hostname
           name = args.new_hostname
-          ui.action("Updating #{old} to #{name} on #{label}") { client.patch(domain_path(old), body: { "domain" => { "name" => name } }) }
+          ui.action("Renaming #{old} to #{name} on #{label}") { client.patch(domain_path(old), body: { "domain" => { "name" => name } }) }
           0
         end
       end

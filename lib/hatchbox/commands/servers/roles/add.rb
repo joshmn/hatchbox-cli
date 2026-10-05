@@ -12,7 +12,8 @@ module Hatchbox
             usage: "servers:roles:add SERVER ROLE [ROLE ...]",
             args: { server: "SERVER", roles: "ROLE..." },
             app: :optional,
-            flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG]
+            flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG],
+            help: ["hatchbox help servers:roles:set lists the roles and which changes destroy data."]
 
           private
 

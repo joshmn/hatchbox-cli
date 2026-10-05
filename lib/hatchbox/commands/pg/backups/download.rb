@@ -12,7 +12,8 @@ module Hatchbox
           describe "pg:backups:download",
             summary: "download the latest backup",
             args: { database: "[DATABASE]" },
-            flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]]
+            flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]],
+            help: ["Like hatchbox pg:backups:url, this only works with S3-compatible storage."]
 
           def call
             record = one_database
@@ -23,7 +24,7 @@ module Hatchbox
             output = options.output || default_name(url)
             raise Hatchbox::Error, "#{output} already exists. Pick another name with --output." if File.exist?(output) && options.output.nil?
 
-            ui.action("Downloading backup of #{record["name"]} from #{formatter.short_date(data["last_backup_at"])} to #{output}") do |step|
+            ui.action("Downloading the #{formatter.short_date(data["last_backup_at"])} backup of #{title_for(record)} (#{record["name"]}) to #{output}") do |step|
               size = fetch(uri: URI.parse(url), output: output)
               step.status = "done, #{megabytes(size)}"
             end

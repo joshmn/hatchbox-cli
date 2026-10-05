@@ -10,9 +10,9 @@ module Hatchbox
           aliases: ["rollback"],
           flags: [WAIT_FLAG],
           help: [
-            "Without RELEASE, goes back to the newest successful deploy of a different commit",
-            "than the one live now. Hatchbox has no releases to restore, so this is a deploy of",
-            "that commit: config vars, processes and databases stay as they are."
+            "Without RELEASE, goes back to the newest successful deploy of a different",
+            "commit than the one live now. Hatchbox has no releases to restore, so this is a",
+            "deploy of that commit: config vars, processes and databases stay as they are."
           ]
 
         def call

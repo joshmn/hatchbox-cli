@@ -8,7 +8,7 @@ module Hatchbox
 
       def call
         log = operation.fetch(resolve_log(nil, kind: Hatchbox::Activity::DEPLOY))
-        ui.header("#{label} Deploy #{log["id"]}")
+        ui.header("#{label} deploy #{log["id"]}")
         Hatchbox::ReleaseSummary.show(log)
         puts
         return follow_deploy(log["id"]) unless Hatchbox::FINISHED.include?(log["state"].to_s)

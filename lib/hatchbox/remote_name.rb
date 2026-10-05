@@ -14,7 +14,7 @@ module Hatchbox
       def validate(remote)
         return unless remote =~ /[:=\s]/
 
-        raise Hatchbox::Error, "A remote name cannot hold a colon, an equals sign or a space."
+        raise Hatchbox::Error, "A remote name cannot contain a colon, an equals sign or a space."
       end
     end
   end

@@ -9,8 +9,8 @@ module Hatchbox
           aliases: ["config:list"],
           flags: [JSON_FLAG],
           help: [
-            "Hatchbox's API returns config var names and never their values, so this lists",
-            "names. Values set here still reach the servers."
+            "Hatchbox's API only returns config var names, never their values. Values set",
+            "with hatchbox config:set still reach the servers."
           ]
 
         def call

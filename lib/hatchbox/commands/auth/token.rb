@@ -7,7 +7,7 @@ module Hatchbox
         describe "auth:token",
           summary: "display the API token in use",
           app: false,
-          help: ["Prints the token hatchbox would use here, from HATCHBOX_API_TOKEN or ~/.hatchbox."]
+          help: ["Prints the token hatchbox would use here."]
 
         def call
           puts(session.token)

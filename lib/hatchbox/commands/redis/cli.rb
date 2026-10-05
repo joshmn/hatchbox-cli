@@ -7,11 +7,11 @@ module Hatchbox
         include Hatchbox::Commands::DatabaseConnection
 
         describe "redis:cli",
-          summary: "open a redis-cli session to the app's redis",
+          summary: "open a redis-cli session to the app's Redis",
           args: { database: "[DATABASE]" },
           ssh: :tunnel,
-          flags: [[nil, "--direct", "connect straight to the redis host instead of through an SSH tunnel"]],
-          help: ["Tunnels through the server holding redis, like pg:psql. redis-cli's own arguments go after --."]
+          flags: [[nil, "--direct", "connect straight to the Redis host instead of through an SSH tunnel"]],
+          help: ["redis-cli's own arguments go after --."]
 
         def call
           record = attached(args.database, engines: ["redis"])

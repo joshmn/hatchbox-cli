@@ -9,7 +9,7 @@ module Hatchbox
           [nil, "--start COMMAND", "the command that runs"],
           [nil, "--stop COMMAND", "command systemd runs to stop it"],
           [nil, "--reload COMMAND", "command systemd runs to reload it"],
-          [nil, "--roles LIST", "comma separated roles, it runs on every server holding one"],
+          [nil, "--roles LIST", "comma-separated roles; it runs on every server holding one of them"],
           [nil, "--server SERVER", "one server to run on instead of roles, by name or id"],
           [nil, "--systemd-type TYPE", "simple or oneshot"],
           [nil, "--[no-]socket", "systemd socket activation, at most one process per app"],

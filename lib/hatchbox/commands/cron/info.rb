@@ -7,7 +7,7 @@ module Hatchbox
         include Hatchbox::Commands::Cron::Fields
 
         describe "cron:info",
-          summary: "show a cron job",
+          summary: "show one cron job",
           args: { job: "JOB" },
           flags: [JSON_FLAG]
 

@@ -8,11 +8,11 @@ module Hatchbox
           summary: "open the app in a web browser",
           args: { path: "[PATH]" },
           aliases: ["open"],
-          help: ["Opens the first of the app's domains over https."]
+          help: ["Opens the app's first domain over https. Wildcard domains are skipped."]
 
         def call
           base = app.web_url
-          raise Hatchbox::Error, "#{label} has no domains, so there is nothing to open. Add one with hatchbox domains:add." unless base
+          raise Hatchbox::Error, "#{label} has no domains, or only wildcard ones, so there is nothing to open. Add one with hatchbox domains:add." unless base
 
           url = "#{base.chomp("/")}/#{args.path.to_s.sub(%r{\A/}, "")}"
           opener = RbConfig::CONFIG["host_os"] =~ /darwin/ ? "open" : "xdg-open"

@@ -9,7 +9,7 @@ module Hatchbox
       end
 
       def show(io: $stderr)
-        io.puts(Hatchbox::Color.dim(line(number: "#", id: "ID", name: "NAME", team: "TEAM")))
+        io.puts(Hatchbox::Color.dim(line(number: "#", id: "ID", name: "Name", team: "Team")))
         rows.each_with_index do |row, index|
           text = line(number: (index + 1).to_s, id: row[:id], name: row[:name], team: row[:account])
           io.puts(row == guess ? Hatchbox::Color.bold(Hatchbox::Color.green(text)) : text)
@@ -54,7 +54,7 @@ module Hatchbox
 
       def complaint(answer)
         return "Pick a number or name from the list." if answer.empty?
-        return "More than one app is called #{answer}, so use its number." if matches(answer).length > 1
+        return "More than one app is called #{answer}, so use a number." if matches(answer).length > 1
 
         "#{answer} isn't on the list."
       end

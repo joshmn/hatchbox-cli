@@ -9,10 +9,7 @@ module Hatchbox
           args: { type: "[TYPE]" },
           aliases: ["restart"],
           flags: [WAIT_FLAG],
-          help: [
-            "Hatchbox restarts a process on every server it runs on, so server.2 restarts",
-            "server everywhere."
-          ]
+          help: ["Hatchbox restarts a process on every server it runs on."]
 
         def call
           return restart_all if args.type.nil?

@@ -10,7 +10,7 @@ module Hatchbox
           summary: "cancel a running query",
           args: { pid: "PID", database: "[DATABASE]" },
           ssh: :tunnel,
-          flags: [["-f", "--force", "terminate the connection instead of cancelling its query"]]
+          flags: [["-f", "--force", "terminate the connection instead of canceling its query"]]
 
         def call
           pid = args.pid

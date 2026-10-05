@@ -27,7 +27,7 @@ module Hatchbox
         return [pinned_plan(placements)] if Hatchbox::SshTarget.pinned?(session)
 
         placements = on_server(placements) unless Hatchbox.blank?(server)
-        raise Hatchbox::Error, "Those processes run on no active server." if placements.empty?
+        raise Hatchbox::Error, "None of those processes run on an active server." if placements.empty?
 
         placements.group_by { |row| row.server["id"] }.map do |_id, group|
           Hatchbox::Logs::Plan.new(

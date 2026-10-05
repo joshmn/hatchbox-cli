@@ -15,7 +15,7 @@ module Hatchbox
           name = args.hostname
           ui.action("Adding #{name} to #{label}") { client.post("/apps/#{app_id}/domains", body: { "domain" => { "name" => name } }) }
           ips = targets
-          ui.warning("Configure your app's DNS provider to point #{name} at #{formatter.list(ips)}") if ips.any?
+          ui.warning("Point #{name} at #{formatter.list(ips)} wherever its DNS is hosted.") if ips.any?
           0
         end
       end

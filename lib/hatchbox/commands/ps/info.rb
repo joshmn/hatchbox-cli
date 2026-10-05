@@ -5,7 +5,7 @@ module Hatchbox
     module Ps
       class Info < Hatchbox::Command
         describe "ps:info",
-          summary: "show everything about one process",
+          summary: "show one process",
           args: { type: "TYPE" },
           flags: [JSON_FLAG]
 

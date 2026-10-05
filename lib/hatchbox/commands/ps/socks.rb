@@ -13,7 +13,7 @@ module Hatchbox
           port = options.port || "1080"
           target = ssh_target(server: options.server)
           $stderr.puts("SOCKSv5 proxy server started on port #{port}")
-          $stderr.puts("Use CTRL+C to stop the proxy")
+          $stderr.puts("Use Ctrl+C to stop the proxy")
           Hatchbox.run(target.ssh(extra: ["-N", "-o", "ExitOnForwardFailure=yes", "-D", "127.0.0.1:#{port}"]))
         end
       end

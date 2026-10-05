@@ -20,7 +20,7 @@ module Hatchbox
       return text if text =~ /\A[0-9]+\z/
 
       name = Hatchbox.blank?(text) ? kind : NAMES[text]
-      raise Hatchbox::Error, "#{text} is not a release id. hatchbox releases lists them." if !Hatchbox.blank?(text) && name.nil?
+      raise Hatchbox::Error, "#{text} is not a release id, deploy or restart. hatchbox releases lists the ids." if !Hatchbox.blank?(text) && name.nil?
 
       rows = client.get("/apps/#{app_id}/logs?limit=100").json || []
       found = name ? rows.find { |row| row["name"] == name } : rows.first

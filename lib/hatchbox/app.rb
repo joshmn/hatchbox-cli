@@ -92,7 +92,7 @@ module Hatchbox
 
     def fetch_cluster
       cluster_id = details["cluster_id"]
-      raise Hatchbox::Error, "#{label} is on no cluster, so there is no server to reach." if Hatchbox.blank?(cluster_id)
+      raise Hatchbox::Error, "#{label} is not on a cluster, so there is no server to connect to." if Hatchbox.blank?(cluster_id)
 
       client.get("/clusters/#{cluster_id}").json || {}
     end

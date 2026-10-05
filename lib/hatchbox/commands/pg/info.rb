@@ -13,7 +13,7 @@ module Hatchbox
 
         def call
           pool = args.database.nil? ? app.databases.select { |record| record["engine"] == "postgresql" } : [postgres(args.database)]
-          return puts("#{label} has no postgresql databases.") if pool.empty?
+          return puts("No PostgreSQL database is attached to #{label}.") if pool.empty?
 
           pool.each_with_index do |record, index|
             puts if index.positive?

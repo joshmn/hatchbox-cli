@@ -10,7 +10,7 @@ module Hatchbox
 
       def choose(filter)
         rows = catalog.entries(filter: filter)
-        raise Hatchbox::Error, Hatchbox.blank?(filter) ? "The token can see no apps at all." : "No app matches #{filter}." if rows.empty?
+        raise Hatchbox::Error, Hatchbox.blank?(filter) ? "The token can't see any apps." : "No app matches #{filter}." if rows.empty?
 
         matched = rows.select { |row| deploys_here?(row) }
         return announce(matched.first) if matched.length == 1 && !prompt.available?
@@ -48,7 +48,7 @@ module Hatchbox
           $stderr.puts(Hatchbox::Color.bold(Hatchbox::Color.green("This looks like #{guess[:name]} (#{guess[:id]}), which deploys #{guess[:record]["repo_path"]}.")))
           $stderr.puts
         elsif matched.any?
-          $stderr.puts("#{matched.length} apps deploy this repo, they're at the top.")
+          $stderr.puts("#{matched.length} apps deploy this repo. They're at the top.")
           $stderr.puts
         end
       end
@@ -61,7 +61,7 @@ module Hatchbox
       def stuck(matched)
         raise Hatchbox::Error, (["More than one app deploys this repo. Pick one with -a:"] + matched.map { |row| row[:slug] }).join("\n") if matched.any?
 
-        raise Hatchbox::Error, "git:remote needs a terminal to pick from, or pass -a APP and -r REMOTE."
+        raise Hatchbox::Error, "git:remote needs a terminal to pick an app. Without one, pass -a APP and -r REMOTE."
       end
     end
   end

@@ -24,7 +24,7 @@ module Hatchbox
 
     def only_usable
       return usable.first if usable.length == 1
-      raise Hatchbox::Error, "Your token can reach no account with an active subscription." if usable.empty?
+      raise Hatchbox::Error, "This token could not list the apps in any of its accounts. hatchbox apps shows each account it skipped and why." if usable.empty?
 
       raise Hatchbox::Error, (["Pick an account with --team:"] + usable.map { |account| "#{account["name"]} (#{account["id"]})" }).join("\n")
     end

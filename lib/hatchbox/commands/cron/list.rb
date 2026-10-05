@@ -12,8 +12,8 @@ module Hatchbox
           flags: [JSON_FLAG],
           help: [
             "Cron jobs run from the app's current release as the deploy user, on every server",
-            "in the cluster carrying the cron role. Cron keeps none of their output; read when",
-            "they ran with hatchbox run 'journalctl -u cron'."
+            "in the cluster carrying the cron role. Cron keeps none of their output; read",
+            "when they ran with hatchbox run -s cron 'journalctl -u cron'."
           ]
 
         def call

@@ -8,7 +8,10 @@ module Hatchbox
           summary: "view detailed information for a release",
           args: { release: "[RELEASE]" },
           flags: [JSON_FLAG],
-          help: ["RELEASE is an id from hatchbox releases, or deploy or restart for the latest one. It defaults to the latest release."]
+          help: [
+            "RELEASE is an id from hatchbox releases, or deploy or restart for the latest",
+            "one. It defaults to the latest release."
+          ]
 
         def call
           log = operation.fetch(resolve_log(args.release))

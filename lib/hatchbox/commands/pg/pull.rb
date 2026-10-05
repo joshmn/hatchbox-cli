@@ -11,7 +11,7 @@ module Hatchbox
           args: { source: "SOURCE", target: "TARGET" },
           ssh: :tunnel,
           flags: [
-            [nil, "--exclude-table-data TABLES", "tables to skip the data of, separated by semicolons"],
+            [nil, "--exclude-table-data TABLES", "tables to copy without their data, separated by semicolons"],
             [nil, "--direct", "connect straight to the database host instead of through an SSH tunnel"]
           ],
           help: [
@@ -56,7 +56,7 @@ module Hatchbox
           output, status = Open3.capture2e("createdb", target)
           return if status.success?
 
-          raise Hatchbox::Error, "Local database #{target} already exists. Drop it first or choose another name." if output.include?("already exists")
+          raise Hatchbox::Error, "Local database #{target} already exists. Drop it first or pick another name." if output.include?("already exists")
 
           raise Hatchbox::Error, "createdb #{target} failed:\n#{output.strip}"
         rescue Errno::ENOENT

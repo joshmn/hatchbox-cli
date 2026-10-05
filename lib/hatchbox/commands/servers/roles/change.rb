@@ -55,7 +55,7 @@ module Hatchbox
           end
 
           def unchanged(server)
-            puts("#{server["name"]} already has those roles.")
+            puts("Nothing to change on #{server["name"]}.")
             0
           end
 

@@ -7,7 +7,10 @@ module Hatchbox
         describe "config:get",
           summary: "check whether a config var is set",
           args: { key: "KEY" },
-          help: ["Hatchbox never returns config var values, so this can only say whether KEY is set, and exits 1 either way."]
+          help: [
+            "Hatchbox never returns config var values, so this can only say whether KEY is",
+            "set, and exits 1 either way."
+          ]
 
         def call
           key = args.key.upcase

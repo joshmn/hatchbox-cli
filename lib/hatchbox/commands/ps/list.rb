@@ -38,7 +38,7 @@ module Hatchbox
           ui.header("#{process["name"]} (#{formation.where(process)}): #{process["start_command"]} (#{servers.length})")
           state = process["active"] ? color.green("enabled") : color.yellow("disabled")
           printer.columns(servers.map { |server| [server["name"], state, server["public_ip"]] })
-          puts(color.dim("No active server carries #{formation.where(process)}.")) if servers.empty?
+          puts(color.dim("No active server runs this process.")) if servers.empty?
         end
 
         def servers_json(formation:, process:)

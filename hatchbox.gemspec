@@ -9,8 +9,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["Josh"]
   spec.email = ["git@josh.mn"]
 
-  spec.summary = "A command line for Hatchbox."
-  spec.description = "Manage Hatchbox apps, processes, config vars, domains, databases, backups, servers and firewalls from the terminal, with logs, run and psql over SSH."
+  spec.summary = "A Heroku-style command line for Hatchbox."
+  spec.description = "Manage Hatchbox apps, processes, config vars, domains, cron, databases, backups, servers and firewall rules from the terminal, with logs, run and psql over SSH."
   spec.homepage = "https://github.com/joshdotmn/hatchbox"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"

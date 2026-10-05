@@ -15,13 +15,13 @@ module Hatchbox
             ["-t", "--team TEAM", "account the cluster belongs to, by name or id"],
             [nil, "--repo REPO", "repository to deploy, e.g. myuser/my-app"],
             ["-b", "--branch BRANCH", "branch to deploy, main unless you say otherwise"],
-            [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name or id"],
+            [nil, "--git-provider PROVIDER", "connected git account to deploy from, by name, provider:name or id"],
             [nil, "--no-remote", "do not save the app as a remote for this repo"]
           ],
           help: [
             "Creates the app with auto-deploy off. Inside a git repo, the app is saved in",
-            "~/.hatchbox as a remote for that repo, named by -r, which is production unless",
-            "you pass one."
+            "~/.hatchbox as a remote for that repo, named with -r, or production if you",
+            "leave -r off."
           ],
           examples: ["$ hatchbox apps:create my-app --cluster netcup --repo myuser/my-app --git-provider joshmn", "Creating my-app on netcup... done", "set remote production to 14001-my-app for ~/code/my-app in ~/.hatchbox"]
 
@@ -83,7 +83,7 @@ module Hatchbox
 
           remote = Hatchbox.blank?(session.remote_flag) ? "production" : session.remote_flag
           existing = config.app_for(remote)
-          return ui.warning("#{config.location} already has #{remote} as #{existing}, so it was left alone. Add this one with hatchbox git:remote -a #{slug} -r NAME") unless Hatchbox.blank?(existing)
+          return ui.warning("Remote #{remote} is already set to #{existing} for #{config.location}, so it was left alone. Save this app under another remote with hatchbox git:remote -a #{slug} -r NAME.") unless Hatchbox.blank?(existing)
 
           config.set_app(env: remote, app: slug)
           puts("set remote #{remote} to #{slug} for #{config.location}")

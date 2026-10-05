@@ -21,7 +21,7 @@ module Hatchbox
             ["Id", row["id"].to_s],
             ["Created", formatter.date(row["created_at"])],
             ["Updated", formatter.date(row["updated_at"])],
-            ["Points At", targets]
+            ["Server IPs", targets]
           ])
           0
         end
