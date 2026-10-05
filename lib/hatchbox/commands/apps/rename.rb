@@ -6,7 +6,6 @@ module Hatchbox
       class Rename < Hatchbox::Command
         describe "apps:rename",
           summary: "rename an app, which takes it down while it moves",
-          usage: "apps:rename NEWNAME",
           args: { new_name: "NEWNAME" },
           aliases: ["rename"],
           flags: [[nil, "--confirm APP", "the app's current name, to skip the prompt"], WAIT_FLAG],

@@ -9,7 +9,6 @@ module Hatchbox
 
           describe "pg:backups:url",
             summary: "get a temporary URL for the latest backup",
-            usage: "pg:backups:url [DATABASE]",
             args: { database: "[DATABASE]" },
             help: ["The URL expires a few minutes after it is issued. Only S3 compatible storage can hand one out."]
 

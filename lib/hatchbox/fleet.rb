@@ -43,6 +43,13 @@ module Hatchbox
       raise Hatchbox::Error, "No server called #{wanted}, and none with that role.\n#{listing}"
     end
 
+    def holding(role)
+      found = servers.find { |server| roles_of(server).include?(role) }
+      return found if found
+
+      servers.length == 1 ? servers.first : nil
+    end
+
     def listing
       "Servers: #{servers.map { |server| "#{server["name"]} (#{Array(server["roles"]).join(", ")})" }.join(", ")}"
     end

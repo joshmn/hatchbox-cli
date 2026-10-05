@@ -4,11 +4,10 @@ module Hatchbox
   module Commands
     module Pg
       class Bloat < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:bloat",
           summary: "show table and index bloat, the space dead rows are holding",
-          usage: "pg:bloat [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel
 

@@ -12,21 +12,13 @@ module Hatchbox
     end
 
     def read(env: nil)
-      from_env = ENV["HATCHBOX_API_TOKEN"]
-      return from_env unless Hatchbox.blank?(from_env)
-
-      scoped = scoped(env)
-      return scoped unless Hatchbox.blank?(scoped)
-
-      blank_to_nil(store.data["token"])
+      found = first_set(env)
+      found ? found.last : nil
     end
 
     def source(env: nil)
-      return "the HATCHBOX_API_TOKEN environment variable" unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
-      return "tokens.#{env} in #{path}" unless Hatchbox.blank?(scoped(env))
-      return path unless Hatchbox.blank?(store.data["token"])
-
-      nil
+      found = first_set(env)
+      found ? found.first : nil
     end
 
     def ask
@@ -50,11 +42,7 @@ module Hatchbox
     end
 
     def verify(token)
-      probe = Hatchbox::Client.new(token: token)
-      response = probe.raw(method: "GET", path: "/accounts")
-      raise Hatchbox::Error, probe.error_message(response) unless response.ok?
-
-      response.json || []
+      Hatchbox::Client.new(token: token).get("/accounts").json || []
     end
 
     def save(token)
@@ -76,14 +64,18 @@ module Hatchbox
 
     attr_reader :prompt, :store
 
+    def first_set(env)
+      return ["the HATCHBOX_API_TOKEN environment variable", ENV["HATCHBOX_API_TOKEN"]] unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
+      return ["tokens.#{env} in #{path}", scoped(env)] unless Hatchbox.blank?(scoped(env))
+      return [path, store.data["token"]] unless Hatchbox.blank?(store.data["token"])
+
+      nil
+    end
+
     def scoped(env)
       return nil if env.nil?
 
-      blank_to_nil(store.data.fetch("tokens", {})[env])
-    end
-
-    def blank_to_nil(value)
-      Hatchbox.blank?(value) ? nil : value
+      store.data.fetch("tokens", {})[env]
     end
   end
 end

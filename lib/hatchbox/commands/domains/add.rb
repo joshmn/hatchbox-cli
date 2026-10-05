@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "domains:add",
           summary: "add a domain to the app",
-          usage: "domains:add HOSTNAME",
           args: { hostname: "HOSTNAME" },
           help: ["Accounts on a trial need a card on file before Hatchbox adds a domain."]
 

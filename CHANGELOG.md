@@ -8,6 +8,8 @@
 - `HATCHBOX_API_BASE` is gone. The API lives at https://hatchbox.io/api/v1.
 - `pg:info` labels the database's name `Database` instead of `Add-on`.
 - Help for a command that is also a topic, like `run` or `ps`, shows its full help and examples. Commands that use SSH are marked `(ssh)` and say so in their help.
+- `servers:reboot`, `servers:provision`, `servers:roles:*` and `firewall:add`/`firewall:remove` with `--cluster` work outside an app folder. They used to send the change and then exit 1 with "No app specified."
+- `run`, `run:detached` and `cron:add` pass flags like `-al` and `-rt` through to the command once it has started, instead of reading them as `-a l` or `-r t`. `-a APP` and `-r REMOTE` with a space still pick the app.
 
 ## [2.0.0] - 2026-10-04
 

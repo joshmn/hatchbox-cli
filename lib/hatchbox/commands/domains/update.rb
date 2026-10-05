@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "domains:update",
           summary: "rename one of the app's domains",
-          usage: "domains:update HOSTNAME NEWHOSTNAME",
           args: { hostname: "HOSTNAME", new_hostname: "NEWHOSTNAME" }
 
         def call

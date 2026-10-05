@@ -57,10 +57,7 @@ module Hatchbox
             ask_secret(body: body, record: record)
             data = client.patch("/databases/#{record["id"]}/backup_configuration", body: { "backup_configuration" => body }).json || {}
             message = "Scheduling backups of #{title_for(record)} (#{record["name"]})"
-            return queued(message: message, log_id: data["log_id"]) unless Hatchbox.blank?(data["log_id"])
-
-            ui.action(message) { nil }
-            0
+            queued_or_done(message: message, log_id: data["log_id"])
           end
 
           private

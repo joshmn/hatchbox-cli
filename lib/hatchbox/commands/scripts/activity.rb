@@ -6,7 +6,6 @@ module Hatchbox
       class Activity < Hatchbox::Command
         describe "scripts:activity",
           summary: "list the runs of a custom script",
-          usage: "scripts:activity SCRIPT",
           args: { script: "SCRIPT" },
           app: false,
           flags: [["-n", "--num NUM", "number of runs", Integer], JSON_FLAG],

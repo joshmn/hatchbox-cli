@@ -18,7 +18,7 @@ module Hatchbox
     end
 
     def open
-      server = Hatchbox::SshTarget.pinned?(session) ? nil : Hatchbox::Database::Picker.new(session: session, role: role).pick
+      server = Hatchbox::SshTarget.pinned?(session) ? nil : database_server
       @target = Hatchbox::SshTarget.new(session: session, server: server)
       @local_port = free_port
       @dir = Dir.mktmpdir("hbx", "/tmp")
@@ -36,6 +36,13 @@ module Hatchbox
     private
 
     attr_reader :session, :host, :port, :role, :dir, :target
+
+    def database_server
+      found = session.app.fleet.holding(role)
+      raise Hatchbox::Error, "Could not tell which server holds the database. #{session.config.ssh_hint(env: session.env, key: "host")}" unless found
+
+      found
+    end
 
     def control
       File.join(dir, "control")

@@ -6,7 +6,6 @@ module Hatchbox
       class Info < Hatchbox::Command
         describe "builds:info",
           summary: "view detailed information for a build",
-          usage: "builds:info [BUILD]",
           args: { build: "[BUILD]" },
           flags: [JSON_FLAG]
 

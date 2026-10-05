@@ -36,6 +36,19 @@ module Hatchbox
         ui.warning("That host is the database's own machine, so the URI only works from the servers.") if Hatchbox.blank?(record["public_connection_uri"])
         0
       end
+
+      def statement_target(engine:, sql:)
+        wanted = options.database
+        return [wanted, sql] unless args.statement
+        return [args.statement, sql] if app.find_database(args.statement, engines: [engine]).any? && Hatchbox.blank?(wanted)
+
+        usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
+        [wanted, args.statement]
+      end
+
+      def announce_session
+        $stderr.puts(options.dangerous ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
+      end
     end
   end
 end

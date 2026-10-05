@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "pg:info",
           summary: "show database information",
-          usage: "pg:info [DATABASE]",
           args: { database: "[DATABASE]" },
           aliases: ["pg"]
 

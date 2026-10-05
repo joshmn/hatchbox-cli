@@ -7,7 +7,6 @@ module Hatchbox
 
       describe "logs",
         summary: "display recent log output",
-        usage: "logs [PROCESS]",
         args: { process: "[PROCESS]" },
         ssh: :shell,
         flags: [

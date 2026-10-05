@@ -6,13 +6,10 @@ module Hatchbox
       class Exec < Hatchbox::Command
         describe "ps:exec",
           summary: "open an SSH session on one of the app's servers",
-          usage: "ps:exec [COMMAND]",
           args: { command: "[COMMAND]" },
           ssh: :shell,
           aliases: ["ssh"],
-          flags: [
-            ["-s", "--server SERVER", "the server, by name, id or role"]
-          ],
+          flags: [SERVER_FLAG],
           help: [
             "Lands in the app's current release, /home/deploy/APP/current, and falls back to",
             "the home directory when nothing is deployed yet. COMMAND runs there and comes",

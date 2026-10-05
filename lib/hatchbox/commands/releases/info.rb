@@ -6,7 +6,6 @@ module Hatchbox
       class Info < Hatchbox::Command
         describe "releases:info",
           summary: "view detailed information for a release",
-          usage: "releases:info [RELEASE]",
           args: { release: "[RELEASE]" },
           flags: [JSON_FLAG],
           help: ["RELEASE is an id from hatchbox releases, or deploy or restart for the latest one. It defaults to the latest release."]

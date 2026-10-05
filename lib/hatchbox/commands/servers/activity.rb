@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "servers:activity",
           summary: "list what Hatchbox has done to a server",
-          usage: "servers:activity SERVER",
           args: { server: "SERVER" },
           app: :optional,
           flags: [CLUSTER_FLAG, ["-n", "--num NUM", "number of entries", Integer], [nil, "--all", "include the per-server output of app deploys"], JSON_FLAG]

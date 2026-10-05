@@ -29,17 +29,7 @@ module Hatchbox
           examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"]
 
         def call
-          wanted = options.database
-          sql = options.command.to_s
-          if args.statement
-            if app.find_database(args.statement, engines: ["mysql"]).any? && Hatchbox.blank?(wanted)
-              wanted = args.statement
-            else
-              usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
-              sql = args.statement
-            end
-          end
-
+          wanted, sql = statement_target(engine: "mysql", sql: options.command.to_s)
           record = attached(wanted, engines: ["mysql"])
           return print_url(record) if options.url
 
@@ -50,7 +40,7 @@ module Hatchbox
 
         def open_mysql(record:, sql:)
           with_connection(record, role: "mysql") do |database, host, port|
-            $stderr.puts(options.dangerous ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
+            announce_session
             Dir.mktmpdir("hbx") do |dir|
               defaults = File.join(dir, "my.cnf")
               write_defaults(path: defaults, password: database.password)

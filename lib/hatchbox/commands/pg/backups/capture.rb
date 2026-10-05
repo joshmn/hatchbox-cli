@@ -9,7 +9,6 @@ module Hatchbox
 
           describe "pg:backups:capture",
             summary: "take a backup now",
-            usage: "pg:backups:capture [DATABASE]",
             args: { database: "[DATABASE]" },
             flags: [WAIT_FLAG],
             help: ["Backups have to be scheduled first, with hatchbox pg:backups:schedule, since that is where they are stored."]

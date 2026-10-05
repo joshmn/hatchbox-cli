@@ -17,9 +17,9 @@ module Hatchbox
         "#{text}: #{description}"
       end
 
-      def state(row)
+      def state(row, completed: "")
         raw = row["state"].to_s
-        return "" if raw == "completed"
+        return completed if raw == "completed"
         return Hatchbox::Color.red(raw) if ["failed", "aborted"].include?(raw)
 
         Hatchbox::Color.yellow(raw)

@@ -13,12 +13,8 @@ module Hatchbox
         @label = inner.delete_suffix("...")
       end
 
-      def optional?
-        @optional
-      end
-
       def required?
-        !optional?
+        !@optional
       end
 
       def many?

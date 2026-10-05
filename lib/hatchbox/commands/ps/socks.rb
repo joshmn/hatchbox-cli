@@ -7,10 +7,7 @@ module Hatchbox
         describe "ps:socks",
           summary: "launch a SOCKS proxy into one of the app's servers",
           ssh: :shell,
-          flags: [
-            ["-p", "--port PORT", "local port for the proxy, 1080 unless you say otherwise"],
-            ["-s", "--server SERVER", "the server, by name, id or role"]
-          ]
+          flags: [["-p", "--port PORT", "local port for the proxy, 1080 unless you say otherwise"], SERVER_FLAG]
 
         def call
           port = options.port || "1080"

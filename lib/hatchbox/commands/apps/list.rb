@@ -6,7 +6,6 @@ module Hatchbox
       class List < Hatchbox::Command
         describe "apps",
           summary: "list your apps",
-          usage: "apps",
           aliases: ["apps:list", "list"],
           app: false,
           flags: [["-t", "--team TEAM", "only the apps on this account, by name or id"], JSON_FLAG],

@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "cron:update",
           summary: "change a cron job",
-          usage: "cron:update JOB",
           args: { job: "JOB" },
           flags: Hatchbox::Commands::Cron::Fields::FLAGS + [[nil, "--command COMMAND", "the command to run"]]
 

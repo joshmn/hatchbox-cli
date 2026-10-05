@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "pg:pull",
           summary: "pull the database into a new local database",
-          usage: "pg:pull SOURCE TARGET",
           args: { source: "SOURCE", target: "TARGET" },
           ssh: :tunnel,
           flags: [

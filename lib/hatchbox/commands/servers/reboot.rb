@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "servers:reboot",
           summary: "reboot a server, taking everything on it down until it is back",
-          usage: "servers:reboot SERVER",
           args: { server: "SERVER" },
           app: :optional,
           flags: [CLUSTER_FLAG, CONFIRM_FLAG, WAIT_FLAG]

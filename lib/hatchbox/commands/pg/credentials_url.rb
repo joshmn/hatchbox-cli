@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "pg:credentials:url",
           summary: "show the connection information for a database",
-          usage: "pg:credentials:url [DATABASE]",
           args: { database: "[DATABASE]" },
           aliases: ["pg:credentials"]
 

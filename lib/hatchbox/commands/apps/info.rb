@@ -6,7 +6,6 @@ module Hatchbox
       class Info < Hatchbox::Command
         describe "apps:info",
           summary: "show detailed app information",
-          usage: "apps:info [APP]",
           args: { app: "[APP]" },
           aliases: ["info"],
           flags: [["-x", "--extended", "show the deploy scripts, the Caddyfile and the DNS settings too"], ["-s", "--shell", "output more shell friendly key/value pairs"], JSON_FLAG]
@@ -24,10 +23,6 @@ module Hatchbox
         end
 
         private
-
-        def positional_app
-          args.app
-        end
 
         def gather
           current = app

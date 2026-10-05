@@ -4,18 +4,15 @@ module Hatchbox
   module Commands
     module Ps
       class Start < Hatchbox::Command
-        include Hatchbox::Commands::Ps::Toggle
-
         describe "ps:start",
           summary: "turn a stopped process back on",
-          usage: "ps:start TYPE",
           args: { type: "TYPE" },
           flags: [WAIT_FLAG]
 
         def call
-          process = toggled_process
+          process = app.formation.find_process(args.type)
           data = client.post("/apps/#{app_id}/processes/#{process["id"]}/activation").json || {}
-          toggled(data: data, message: "Starting #{process["name"]} on #{label}", already: "it was already on")
+          queued_or_done(message: "Starting #{process["name"]} on #{label}", log_id: data["log_id"], status: "done, it was already on")
         end
       end
     end

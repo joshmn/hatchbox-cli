@@ -2,8 +2,6 @@
 
 module Hatchbox
   class RemoteCommand
-    class InvalidEnv < Hatchbox::Error; end
-
     ENV_NAME = /\A[A-Za-z_][A-Za-z0-9_]*\z/.freeze
 
     attr_reader :text
@@ -32,7 +30,7 @@ module Hatchbox
 
     def export(pair)
       name, separator, value = pair.partition("=")
-      raise InvalidEnv, "#{pair} is invalid. --env takes KEY=VALUE pairs separated by semicolons." if separator.empty? || name !~ ENV_NAME
+      raise Hatchbox::UsageError, "#{pair} is invalid. --env takes KEY=VALUE pairs separated by semicolons." if separator.empty? || name !~ ENV_NAME
 
       "export #{name}=#{Shellwords.escape(value)}"
     end

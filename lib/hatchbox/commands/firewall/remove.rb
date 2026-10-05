@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "firewall:remove",
           summary: "remove a firewall rule from a server",
-          usage: "firewall:remove SERVER RULE",
           args: { server: "SERVER", rule: "RULE" },
           aliases: ["firewall:delete"],
           app: :optional,

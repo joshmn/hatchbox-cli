@@ -24,34 +24,22 @@ module Hatchbox
         private
 
         def deploys(limit)
-          rows = []
-          url = "/apps/#{app_id}/logs?limit=100"
-          pages = 0
-          while url && rows.length < limit && pages < MAX_PAGES
-            response = client.get(url)
-            rows.concat(Array(response.json).select { |row| Hatchbox::Activity.deploy?(row) })
-            url = response.next_page
-            pages += 1
-          end
-          rows.first(limit)
+          client.pages("/apps/#{app_id}/logs?limit=100")
+            .lazy
+            .take(MAX_PAGES)
+            .flat_map { |rows| rows.select { |row| Hatchbox::Activity.deploy?(row) } }
+            .first(limit)
         end
 
         def columns(row)
           [
             row["id"].to_s,
-            painted(row["state"].to_s),
+            Hatchbox::Activity.state(row, completed: color.green("succeeded")),
             row["commit_sha"].to_s[0, 7],
             row["username"].to_s,
             formatter.date(row["created_at"]).to_s,
             row["description"].to_s.split("\n").first.to_s[0, 50]
           ]
-        end
-
-        def painted(state)
-          return color.green("succeeded") if state == "completed"
-          return color.red(state) if ["failed", "aborted"].include?(state)
-
-          color.yellow(state)
         end
       end
     end

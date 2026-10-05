@@ -6,7 +6,6 @@ module Hatchbox
       class Get < Hatchbox::Command
         describe "config:get",
           summary: "check whether a config var is set",
-          usage: "config:get KEY",
           args: { key: "KEY" },
           help: ["Hatchbox never returns config var values, so this can only say whether KEY is set, and exits 1 either way."]
 

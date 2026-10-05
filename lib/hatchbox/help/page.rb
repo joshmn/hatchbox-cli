@@ -39,7 +39,7 @@ module Hatchbox
           else
             puts("Usage: hatchbox #{topic}:COMMAND")
             puts
-            puts(" #{Hatchbox::Help.blurb(topic)}") if Hatchbox::Help.blurb(topic)
+            puts(" #{Hatchbox::Help::TOPICS[topic]}") if Hatchbox::Help::TOPICS[topic]
           end
           others = Hatchbox::Help.members(topic).reject { |klass| klass == command }
           return if others.empty?

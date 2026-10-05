@@ -31,17 +31,7 @@ module Hatchbox
           examples: ["$ hatchbox pg:psql", "$ hatchbox pg:psql -c 'select count(*) from users'", "$ hatchbox pg:psql RED_DATABASE_URL --dangerous"]
 
         def call
-          wanted = options.database
-          sql = options.command.to_s.sub(/\A=/, "")
-          if args.statement
-            if app.find_database(args.statement, engines: ["postgresql"]).any? && Hatchbox.blank?(wanted)
-              wanted = args.statement
-            else
-              usage_error("Only one statement at a time, quote it as one argument.") unless sql.empty?
-              sql = args.statement
-            end
-          end
-
+          wanted, sql = statement_target(engine: "postgresql", sql: options.command.to_s.sub(/\A=/, ""))
           record = postgres(wanted)
           return print_url(record) if options.url
 
@@ -52,7 +42,7 @@ module Hatchbox
 
         def open_psql(record:, sql:)
           with_connection(record) do |database, host, port|
-            $stderr.puts(options.dangerous ? color.yellow("Read-write session") : color.dim("Read-only session, pass --dangerous to write"))
+            announce_session
             argv = ["psql", "-h", host, "-p", port, "-U", database.user, "-d", database.name]
             argv.concat(["-c", sql]) unless Hatchbox.blank?(sql)
             argv.concat(["-f", options.file]) unless Hatchbox.blank?(options.file)

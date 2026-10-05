@@ -20,6 +20,7 @@ loader.setup
 
 module Hatchbox
   class Error < StandardError; end
+  class UsageError < Error; end
 
   API_BASE = "https://hatchbox.io/api/v1"
   GLOBAL_CONFIG = File.join(Dir.home, ".hatchbox")

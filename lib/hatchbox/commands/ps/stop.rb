@@ -4,11 +4,8 @@ module Hatchbox
   module Commands
     module Ps
       class Stop < Hatchbox::Command
-        include Hatchbox::Commands::Ps::Toggle
-
         describe "ps:stop",
           summary: "turn a process off and leave it off",
-          usage: "ps:stop TYPE",
           args: { type: "TYPE" },
           aliases: ["ps:kill"],
           flags: [WAIT_FLAG],
@@ -18,9 +15,9 @@ module Hatchbox
           ]
 
         def call
-          process = toggled_process
+          process = app.formation.find_process(args.type)
           data = client.delete("/apps/#{app_id}/processes/#{process["id"]}/activation").json || {}
-          toggled(data: data, message: "Stopping #{process["name"]} on #{label}", already: "it was already off")
+          queued_or_done(message: "Stopping #{process["name"]} on #{label}", log_id: data["log_id"], status: "done, it was already off")
         end
       end
     end

@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "servers:provision",
           summary: "rerun provisioning on a server, the dashboard's Update button",
-          usage: "servers:provision SERVER",
           args: { server: "SERVER" },
           app: :optional,
           flags: [CLUSTER_FLAG, CONFIRM_FLAG, WAIT_FLAG],

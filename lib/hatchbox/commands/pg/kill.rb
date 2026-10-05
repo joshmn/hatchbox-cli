@@ -4,11 +4,10 @@ module Hatchbox
   module Commands
     module Pg
       class Kill < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:kill",
           summary: "cancel a running query",
-          usage: "pg:kill PID [DATABASE]",
           args: { pid: "PID", database: "[DATABASE]" },
           ssh: :tunnel,
           flags: [["-f", "--force", "terminate the connection instead of cancelling its query"]]

@@ -6,13 +6,9 @@ module Hatchbox
       class Copy < Hatchbox::Command
         describe "ps:copy",
           summary: "copy a file off one of the app's servers",
-          usage: "ps:copy FILE",
           args: { file: "FILE" },
           ssh: :shell,
-          flags: [
-            ["-o", "--output FILE", "where to write it, the file's own name unless you say otherwise"],
-            ["-s", "--server SERVER", "the server, by name, id or role"]
-          ],
+          flags: [["-o", "--output FILE", "where to write it, the file's own name unless you say otherwise"], SERVER_FLAG],
           help: ["A relative FILE is read from the app's current release."],
           examples: ["$ hatchbox ps:copy log/production.log", "Copying log/production.log to production.log... done"]
 

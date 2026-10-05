@@ -8,7 +8,7 @@ module Hatchbox
 
         describe "domains:clear",
           summary: "remove every domain from the app",
-          flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]]
+          flags: [CONFIRM_APP_FLAG]
 
         def call
           rows = app.domains

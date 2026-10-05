@@ -9,7 +9,6 @@ module Hatchbox
 
           describe "servers:roles",
             summary: "list a server's roles",
-            usage: "servers:roles SERVER",
             args: { server: "SERVER" },
             app: :optional,
             flags: [CLUSTER_FLAG]

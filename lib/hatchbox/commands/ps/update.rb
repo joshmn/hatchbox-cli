@@ -21,10 +21,7 @@ module Hatchbox
 
           message = "Updating #{process["name"]} on #{label}"
           data = client.patch("/apps/#{app_id}/processes/#{process["id"]}", body: { "process" => body }).json || {}
-          return queued(message: message, log_id: data["log_id"]) unless Hatchbox.blank?(data["log_id"])
-
-          ui.action(message) { nil }
-          0
+          queued_or_done(message: message, log_id: data["log_id"])
         end
       end
     end

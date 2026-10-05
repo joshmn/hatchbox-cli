@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "firewall",
           summary: "list a server's firewall rules",
-          usage: "firewall SERVER",
           args: { server: "SERVER" },
           aliases: ["firewall:list"],
           app: :optional,
@@ -17,7 +16,7 @@ module Hatchbox
 
         def call
           server = find_server(args.server)
-          rows = client.all("#{server_path(server, suffix: "firewall_rules")}?limit=100")
+          rows = client.pages("#{server_path(server, suffix: "firewall_rules")}?limit=100").flat_map { |page| page }
           return print_json(rows) if json?
 
           ui.header("#{server["name"]} Firewall Rules")

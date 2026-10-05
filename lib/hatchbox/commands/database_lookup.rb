@@ -5,17 +5,6 @@ module Hatchbox
     module DatabaseLookup
       private
 
-      def account
-        @account ||= find_account
-      end
-
-      def find_account
-        found = session.catalog.account_for(app_id)
-        raise Hatchbox::Error, "Could not tell which account #{label} is on." unless found
-
-        found
-      end
-
       def database_clusters
         @database_clusters ||= session.catalog.database_clusters_for(account)
       end

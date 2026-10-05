@@ -22,7 +22,7 @@ module Hatchbox
           pool = args.types.empty? ? app.processes : args.types.map { |name| formation.find_process(name) }
           pool = pool.sort_by { |row| row["name"].to_s }
           return print_json(pool.map { |row| row.merge("servers" => servers_json(formation: formation, process: row)) }) if json?
-          return empty if pool.empty?
+          return puts("No processes on #{label}. Add one with hatchbox ps:create.") if pool.empty?
 
           pool.each_with_index do |process, index|
             puts if index.positive?
@@ -32,11 +32,6 @@ module Hatchbox
         end
 
         private
-
-        def empty
-          puts("No processes on #{label}. Add one with hatchbox ps:create.")
-          0
-        end
 
         def show(formation:, process:)
           servers = formation.servers_for(process)

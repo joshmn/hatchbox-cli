@@ -4,11 +4,10 @@ module Hatchbox
   module Commands
     module Pg
       class Outliers < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:outliers",
           summary: "show the queries with the longest total execution time",
-          usage: "pg:outliers [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel,
           flags: [["-n", "--num NUM", "number of queries to show, 10 unless you say otherwise", Integer], ["-t", "--truncate", "cut queries off at 40 characters"]],

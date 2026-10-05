@@ -9,7 +9,6 @@ module Hatchbox
 
           describe "pg:backups:test",
             summary: "upload a test file to the backup storage",
-            usage: "pg:backups:test [DATABASE]",
             args: { database: "[DATABASE]" }
 
           def call
@@ -18,7 +17,7 @@ module Hatchbox
             result = nil
             ui.action("Testing backup storage for #{record["name"]}") do |step|
               result = operation.wait(log_id)
-              step.status = result.ok? ? "done" : ui.paint(result.state.to_s, code: 31)
+              step.status = status_for(result)
             end
             operation.print_log(result.log || {})
             result.ok? ? 0 : 1

@@ -4,11 +4,10 @@ module Hatchbox
   module Commands
     module Pg
       class Ps < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:ps",
           summary: "view the queries running on the database",
-          usage: "pg:ps [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel,
           flags: [["-v", "--verbose", "include idle connections"]]

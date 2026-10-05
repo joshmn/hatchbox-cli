@@ -6,7 +6,6 @@ module Hatchbox
       class Rollback < Hatchbox::Command
         describe "releases:rollback",
           summary: "redeploy the commit of an earlier release",
-          usage: "releases:rollback [RELEASE]",
           args: { release: "[RELEASE]" },
           aliases: ["rollback"],
           flags: [WAIT_FLAG],

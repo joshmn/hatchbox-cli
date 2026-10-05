@@ -45,7 +45,7 @@ module Hatchbox
       end
 
       def paint(text, code:, io: $stderr)
-        Hatchbox.color?(io) ? "\e[#{code}m#{text}\e[0m" : text
+        Hatchbox::Color.paint(text, code: code, io: io)
       end
 
       private

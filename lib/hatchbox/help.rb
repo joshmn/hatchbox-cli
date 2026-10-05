@@ -2,7 +2,7 @@
 
 module Hatchbox
   module Help
-    PRIMARY = {
+    TOPICS = {
       "apps" => "manage apps (create, destroy, info, rename, open)",
       "auth" => "log in and out, and see what the token reaches",
       "config" => "manage app config vars",
@@ -12,10 +12,7 @@ module Hatchbox
       "pg" => "manage postgresql databases",
       "ps" => "manage processes (restart, stop, start, exec)",
       "releases" => "manage app releases and roll back",
-      "run" => "run a command on one of the app's servers"
-    }.freeze
-
-    ADDITIONAL = {
+      "run" => "run a command on one of the app's servers",
       "builds" => "list the app's deploys",
       "cron" => "manage the app's cron jobs",
       "deploy" => "deploy the app and stream the build",
@@ -36,7 +33,7 @@ module Hatchbox
         puts("Commands, type \"hatchbox help COMMAND\" for more details:")
         visible = Hatchbox::Registry.visible
         groups = visible.group_by { |klass| topic_of(klass) }
-        order = PRIMARY.keys + ADDITIONAL.keys
+        order = TOPICS.keys
         width = visible.map { |klass| klass.meta[:name].length }.max
         groups.keys.sort_by { |topic| [order.index(topic) || order.length, topic] }.each do |topic|
           puts
@@ -65,10 +62,6 @@ module Hatchbox
 
       def members(topic)
         Hatchbox::Registry.visible.select { |klass| topic_of(klass) == topic }.sort_by { |klass| klass.meta[:name] }
-      end
-
-      def blurb(topic)
-        PRIMARY[topic] || ADDITIONAL[topic]
       end
 
       def summary(klass)

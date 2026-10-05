@@ -4,11 +4,10 @@ module Hatchbox
   module Commands
     module Pg
       class Locks < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:locks",
           summary: "display queries with active locks",
-          usage: "pg:locks [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel
 

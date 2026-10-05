@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "cron:remove",
           summary: "remove a cron job",
-          usage: "cron:remove JOB",
           args: { job: "JOB" },
           aliases: ["cron:destroy", "cron:delete"]
 

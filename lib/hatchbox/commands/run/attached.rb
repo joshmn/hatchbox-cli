@@ -30,7 +30,7 @@ module Hatchbox
 
           command = Hatchbox::RemoteCommand.new(text: text, env: options.env)
           target = ssh_target(server: options.server)
-          script = [exports(command), script_for(command: command, target: target)].reject { |part| part.empty? }.join("\n")
+          script = [command.exports, script_for(command: command, target: target)].reject { |part| part.empty? }.join("\n")
           ui.action("Running `#{text}` on #{label}") { |step| step.status = "up, #{target.label}" }
           Hatchbox.run(target.ssh(command: target.login_shell(script), tty: tty?))
         end
@@ -39,12 +39,6 @@ module Hatchbox
 
         def tty?
           !options.no_tty && $stdin.tty? && $stdout.tty?
-        end
-
-        def exports(command)
-          command.exports
-        rescue Hatchbox::RemoteCommand::InvalidEnv => e
-          usage_error(e.message)
         end
 
         def script_for(command:, target:)

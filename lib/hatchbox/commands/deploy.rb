@@ -5,6 +5,7 @@ module Hatchbox
     class Deploy < Hatchbox::Command
       describe "deploy",
         summary: "deploy the app's branch, or one commit, and stream the build",
+        usage: "deploy",
         args: { status: "[status]" },
         flags: [
           [nil, "--sha SHA", "deploy this commit instead of the tip of the branch"],

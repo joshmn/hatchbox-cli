@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "domains:info",
           summary: "show one of the app's domains",
-          usage: "domains:info HOSTNAME",
           args: { hostname: "HOSTNAME" },
           flags: [JSON_FLAG]
 

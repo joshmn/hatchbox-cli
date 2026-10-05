@@ -77,9 +77,6 @@ module Hatchbox
         end
 
         def provider_id(wanted)
-          account = session.catalog.account_for(app_id)
-          raise Hatchbox::Error, "Could not tell which account #{label} is on." unless account
-
           providers = session.catalog.git_providers_for(account)
           found = providers.select { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted.to_s) }
           return found.first["id"] if found.length == 1

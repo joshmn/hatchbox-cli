@@ -9,7 +9,6 @@ module Hatchbox
 
           describe "pg:backups:schedules",
             summary: "show the backup schedule of a database",
-            usage: "pg:backups:schedules [DATABASE]",
             args: { database: "[DATABASE]" },
             flags: [JSON_FLAG]
 

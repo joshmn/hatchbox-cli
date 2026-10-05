@@ -4,14 +4,13 @@ module Hatchbox
   module Commands
     module Pg
       class Killall < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:killall",
           summary: "terminate every other connection to the database",
-          usage: "pg:killall [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel,
-          flags: [[nil, "--confirm APP", "the app's name, to skip the prompt"]],
+          flags: [CONFIRM_APP_FLAG],
           help: ["Only touches connections to this database, not the rest of a shared cluster."]
 
         def call

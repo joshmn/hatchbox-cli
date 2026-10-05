@@ -6,7 +6,6 @@ module Hatchbox
       class Restart < Hatchbox::Command
         describe "ps:restart",
           summary: "restart every process, or one process type",
-          usage: "ps:restart [TYPE]",
           args: { type: "[TYPE]" },
           aliases: ["restart"],
           flags: [WAIT_FLAG],

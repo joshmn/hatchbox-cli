@@ -9,7 +9,6 @@ module Hatchbox
 
           describe "pg:backups:info",
             summary: "show the output of a backup",
-            usage: "pg:backups:info [BACKUP_ID]",
             args: { backup: "[BACKUP_ID]" },
             flags: [["-d", "--database DATABASE", "which database, when the app has more than one"]],
             help: ["Without BACKUP_ID, shows the most recent backup."]

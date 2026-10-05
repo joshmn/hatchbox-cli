@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "cron:info",
           summary: "show a cron job",
-          usage: "cron:info JOB",
           args: { job: "JOB" },
           flags: [JSON_FLAG]
 

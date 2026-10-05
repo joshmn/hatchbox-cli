@@ -10,7 +10,6 @@ module Hatchbox
 
         describe "firewall:add",
           summary: "add a firewall rule to a server",
-          usage: "firewall:add SERVER PORT",
           args: { server: "SERVER", port: "PORT" },
           app: :optional,
           flags: [
@@ -33,10 +32,7 @@ module Hatchbox
           body["description"] = options.description unless Hatchbox.blank?(options.description)
           data = client.post(server_path(server, suffix: "firewall_rules"), body: { "firewall_rule" => body }).json || {}
           message = "#{action == "deny" ? "Denying" : "Allowing"} port #{port} from #{options.from || "anywhere"} on #{server["name"]}"
-          return queued(message: message, log_id: data["log_id"]) unless Hatchbox.blank?(data["log_id"])
-
-          ui.action(message) { nil }
-          0
+          queued_or_done(message: message, log_id: data["log_id"])
         end
       end
     end

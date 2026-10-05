@@ -3,11 +3,10 @@
 module Hatchbox
   class Http
     class Response
-      attr_reader :code, :body, :json, :headers
+      attr_reader :code, :json, :headers
 
       def initialize(code:, body:, headers: {})
         @code = code
-        @body = body
         @headers = headers
         @json = parse(body)
       end

@@ -4,11 +4,10 @@ module Hatchbox
   module Commands
     module Pg
       class VacuumStats < Hatchbox::Command
-        include Hatchbox::Commands::Pg::Query
+        include Hatchbox::Commands::Pg::Tools
 
         describe "pg:vacuum-stats",
           summary: "show dead rows and whether autovacuum is expected to run",
-          usage: "pg:vacuum-stats [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel
 

@@ -28,7 +28,7 @@ module Hatchbox
 
             message = "#{changes(added: added, removed: removed).join(" and ").sub(/\A./) { |char| char.upcase }} on #{server["name"]}"
             logs = Array(data["logs"]).map { |row| row["id"] }
-            return quiet(message) if logs.empty?
+            return done(message: message) if logs.empty?
 
             codes = logs.each_with_index.map do |id, index|
               queued(message: index.zero? ? message : "Still #{message.sub(/\A./) { |char| char.downcase }}", log_id: id)
@@ -56,11 +56,6 @@ module Hatchbox
 
           def unchanged(server)
             puts("#{server["name"]} already has those roles.")
-            0
-          end
-
-          def quiet(message)
-            ui.action(message) { nil }
             0
           end
 

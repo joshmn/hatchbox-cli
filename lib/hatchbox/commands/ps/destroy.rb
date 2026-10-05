@@ -6,7 +6,6 @@ module Hatchbox
       class Destroy < Hatchbox::Command
         describe "ps:destroy",
           summary: "stop a process and delete it from every server",
-          usage: "ps:destroy TYPE",
           args: { type: "TYPE" },
           flags: [[nil, "--confirm TYPE", "the process name, to skip the prompt"], WAIT_FLAG]
 

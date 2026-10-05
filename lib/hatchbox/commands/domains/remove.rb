@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "domains:remove",
           summary: "remove a domain from the app",
-          usage: "domains:remove HOSTNAME",
           args: { hostname: "HOSTNAME" },
           aliases: ["domains:delete"]
 

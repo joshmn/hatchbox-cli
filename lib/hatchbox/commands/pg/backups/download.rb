@@ -11,7 +11,6 @@ module Hatchbox
 
           describe "pg:backups:download",
             summary: "download the latest backup",
-            usage: "pg:backups:download [DATABASE]",
             args: { database: "[DATABASE]" },
             flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]]
 

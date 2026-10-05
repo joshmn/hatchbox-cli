@@ -19,10 +19,6 @@ module Hatchbox
       "Only one #{specs.first.label} at a time, got #{values.join(" ")}. Quote it as one argument if it has spaces."
     end
 
-    def to_a
-      values.dup
-    end
-
     private
 
     attr_reader :specs, :values, :bound, :extra

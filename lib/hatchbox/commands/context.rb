@@ -5,32 +5,30 @@ module Hatchbox
     module Context
       private
 
-      def client
-        session.client
-      end
+      [:client, :app, :app_id, :config, :env, :prompt].each { |name| define_method(name) { session.public_send(name) } }
 
-      def app
-        session.app
-      end
-
-      def app_id
-        session.app_id
-      end
-
-      def config
-        session.config
-      end
-
-      def env
-        session.env
-      end
-
-      def prompt
-        session.prompt
+      { ui: Hatchbox::Ui, printer: Hatchbox::Printer, formatter: Hatchbox::Formatter, color: Hatchbox::Color }.each do |name, helper|
+        define_method(name) { helper }
       end
 
       def label
         app.label
+      end
+
+      def account
+        @account ||= session.catalog.account_for(app_id)
+        raise Hatchbox::Error, "Could not tell which account #{label} is on." unless @account
+
+        @account
+      end
+
+      def json?
+        options.key?(:json)
+      end
+
+      def print_json(data)
+        puts(JSON.pretty_generate(data))
+        0
       end
 
       def ssh_target(server: nil)

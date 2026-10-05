@@ -3,7 +3,6 @@
 module Hatchbox
   class Command
     include Hatchbox::Commands::Context
-    include Hatchbox::Commands::Output
     include Hatchbox::Commands::Tracking
 
     APP_FLAGS = [
@@ -13,6 +12,8 @@ module Hatchbox
 
     WAIT_FLAG = [nil, "--no-wait", "return once Hatchbox has queued it, without waiting for it to finish"].freeze
     JSON_FLAG = [nil, "--json", "output in json format"].freeze
+    SERVER_FLAG = ["-s", "--server SERVER", "the server, by name, id or role"].freeze
+    CONFIRM_APP_FLAG = [nil, "--confirm APP", "the app's name, to skip the prompt"].freeze
 
     class << self
       attr_reader :meta
@@ -21,7 +22,7 @@ module Hatchbox
         @meta = {
           name: name,
           summary: summary,
-          usage: usage || name,
+          usage: usage || ([name] + args.values).join(" "),
           help: help,
           args: args.map { |key, text| Hatchbox::Arguments::Spec.new(name: key, text: text) },
           flags: flags.map { |spec| Hatchbox::Flag.new(spec) },
@@ -39,6 +40,8 @@ module Hatchbox
         command = new(session: session, argv: argv)
         command.prepare
         command.call
+      rescue Hatchbox::UsageError => e
+        raise Hatchbox::Error, "Usage: hatchbox #{meta[:usage]}\n#{e.message}"
       end
     end
 
@@ -81,11 +84,11 @@ module Hatchbox
     end
 
     def positional_app
-      nil
+      args.app if meta[:args].any? { |spec| spec.name == :app }
     end
 
     def usage_error(message)
-      raise Hatchbox::Error, "Usage: hatchbox #{meta[:usage]}\n#{message}"
+      raise Hatchbox::UsageError, message
     end
 
     def confirm(expected:, lines:)

@@ -9,10 +9,7 @@ module Hatchbox
           usage: "ps:forward PORT[,PORT...]",
           args: { ports: "PORT" },
           ssh: :shell,
-          flags: [
-            ["-p", "--local-port PORT", "local port to use, comma separated to match PORT"],
-            ["-s", "--server SERVER", "the server, by name, id or role"]
-          ],
+          flags: [["-p", "--local-port PORT", "local port to use, comma separated to match PORT"], SERVER_FLAG],
           examples: ["$ hatchbox ps:forward 9090", "SSH tunnel established.", "Forwarding localhost:9090 to web-1:9090", "Use CTRL+C to stop port forwarding"]
 
         def call

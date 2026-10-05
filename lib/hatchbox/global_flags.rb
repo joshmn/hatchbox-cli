@@ -37,6 +37,8 @@ module Hatchbox
     attr_reader :argv
 
     def take(token:, tokens:)
+      return rest << token if remote_flag?(token)
+
       case token
       when "-a", "--app" then @app = value(flag: token, tokens: tokens)
       when /\A--app=(.*)\z/ then @app = Regexp.last_match(1)
@@ -49,6 +51,13 @@ module Hatchbox
       when "-v" then short_v(token)
       else rest << token
       end
+    end
+
+    def remote_flag?(token)
+      return false unless token.match?(/\A-[ar]./) && rest.length > 1
+
+      command = Hatchbox::Registry.find(rest.first)
+      command ? command.meta[:lenient] : false
     end
 
     def short_v(token)

@@ -20,6 +20,10 @@ module Hatchbox
           env.merge("PGOPTIONS" => extra.join(" "))
         end
 
+        def query(sql)
+          run_sql(record: postgres(args.database), sql: sql)
+        end
+
         def run_sql(record:, sql:, dangerous: false)
           with_connection(record) do |database, host, port|
             argv = ["psql", "-X", "-h", host, "-p", port, "-U", database.user, "-d", database.name, "-c", sql]

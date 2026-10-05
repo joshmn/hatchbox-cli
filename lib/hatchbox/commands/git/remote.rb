@@ -6,7 +6,6 @@ module Hatchbox
       class Remote < Hatchbox::Command
         describe "git:remote",
           summary: "save an app as a remote for this repo",
-          usage: "git:remote [FILTER]",
           args: { filter: "[FILTER]" },
           aliases: ["setup"],
           app: false,

@@ -24,17 +24,14 @@ module Hatchbox
       end
 
       def print_log(log)
-        body = log["body"].to_s
-        print(body)
-        puts if !body.empty? && !body.end_with?("\n")
+        write(io: $stdout, text: log["body"].to_s)
         (log["child_logs"] || []).each do |child|
           text = child["body"].to_s
           next if text.empty?
 
           puts
           puts(Hatchbox::Color.cyan("Output from #{server_label(child)}"))
-          print(text)
-          puts unless text.end_with?("\n")
+          write(io: $stdout, text: text)
         end
         $stdout.flush
       end
@@ -45,9 +42,7 @@ module Hatchbox
         pool = children.select { |child| child["state"].to_s != "completed" }
         pool = children if pool.empty?
         if pool.empty?
-          text = log["body"].to_s
-          $stderr.print(text)
-          $stderr.puts unless text.empty? || text.end_with?("\n")
+          write(io: $stderr, text: log["body"].to_s)
         else
           pool.each { |child| report_child(child) }
         end
@@ -60,8 +55,12 @@ module Hatchbox
 
       def report_child(child)
         $stderr.puts("Output from #{server_label(child)}")
-        $stderr.print(child["body"].to_s)
-        $stderr.puts unless child["body"].to_s.end_with?("\n")
+        write(io: $stderr, text: child["body"].to_s)
+      end
+
+      def write(io:, text:)
+        io.print(text)
+        io.puts unless text.empty? || text.end_with?("\n")
       end
 
       def emit(key:, text:)

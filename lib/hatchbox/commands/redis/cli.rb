@@ -8,7 +8,6 @@ module Hatchbox
 
         describe "redis:cli",
           summary: "open a redis-cli session to the app's redis",
-          usage: "redis:cli [DATABASE]",
           args: { database: "[DATABASE]" },
           ssh: :tunnel,
           flags: [[nil, "--direct", "connect straight to the redis host instead of through an SSH tunnel"]],

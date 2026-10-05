@@ -2,14 +2,6 @@
 
 module Hatchbox
   class Http
-    METHODS = {
-      "GET" => Net::HTTP::Get,
-      "POST" => Net::HTTP::Post,
-      "PUT" => Net::HTTP::Put,
-      "PATCH" => Net::HTTP::Patch,
-      "DELETE" => Net::HTTP::Delete
-    }.freeze
-
     def initialize(base:, token:)
       @base = base
       @token = token
@@ -26,7 +18,7 @@ module Hatchbox
     attr_reader :base, :token
 
     def build(method:, uri:, body:)
-      message = METHODS.fetch(method).new(uri.request_uri)
+      message = Net::HTTP.const_get(method.capitalize).new(uri.request_uri)
       message["Authorization"] = "Bearer #{token}"
       message["Accept"] = "application/json"
       message["User-Agent"] = Hatchbox.platform

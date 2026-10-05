@@ -2,37 +2,13 @@
 
 module Hatchbox
   module Color
+    CODES = { red: 31, green: 32, yellow: 33, cyan: 36, dim: 90, bold: 1 }.freeze
+
     class << self
-      def red(text)
-        paint(text, code: 31)
-      end
+      CODES.each { |name, code| define_method(name) { |text| paint(text, code: code) } }
 
-      def green(text)
-        paint(text, code: 32)
-      end
-
-      def yellow(text)
-        paint(text, code: 33)
-      end
-
-      def cyan(text)
-        paint(text, code: 36)
-      end
-
-      def dim(text)
-        paint(text, code: 90)
-      end
-
-      def bold(text)
-        paint(text, code: 1)
-      end
-
-      private
-
-      def paint(text, code:)
-        return text unless Hatchbox.color?
-
-        "\e[#{code}m#{text}\e[0m"
+      def paint(text, code:, io: $stdout)
+        Hatchbox.color?(io) ? "\e[#{code}m#{text}\e[0m" : text
       end
     end
   end

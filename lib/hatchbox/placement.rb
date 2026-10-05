@@ -9,12 +9,8 @@ module Hatchbox
       @server = server
     end
 
-    def type
-      process["name"].to_s
-    end
-
     def label
-      Hatchbox.blank?(server["name"]) ? type : "#{type}@#{server["name"]}"
+      Hatchbox.blank?(server["name"]) ? process["name"].to_s : "#{process["name"]}@#{server["name"]}"
     end
   end
 end

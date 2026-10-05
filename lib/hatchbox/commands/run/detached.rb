@@ -46,16 +46,10 @@ module Hatchbox
           inner = command.rails? ? command.rails_exec : command.text
           [
             command.rails? ? target.enter_or_stop : target.enter(separator: " || true"),
-            exports(command),
+            command.exports,
             "setsid nohup systemd-cat -t #{Shellwords.escape(ident)} bash -lc #{Shellwords.escape(inner)} </dev/null >/dev/null 2>&1 &",
             "echo started"
           ].reject { |part| part.empty? }.join("\n")
-        end
-
-        def exports(command)
-          command.exports
-        rescue Hatchbox::RemoteCommand::InvalidEnv => e
-          usage_error(e.message)
         end
       end
     end

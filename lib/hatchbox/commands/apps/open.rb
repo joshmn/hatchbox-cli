@@ -6,7 +6,6 @@ module Hatchbox
       class Open < Hatchbox::Command
         describe "apps:open",
           summary: "open the app in a web browser",
-          usage: "apps:open [PATH]",
           args: { path: "[PATH]" },
           aliases: ["open"],
           help: ["Opens the first of the app's domains over https."]

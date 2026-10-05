@@ -6,39 +6,23 @@ module Hatchbox
       @http = Hatchbox::Http.new(base: Hatchbox::API_BASE, token: token)
     end
 
-    def get(path)
-      ensure_ok(raw(method: "GET", path: path))
-    end
-
-    def post(path, body: nil)
-      ensure_ok(raw(method: "POST", path: path, body: body))
-    end
-
-    def put(path, body: nil)
-      ensure_ok(raw(method: "PUT", path: path, body: body))
-    end
-
-    def patch(path, body: nil)
-      ensure_ok(raw(method: "PATCH", path: path, body: body))
-    end
-
-    def delete(path, body: nil)
-      ensure_ok(raw(method: "DELETE", path: path, body: body))
+    ["GET", "POST", "PUT", "PATCH", "DELETE"].each do |verb|
+      define_method(verb.downcase) { |path, body: nil| ensure_ok(raw(method: verb, path: path, body: body)) }
     end
 
     def raw(method:, path:, body: nil)
       http.request(method: method, path: path, body: body)
     end
 
-    def all(path)
-      rows = []
-      url = path
-      until url.nil?
-        response = get(url)
-        rows.concat(Array(response.json))
-        url = response.next_page
+    def pages(path)
+      Enumerator.new do |pages|
+        url = path
+        until url.nil?
+          response = get(url)
+          pages << Array(response.json)
+          url = response.next_page
+        end
       end
-      rows
     end
 
     def error_message(response)
