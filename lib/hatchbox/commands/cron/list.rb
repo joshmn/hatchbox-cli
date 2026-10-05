@@ -10,11 +10,7 @@ module Hatchbox
           summary: "list the app's cron jobs",
           aliases: ["cron:list"],
           flags: [JSON_FLAG],
-          help: [
-            "Cron jobs run from the app's current release as the deploy user, on every server",
-            "in the cluster carrying the cron role. Cron keeps none of their output; read",
-            "when they ran with hatchbox run -s cron 'journalctl -u cron'."
-          ]
+          help: ["hatchbox run -s cron 'journalctl -u cron' shows when they ran."]
 
         def call
           rows = cron_jobs

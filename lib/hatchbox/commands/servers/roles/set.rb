@@ -15,10 +15,8 @@ module Hatchbox
             flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG],
             help: [
               "Roles are app, web, worker, cron, load_balancer, postgresql, mysql, redis,",
-              "memcached and elasticsearch. Adding an app role deploys every app in the",
-              "cluster. Removing a database role uninstalls it and destroys its data, and so",
-              "does dropping a server's last app role when it holds SQLite databases; those",
-              "need the server's name typed back."
+              "memcached and elasticsearch. A change that destroys data needs the server's",
+              "name typed back."
             ]
 
           private

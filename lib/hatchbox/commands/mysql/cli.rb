@@ -20,11 +20,10 @@ module Hatchbox
             [nil, "--dangerous", "a session that can write, which it cannot by default"]
           ],
           help: [
-            "Connects to the MySQL database attached to the app. Sessions start with",
-            "SET SESSION TRANSACTION READ ONLY unless you pass --dangerous. The password goes",
-            "in a temporary option file, so it stays out of the process list. DATABASE is a",
-            "database name or the config var it is attached as; anything else is run as SQL.",
-            "mysql's own flags go after --."
+            "Sessions start with SET SESSION TRANSACTION READ ONLY unless you pass",
+            "--dangerous. The password goes in a temporary option file, so it stays out of",
+            "the process list. DATABASE is a database name or the config var it is attached",
+            "as; anything else is run as SQL. mysql's own flags go after --."
           ],
           examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"]
 

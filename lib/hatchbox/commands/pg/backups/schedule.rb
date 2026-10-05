@@ -39,7 +39,7 @@ module Hatchbox
             ],
             help: [
               "Only the settings you pass change, but every call turns backups on, so the first",
-              "one needs the provider and its settings. Hatchbox never returns credentials."
+              "one needs the provider and its settings."
             ],
             examples: [
               "$ hatchbox pg:backups:schedule --at @daily --provider s3 --region us-east-1 --bucket my-backups --access-key-id AKIA... --retention 7d",

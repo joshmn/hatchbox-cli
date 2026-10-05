@@ -8,8 +8,7 @@ module Hatchbox
           summary: "restart every process, or one process type",
           args: { type: "[TYPE]" },
           aliases: ["restart"],
-          flags: [WAIT_FLAG],
-          help: ["Hatchbox restarts a process on every server it runs on."]
+          flags: [WAIT_FLAG]
 
         def call
           return restart_all if args.type.nil?

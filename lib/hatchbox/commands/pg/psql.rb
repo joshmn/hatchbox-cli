@@ -21,9 +21,8 @@ module Hatchbox
             [nil, "--dangerous", "a session that can write, which it cannot by default"]
           ],
           help: [
-            "Connects to the PostgreSQL database attached to the app. DATABASE is a database",
-            "name or the config var it is attached as, like DATABASE_URL; anything else is",
-            "run as SQL. psql's own flags go after --."
+            "DATABASE is a database name or the config var it is attached as, like",
+            "DATABASE_URL; anything else is run as SQL. psql's own flags go after --."
           ],
           examples: ["$ hatchbox pg:psql", "$ hatchbox pg:psql -c 'select count(*) from users'", "$ hatchbox pg:psql RED_DATABASE_URL --dangerous"]
 

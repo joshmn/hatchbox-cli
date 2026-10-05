@@ -12,8 +12,7 @@ module Hatchbox
           describe "pg:backups:download",
             summary: "download the latest backup",
             args: { database: "[DATABASE]" },
-            flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]],
-            help: ["Like hatchbox pg:backups:url, this only works with S3-compatible storage."]
+            flags: [["-o", "--output FILE", "where to write it, the backup's own file name unless you say otherwise"]]
 
           def call
             record = one_database

@@ -14,9 +14,6 @@ module Hatchbox
           [nil, "--watch", "stream the log, which it does anyway"],
           [nil, "--status", "same as hatchbox status"]
         ],
-        help: [
-          "Hatchbox pulls from your git host, so this asks it to deploy."
-        ],
         examples: ["$ hatchbox deploy", "Deploying main to fpd... queued, release 4212", "-----> Starting deployment", "...", "Verifying deploy... done"]
 
       def call

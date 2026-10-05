@@ -8,10 +8,7 @@ module Hatchbox
           summary: "display the config vars set on an app",
           aliases: ["config:list"],
           flags: [JSON_FLAG],
-          help: [
-            "Hatchbox's API only returns config var names, never their values. Values set",
-            "with hatchbox config:set still reach the servers."
-          ]
+          help: ["Hatchbox's API only returns config var names, never their values."]
 
         def call
           names = app.env_var_names

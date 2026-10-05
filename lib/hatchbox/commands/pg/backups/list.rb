@@ -11,10 +11,7 @@ module Hatchbox
             summary: "list database backups and the backup schedule",
             args: { database: "[DATABASE]" },
             flags: [JSON_FLAG],
-            help: [
-              "DATABASE defaults to the app's PostgreSQL database. Backups work on any",
-              "unmanaged database Hatchbox runs; managed ones are backed up by your provider."
-            ]
+            help: ["DATABASE defaults to the app's PostgreSQL database."]
 
           def call
             record = one_database

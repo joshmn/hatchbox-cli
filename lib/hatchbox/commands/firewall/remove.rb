@@ -11,8 +11,7 @@ module Hatchbox
           args: { server: "SERVER", rule: "RULE" },
           aliases: ["firewall:delete"],
           app: :optional,
-          flags: [CLUSTER_FLAG, WAIT_FLAG],
-          help: ["The rule stays in force, and listed, until ufw on the server accepts the change."]
+          flags: [CLUSTER_FLAG, WAIT_FLAG]
 
         def call
           server = find_server(args.server)

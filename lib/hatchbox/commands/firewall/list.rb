@@ -11,8 +11,7 @@ module Hatchbox
           args: { server: "SERVER" },
           aliases: ["firewall:list"],
           app: :optional,
-          flags: [CLUSTER_FLAG, JSON_FLAG],
-          help: ["Rules Hatchbox manages itself, like SSH and the web ports, cannot be removed."]
+          flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call
           server = find_server(args.server)

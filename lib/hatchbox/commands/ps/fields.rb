@@ -9,12 +9,12 @@ module Hatchbox
           [nil, "--start COMMAND", "the command that runs"],
           [nil, "--stop COMMAND", "command systemd runs to stop it"],
           [nil, "--reload COMMAND", "command systemd runs to reload it"],
-          [nil, "--roles LIST", "comma-separated roles; it runs on every server holding one of them"],
+          [nil, "--roles LIST", "comma-separated roles"],
           [nil, "--server SERVER", "one server to run on instead of roles, by name or id"],
           [nil, "--systemd-type TYPE", "simple or oneshot"],
           [nil, "--[no-]socket", "systemd socket activation, at most one process per app"],
           [nil, "--[no-]restart-on-deploy", "restart it on every deploy, which is the default"],
-          [nil, "--[no-]appsignal", "run it under appsignal-wrap, which needs AppSignal connected"],
+          [nil, "--[no-]appsignal", "run it under appsignal-wrap"],
           [nil, "--appsignal-options OPTIONS", "extra flags for appsignal-wrap"]
         ].freeze
 

@@ -8,8 +8,7 @@ module Hatchbox
 
         describe "domains:add",
           summary: "add a domain to the app",
-          args: { hostname: "HOSTNAME" },
-          help: ["Accounts on a trial need a card on file before Hatchbox adds a domain."]
+          args: { hostname: "HOSTNAME" }
 
         def call
           name = args.hostname

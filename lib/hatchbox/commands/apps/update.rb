@@ -33,12 +33,7 @@ module Hatchbox
             [nil, "--caddyfile FILE", "Caddyfile to apply, or - to read it from stdin"],
             [nil, "--dns-provider PROVIDER", "DNS provider for certificates"],
             [nil, "--dns-api-user USER", "DNS API user"],
-            [nil, "--dns-access-token TOKEN", "DNS access token, which Hatchbox never returns"]
-          ],
-          help: [
-            "Passing --caddyfile or --health-check reapplies the app's Caddy configuration on",
-            "its servers, even when nothing changed. That is on purpose, since a Caddyfile",
-            "usually imports files out of the repo."
+            [nil, "--dns-access-token TOKEN", "DNS access token"]
           ]
 
         def call

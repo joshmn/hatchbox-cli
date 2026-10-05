@@ -11,10 +11,6 @@ module Hatchbox
           usage: "ps:update TYPE [--start COMMAND] [--roles LIST] ...",
           args: { type: "TYPE" },
           flags: Hatchbox::Commands::Ps::Fields::FLAGS + [WAIT_FLAG],
-          help: [
-            "Renaming a process renames its systemd unit, so it stops and starts again under",
-            "the new name."
-          ],
           examples: ["$ hatchbox ps:update worker --start 'bundle exec sidekiq -c 10'", "Updating worker on fpd... done"]
 
         def call

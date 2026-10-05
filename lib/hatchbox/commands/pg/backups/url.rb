@@ -9,11 +9,7 @@ module Hatchbox
 
           describe "pg:backups:url",
             summary: "get a temporary URL for the latest backup",
-            args: { database: "[DATABASE]" },
-            help: [
-              "The URL expires a few minutes after it is issued. Only S3-compatible storage can",
-              "hand one out."
-            ]
+            args: { database: "[DATABASE]" }
 
           def call
             record = one_database

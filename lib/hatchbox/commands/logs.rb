@@ -23,10 +23,8 @@ module Hatchbox
           [nil, "--force-colors", "force use of colors even on non-tty output"]
         ],
         help: [
-          "Hatchbox keeps no runtime logs and has no API for them, so this goes to every",
-          "server the app's processes run on and reads the journal of each process's",
-          "systemd unit, which Hatchbox names APP-PROCESS. Lines from every server are",
-          "merged by time.",
+          "Reads the journal of each process's systemd unit on every server the app's",
+          "processes run on, and merges the lines by time.",
           "",
           "app lines are the process's own output. systemd lines are systemd reporting",
           "that the process started, stopped or crashed."

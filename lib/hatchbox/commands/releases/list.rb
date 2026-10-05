@@ -7,10 +7,7 @@ module Hatchbox
         describe "releases",
           summary: "display the app's release history",
           flags: [["-n", "--num NUM", "number of releases to display", Integer], [nil, "--page PAGE", "page of older releases", Integer], JSON_FLAG],
-          help: [
-            "Everything Hatchbox did to the app: deploys, restarts and process changes, each",
-            "with the id hatchbox releases:output reads."
-          ]
+          help: ["hatchbox releases:output reads any id listed here."]
 
         def call
           limit = options.num || 15

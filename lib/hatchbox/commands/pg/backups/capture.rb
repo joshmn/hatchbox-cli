@@ -11,10 +11,7 @@ module Hatchbox
             summary: "take a backup now",
             args: { database: "[DATABASE]" },
             flags: [WAIT_FLAG],
-            help: [
-              "Backups have to be scheduled first, with hatchbox pg:backups:schedule, since",
-              "that sets where they are stored."
-            ]
+            help: ["Schedule backups first with hatchbox pg:backups:schedule."]
 
           def call
             record = one_database

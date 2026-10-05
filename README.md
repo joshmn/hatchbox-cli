@@ -55,7 +55,7 @@ The file is JSON: your token, plus one entry per repo (keyed by the repo's path)
 }
 ```
 
-The `ssh` block is only for when Hatchbox's defaults (the deploy user, the server's public IP and SSH port, and `/home/deploy/APP/current` as the app directory) don't work for you. Commands marked `(ssh)` in `hatchbox help` are the ones that use it.
+The `ssh` block is only for when Hatchbox's defaults don't work for you. Commands marked `(ssh)` in `hatchbox help` are the ones that use it.
 
 Tokens in an older `~/.hatchbox` keep working, and they get rewritten as JSON the first time something writes to the file. Old per-repo `.hatchbox` files are ignored now, so run `hatchbox setup` again in those repos.
 

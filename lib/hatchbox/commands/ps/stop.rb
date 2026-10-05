@@ -5,14 +5,10 @@ module Hatchbox
     module Ps
       class Stop < Hatchbox::Command
         describe "ps:stop",
-          summary: "turn a process off and leave it off",
+          summary: "turn a process off",
           args: { type: "TYPE" },
           aliases: ["ps:kill"],
-          flags: [WAIT_FLAG],
-          help: [
-            "A stopped process stays stopped through deploys and restarts until hatchbox",
-            "ps:start turns it back on."
-          ]
+          flags: [WAIT_FLAG]
 
         def call
           process = app.formation.find_process(args.type)

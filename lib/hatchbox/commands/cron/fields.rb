@@ -7,7 +7,7 @@ module Hatchbox
         FLAGS = [
           [nil, "--at SCHEDULE", "cron expression or @hourly, @daily, @weekly, @monthly"],
           [nil, "--name NAME", "a label for the job"],
-          [nil, "--[no-]appsignal", "wrap it in AppSignal cron monitoring, which needs AppSignal connected"],
+          [nil, "--[no-]appsignal", "wrap it in AppSignal cron monitoring"],
           [nil, "--honeybadger-checkin-id ID", "Honeybadger check-in to report to, or an empty string to stop"]
         ].freeze
 

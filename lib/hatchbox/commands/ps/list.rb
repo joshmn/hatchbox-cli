@@ -10,8 +10,6 @@ module Hatchbox
           args: { types: "[TYPE...]" },
           flags: [JSON_FLAG],
           help: [
-            "A process runs once on every active server carrying one of its roles, or on the",
-            "one server it is pinned to, and each of those servers is listed under it.",
             "Hatchbox's API knows whether a process is enabled, not whether it is up right",
             "now; hatchbox logs and hatchbox ps:exec reach the servers for that."
           ],
