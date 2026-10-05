@@ -1,3 +1,0 @@
-module Hatchbox
-  VERSION: String
-end

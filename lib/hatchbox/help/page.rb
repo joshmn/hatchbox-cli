@@ -6,7 +6,8 @@ module Hatchbox
       SSH_NOTES = {
         shell: [
           "Uses SSH. It connects as the deploy user to one or more of the app's servers,",
-          "so your key has to be on them. A user, host or port under ssh.REMOTE for this",
+          "so your key has to be on them (and should be had you provision your server through Hatchbox.",
+          "A user, host or port under ssh.REMOTE for this",
           "repo in ~/.hatchbox overrides that, and HATCHBOX_SSH_OPTIONS passes extra flags."
         ],
         tunnel: [
@@ -18,14 +19,6 @@ module Hatchbox
       }.freeze
 
       FOOTER = [
-        "The app comes from -a/--app, then -r/--remote (a remote saved for this repo),",
-        "then HATCHBOX_APP, then this repo's default remote, or its only remote when it",
-        "has no default. Remotes, defaults and SSH settings live in ~/.hatchbox, keyed",
-        "by repo; hatchbox help git:remote explains it. The token comes from",
-        "HATCHBOX_API_TOKEN, then ~/.hatchbox.",
-        "postgresql:COMMAND works anywhere pg:COMMAND does. Commands marked (ssh) connect",
-        "to your servers over SSH.",
-        "",
         "Environment:",
         "  HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox",
         "  HATCHBOX_APP           app to use when -a and -r are left off",

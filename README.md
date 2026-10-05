@@ -38,7 +38,7 @@ hatchbox git:remote
 
 ## Everything goes in `~/.hatchbox`
 
-The file is JSON: your token, plus one entry per repo (keyed by the repo's path) with its remotes, which one is the default, and any SSH overrides. Nothing gets written into the repo itself, so there's nothing to gitignore.
+Everything is keyed with one entry per repo (per the repo's path) with its remotes and includes any SSH overrides. 
 
 ```json
 {
@@ -57,8 +57,6 @@ The file is JSON: your token, plus one entry per repo (keyed by the repo's path)
 
 The `ssh` block is only for when Hatchbox's defaults don't work for you. Commands marked `(ssh)` in `hatchbox help` are the ones that use it.
 
-Tokens in an older `~/.hatchbox` keep working, and they get rewritten as JSON the first time something writes to the file. Old per-repo `.hatchbox` files are ignored now, so run `hatchbox setup` again in those repos.
-
 ## Using it
 
 ```bash
@@ -71,8 +69,6 @@ hatchbox ps:restart sidekiq
 hatchbox pg:psql
 hatchbox releases:rollback
 ```
-
-feels great, don't it?
 
 ## Kind of important differences
 
