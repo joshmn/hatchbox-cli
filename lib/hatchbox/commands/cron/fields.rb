@@ -11,6 +11,13 @@ module Hatchbox
           [nil, "--honeybadger-checkin-id ID", "Honeybadger check-in to report to, or an empty string to stop"]
         ].freeze
 
+        MAP = {
+          at: "run_at",
+          name: "name",
+          appsignal: "appsignal",
+          honeybadger_checkin_id: "honeybadger_checkin_id"
+        }.freeze
+
         private
 
         def cron_jobs
@@ -28,16 +35,9 @@ module Hatchbox
         end
 
         def cron_body
-          body = {}
-          body["run_at"] = options.at if options.key?(:at)
-          body["name"] = options.name if options.key?(:name)
-          body["appsignal"] = options.appsignal if options.key?(:appsignal)
-          body["honeybadger_checkin_id"] = checkin_id if options.key?(:honeybadger_checkin_id)
+          body = options.fields_for(MAP)
+          body["honeybadger_checkin_id"] = nil if body["honeybadger_checkin_id"] == ""
           body
-        end
-
-        def checkin_id
-          options.honeybadger_checkin_id.to_s.empty? ? nil : options.honeybadger_checkin_id
         end
 
         def show(row)

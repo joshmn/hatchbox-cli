@@ -38,10 +38,10 @@ module Hatchbox
         "#{capitalize(words.last)} #{words[-2]}"
       end
 
-      def rows(list, limit: 50)
+      def rows(list)
         list.map do |row|
           change = change(row)
-          change = "#{change[0, limit - 3]}..." if change.length > limit
+          change = "#{change[0, 47]}..." if change.length > 50
           [row["id"].to_s, change, row["username"].to_s, Hatchbox::Formatter.date(row["created_at"]).to_s, state(row)]
         end
       end

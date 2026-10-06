@@ -3,7 +3,7 @@
 module Hatchbox
   class Tunnel
     class << self
-      def open(session:, host:, port:, role: "postgresql")
+      def open(session:, host:, port:, role:)
         new(session: session, host: host, port: port, role: role).open
       end
     end
@@ -18,8 +18,7 @@ module Hatchbox
     end
 
     def open
-      server = Hatchbox::SshTarget.pinned?(session) ? nil : database_server
-      @target = Hatchbox::SshTarget.new(session: session, server: server)
+      @target = Hatchbox::SshTarget.for(session) { database_server }
       @local_port = free_port
       @dir = Dir.mktmpdir("hbx", "/tmp")
       Hatchbox::Ui.note("Tunneling to #{host}:#{port} through #{target.address}")
@@ -39,7 +38,7 @@ module Hatchbox
 
     def database_server
       found = session.app.fleet.holding(role)
-      raise Hatchbox::Error, "Could not tell which server holds the database. #{session.config.ssh_hint(env: session.env, key: "host")}" unless found
+      raise Hatchbox::Error, "Could not tell which server holds the database. #{session.config.ssh_hint(remote: session.remote, key: "host")}" unless found
 
       found
     end
@@ -56,7 +55,7 @@ module Hatchbox
 
     def failure_message
       "Could not open an SSH tunnel. Hatchbox puts your key on the deploy user, so\n" \
-        "check that ssh #{target.address} works. #{session.config.ssh_hint(env: session.env, key: "user")}"
+        "check that ssh #{target.address} works. #{session.config.ssh_hint(remote: session.remote, key: "user")}"
     end
 
     def free_port

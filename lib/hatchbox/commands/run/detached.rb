@@ -32,7 +32,7 @@ module Hatchbox
           code = nil
           ui.action("Running `#{text}` on #{label}") do |step|
             code = Hatchbox.run(target.ssh(command: target.login_shell(script)))
-            step.status = code.zero? ? "done, run #{run_id}" : ui.paint("failed", code: 31)
+            step.status = code.zero? ? "done, run #{run_id}" : color.red("failed", io: $stderr)
           end
           return code unless code.zero?
 

@@ -11,7 +11,6 @@ module Hatchbox
         describe "firewall:add",
           summary: "add a firewall rule to a server",
           args: { server: "SERVER", port: "PORT" },
-          app: :optional,
           flags: [
             CLUSTER_FLAG,
             [nil, "--from ADDRESS", "an IP address or CIDR range, anywhere unless you pass one"],

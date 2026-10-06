@@ -19,7 +19,7 @@ module Hatchbox
           usage_error("Must specify NAME.") if Hatchbox.blank?(body["name"])
           usage_error("Must specify --start, the command that runs.") if Hatchbox.blank?(body["start_command"])
           usage_error("Must specify --roles or --server, so Hatchbox knows where to run it.") if Array(body["roles"]).empty? && Hatchbox.blank?(body["server_id"])
-          Hatchbox.check_name!(body["name"])
+          Hatchbox.check_name!(body["name"]) unless options.key?(:name)
 
           data = client.post("/apps/#{app_id}/processes", body: { "process" => body }).json || {}
           code = Hatchbox.blank?(data["log_id"]) ? 0 : queued(message: "Creating #{body["name"]} on #{label}", log_id: data["log_id"])

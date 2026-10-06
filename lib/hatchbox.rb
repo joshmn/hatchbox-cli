@@ -22,15 +22,6 @@ module Hatchbox
   class Error < StandardError; end
   class UsageError < Error; end
 
-  API_BASE = "https://hatchbox.io/api/v1"
-  GLOBAL_CONFIG = File.join(Dir.home, ".hatchbox")
-  POLL_SECONDS = 3
-  MAX_WAIT_SECONDS = 3600
-  DEFAULT_SSH_USER = "deploy"
-  DEFAULT_SSH_PORT = "22"
-  FINISHED = ["completed", "failed", "aborted"].freeze
-  APP_ROLES = ["web", "worker", "cron", "app"].freeze
-  ROLES = ["app", "web", "worker", "cron", "load_balancer", "postgresql", "mysql", "redis", "memcached", "elasticsearch"].freeze
   NAME = /\A[A-Za-z0-9_-]+\z/.freeze
 
   class << self
@@ -70,6 +61,10 @@ module Hatchbox
 
     def ssh_options
       Shellwords.split(ENV["HATCHBOX_SSH_OPTIONS"].to_s)
+    end
+
+    def tilde(path)
+      path.sub(/\A#{Regexp.escape(Dir.home)}/, "~")
     end
 
     def platform

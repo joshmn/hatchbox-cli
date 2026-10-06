@@ -10,7 +10,6 @@ module Hatchbox
           summary: "remove a firewall rule from a server",
           args: { server: "SERVER", rule: "RULE" },
           aliases: ["firewall:delete"],
-          app: :optional,
           flags: [CLUSTER_FLAG, WAIT_FLAG]
 
         def call

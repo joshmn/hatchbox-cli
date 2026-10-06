@@ -31,10 +31,10 @@ module Hatchbox
         puts("Usage: hatchbox COMMAND [--app APP] [command-specific-options]")
         puts
         puts("Commands, type \"hatchbox help COMMAND\" for more details:")
-        visible = Hatchbox::Registry.visible
-        groups = visible.group_by { |klass| topic_of(klass) }
+        all = Hatchbox::Registry.commands
+        groups = all.group_by { |klass| topic_of(klass) }
         order = TOPICS.keys
-        width = visible.map { |klass| klass.meta[:name].length }.max
+        width = all.map { |klass| klass.meta[:name].length }.max
         groups.keys.sort_by { |topic| [order.index(topic) || order.length, topic] }.each do |topic|
           puts
           groups[topic].sort_by { |klass| klass.meta[:name] }.each { |klass| puts("  #{klass.meta[:name].ljust(width)}  #  #{summary(klass)}") }
@@ -55,13 +55,13 @@ module Hatchbox
       end
 
       def commands
-        rows = Hatchbox::Registry.visible.sort_by { |klass| klass.meta[:name] }.map { |klass| [klass.meta[:usage], summary(klass)] }
+        rows = Hatchbox::Registry.commands.sort_by { |klass| klass.meta[:name] }.map { |klass| [klass.meta[:usage], summary(klass)] }
         width = rows.map { |usage, _summary| usage.length }.max
         rows.each { |usage, summary| puts("#{usage.ljust(width)}  #  #{summary}") }
       end
 
       def members(topic)
-        Hatchbox::Registry.visible.select { |klass| topic_of(klass) == topic }.sort_by { |klass| klass.meta[:name] }
+        Hatchbox::Registry.commands.select { |klass| topic_of(klass) == topic }.sort_by { |klass| klass.meta[:name] }
       end
 
       def summary(klass)

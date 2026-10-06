@@ -16,7 +16,7 @@ module Hatchbox
         def call
           accounts = client.get("/accounts").json || []
           accounts.each { |account| puts("#{account["name"]} (#{account["id"]})") }
-          ui.note("token from #{Hatchbox::TokenStore.new.source(env: session.remote_flag)}")
+          ui.note("token from #{Hatchbox::TokenStore.new.source}")
           0
         end
       end

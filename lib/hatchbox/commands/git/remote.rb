@@ -49,7 +49,7 @@ module Hatchbox
           Hatchbox::RemoteName.validate(remote)
           return 1 unless replace?(remote: remote, slug: slug)
 
-          config.set_app(env: remote, app: slug)
+          config.set_app(remote: remote, app: slug)
           puts("set remote #{remote} to #{slug} for #{config.location}")
           choose_default
           0
@@ -78,7 +78,7 @@ module Hatchbox
           return true if Hatchbox.blank?(existing) || existing == slug
 
           ui.warning("#{remote} is already #{existing} for #{config.location}.")
-          return true unless prompt.available? && Hatchbox.blank?(ENV["HATCHBOX_ASSUME_YES"])
+          return true unless prompt.available?
           return true if prompt.yes?(question: "Point it at #{slug} instead? [y/N] ")
 
           $stderr.puts("Left alone.")
@@ -86,7 +86,7 @@ module Hatchbox
         end
 
         def choose_default
-          remotes = config.envs
+          remotes = config.remotes
           return if remotes.length < 2 || !config.default.nil?
 
           ui.warning("#{config.location} has more than one remote now, so every command wants -r unless one is the default.")

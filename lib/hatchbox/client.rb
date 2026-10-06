@@ -2,8 +2,10 @@
 
 module Hatchbox
   class Client
+    API_BASE = "https://hatchbox.io/api/v1"
+
     def initialize(token:)
-      @http = Hatchbox::Http.new(base: Hatchbox::API_BASE, token: token)
+      @http = Hatchbox::Http.new(base: API_BASE, token: token)
     end
 
     ["GET", "POST", "PUT", "PATCH", "DELETE"].each do |verb|

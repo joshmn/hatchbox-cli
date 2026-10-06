@@ -17,8 +17,7 @@ module Hatchbox
           body["command"] = options.command if options.key?(:command)
           usage_error("Nothing to change. See hatchbox help cron:update.") if body.empty?
 
-          updated = nil
-          ui.action("Updating #{row["name"]} on #{label}") { updated = client.patch("/apps/#{app_id}/cron_jobs/#{row["id"]}", body: { "cron_job" => body }).json || {} }
+          updated = ui.action("Updating #{row["name"]} on #{label}") { client.patch("/apps/#{app_id}/cron_jobs/#{row["id"]}", body: { "cron_job" => body }).json || {} }
           show(updated)
           0
         end

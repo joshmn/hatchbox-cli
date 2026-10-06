@@ -2,6 +2,18 @@
 
 module Hatchbox
   class Http
+    NETWORK_ERRORS = [
+      SocketError,
+      SystemCallError,
+      IOError,
+      Timeout::Error,
+      OpenSSL::SSL::SSLError,
+      Net::HTTPBadResponse,
+      Net::HTTPHeaderSyntaxError,
+      Net::ProtocolError,
+      Zlib::Error
+    ].freeze
+
     def initialize(base:, token:)
       @base = base
       @token = token
@@ -31,7 +43,7 @@ module Hatchbox
 
     def perform(uri:, message:)
       session(uri).request(message)
-    rescue StandardError => e
+    rescue *NETWORK_ERRORS => e
       drop(uri)
       raise Hatchbox::Error, "Could not reach #{uri.host}: #{e.message}"
     end
@@ -54,7 +66,7 @@ module Hatchbox
       pool = Thread.current[:hatchbox_sessions] || {}
       open = pool.delete(pool_key(uri))
       open.finish if open && open.started?
-    rescue StandardError
+    rescue *NETWORK_ERRORS
       nil
     end
 

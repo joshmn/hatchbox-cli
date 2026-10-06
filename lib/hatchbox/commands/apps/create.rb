@@ -32,13 +32,12 @@ module Hatchbox
 
           catalog = session.catalog
           account = catalog.find_account(options.team)
-          cluster = pick_cluster(catalog.clusters_for(account))
+          cluster = pick_cluster(catalog: catalog, account: account)
           body = { "cluster_id" => cluster["id"], "name" => name }
           body["branch"] = options.branch unless Hatchbox.blank?(options.branch)
           body["repo_path"] = options.repo unless Hatchbox.blank?(options.repo)
-          body["connected_account_id"] = pick_provider(catalog.git_providers_for(account))["id"] unless Hatchbox.blank?(options.git_provider)
-          created = nil
-          ui.action("Creating #{name} on #{cluster["name"]}") { created = client.post("/apps", body: { "app" => body }).json || {} }
+          body["connected_account_id"] = catalog.find_git_provider(options.git_provider, account: account)["id"] unless Hatchbox.blank?(options.git_provider)
+          created = ui.action("Creating #{name} on #{cluster["name"]}") { client.post("/apps", body: { "app" => body }).json || {} }
           slug = "#{created["id"]}-#{created["name"] || name}"
           options.no_remote ? puts(slug) : remember(slug)
           0
@@ -46,11 +45,12 @@ module Hatchbox
 
         private
 
-        def pick_cluster(clusters)
+        def pick_cluster(catalog:, account:)
           wanted = options.cluster
+          clusters = catalog.clusters_for(account)
           return only_cluster(clusters) if Hatchbox.blank?(wanted)
 
-          found = clusters.find { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) }
+          found = catalog.find_cluster(wanted, accounts: [account])
           raise Hatchbox::Error, (["No cluster called #{wanted}. Clusters:"] + cluster_lines(clusters)).join("\n") unless found
 
           found
@@ -67,17 +67,6 @@ module Hatchbox
           clusters.map { |row| "#{row["name"]} (#{row["id"]})" }
         end
 
-        def pick_provider(providers)
-          wanted = options.git_provider.to_s
-          found = providers.select { |row| row["id"].to_s == wanted || row["name"].to_s.casecmp?(wanted) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted) }
-          return found.first if found.length == 1
-
-          listing = providers.map { |row| "#{row["provider"]}:#{row["name"]} (#{row["id"]})" }
-          raise Hatchbox::Error, (["More than one git provider is called #{wanted}. Use provider:name or the id:"] + listing).join("\n") if found.length > 1
-
-          raise Hatchbox::Error, (["No git provider called #{wanted}. Providers:"] + listing).join("\n")
-        end
-
         def remember(slug)
           return puts(slug) unless Hatchbox::ProjectRoot.repo
 
@@ -85,7 +74,7 @@ module Hatchbox
           existing = config.app_for(remote)
           return ui.warning("Remote #{remote} is already set to #{existing} for #{config.location}, so it was left alone. Save this app under another remote with hatchbox git:remote -a #{slug} -r NAME.") unless Hatchbox.blank?(existing)
 
-          config.set_app(env: remote, app: slug)
+          config.set_app(remote: remote, app: slug)
           puts("set remote #{remote} to #{slug} for #{config.location}")
         end
       end

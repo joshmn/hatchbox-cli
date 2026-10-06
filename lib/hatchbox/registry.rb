@@ -24,31 +24,14 @@ module Hatchbox
         COMMANDS.keys + ALIASES.keys
       end
 
-      def visible
-        COMMANDS.values.reject { |klass| klass.meta[:hidden] }
+      def commands
+        COMMANDS.values
       end
 
       def suggest(name)
-        best = names.min_by { |candidate| distance(left: name, right: candidate) }
-        return nil unless best
+        return nil unless defined?(DidYouMean::SpellChecker)
 
-        distance(left: name, right: best) <= [name.length / 2, 3].max ? best : nil
-      end
-
-      private
-
-      def distance(left:, right:)
-        rows = (0..right.length).to_a
-        left.each_char.with_index(1) do |char, i|
-          previous = rows[0]
-          rows[0] = i
-          right.each_char.with_index(1) do |other, j|
-            current = rows[j]
-            rows[j] = [rows[j] + 1, rows[j - 1] + 1, previous + (char == other ? 0 : 1)].min
-            previous = current
-          end
-        end
-        rows[right.length]
+        DidYouMean::SpellChecker.new(dictionary: names).correct(name.to_s).first
       end
     end
   end

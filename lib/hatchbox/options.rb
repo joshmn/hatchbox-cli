@@ -24,6 +24,10 @@ module Hatchbox
       public_send(key)
     end
 
+    def fields_for(map)
+      map.each_with_object({}) { |(key, field), found| found[field] = self[key] if key?(key) }
+    end
+
     private
 
     attr_reader :flags, :values

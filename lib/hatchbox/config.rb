@@ -12,7 +12,7 @@ module Hatchbox
     end
 
     def location
-      "#{root.sub(/\A#{Regexp.escape(Dir.home)}/, "~")} in #{store.display_path}"
+      "#{Hatchbox.tilde(root)} in #{store.display_path}"
     end
 
     def exists?
@@ -20,15 +20,15 @@ module Hatchbox
     end
 
     def apps
-      remotes.to_a
+      remote_map.to_a
     end
 
-    def envs
-      remotes.keys
+    def remotes
+      remote_map.keys
     end
 
-    def app_for(env)
-      remotes[env]
+    def app_for(remote)
+      remote_map[remote]
     end
 
     def default
@@ -36,34 +36,34 @@ module Hatchbox
       Hatchbox.blank?(value) ? nil : value
     end
 
-    def ssh(env:, key:)
-      return nil if env.nil?
+    def ssh(remote:, key:)
+      return nil if remote.nil?
 
-      value = (project.fetch("ssh", {})[env] || {})[key]
+      value = (project.fetch("ssh", {})[remote] || {})[key]
       Hatchbox.blank?(value) ? nil : value.to_s
     end
 
-    def ssh_hint(env:, key:)
-      "Set \"#{key}\" under ssh.#{env || "REMOTE"} for #{location}."
+    def ssh_hint(remote:, key:)
+      "Set \"#{key}\" under ssh.#{remote || "REMOTE"} for #{location}."
     end
 
-    def set_app(env:, app:)
-      change { |entry| (entry["remotes"] ||= {})[env] = app }
+    def set_app(remote:, app:)
+      change { |entry| (entry["remotes"] ||= {})[remote] = app }
     end
 
-    def set_default(env)
-      change { |entry| entry["default"] = env }
+    def set_default(remote)
+      change { |entry| entry["default"] = remote }
     end
 
     def remove_app_id(app_id)
-      gone = apps.select { |_env, slug| Hatchbox.slug_id(slug) == app_id.to_s }.map { |env, _slug| env }
-      change { |entry| forget(entry: entry, envs: gone) } if gone.any?
+      gone = apps.select { |_remote, slug| Hatchbox.slug_id(slug) == app_id.to_s }.map { |remote, _slug| remote }
+      change { |entry| forget(entry: entry, remotes: gone) } if gone.any?
       gone
     end
 
     def rename_app_id(app_id:, slug:)
-      moved = apps.select { |_env, existing| Hatchbox.slug_id(existing) == app_id.to_s }.map { |env, _slug| env }
-      change { |entry| moved.each { |env| entry["remotes"][env] = slug } } if moved.any?
+      moved = apps.select { |_remote, existing| Hatchbox.slug_id(existing) == app_id.to_s }.map { |remote, _slug| remote }
+      change { |entry| moved.each { |remote| entry["remotes"][remote] = slug } } if moved.any?
       moved
     end
 
@@ -75,13 +75,13 @@ module Hatchbox
       store.data.fetch("projects", {})[root] || {}
     end
 
-    def remotes
+    def remote_map
       project.fetch("remotes", {})
     end
 
-    def forget(entry:, envs:)
-      envs.each { |env| entry["remotes"].delete(env) }
-      entry.delete("default") if envs.include?(entry["default"])
+    def forget(entry:, remotes:)
+      remotes.each { |remote| entry["remotes"].delete(remote) }
+      entry.delete("default") if remotes.include?(entry["default"])
     end
 
     def change

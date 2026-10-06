@@ -11,13 +11,13 @@ module Hatchbox
       store.display_path
     end
 
-    def read(env: nil)
-      found = first_set(env)
+    def read
+      found = first_set
       found ? found.last : nil
     end
 
-    def source(env: nil)
-      found = first_set(env)
+    def source
+      found = first_set
       found ? found.first : nil
     end
 
@@ -50,32 +50,20 @@ module Hatchbox
     end
 
     def forget
-      count = (Hatchbox.blank?(store.data["token"]) ? 0 : 1) + store.data.fetch("tokens", {}).length
-      return 0 if count.zero?
+      return if Hatchbox.blank?(store.data["token"])
 
-      store.update do |data|
-        data.delete("token")
-        data.delete("tokens")
-      end
-      count
+      store.update { |data| data.delete("token") }
     end
 
     private
 
     attr_reader :prompt, :store
 
-    def first_set(env)
+    def first_set
       return ["the HATCHBOX_API_TOKEN environment variable", ENV["HATCHBOX_API_TOKEN"]] unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])
-      return ["tokens.#{env} in #{path}", scoped(env)] unless Hatchbox.blank?(scoped(env))
       return [path, store.data["token"]] unless Hatchbox.blank?(store.data["token"])
 
       nil
-    end
-
-    def scoped(env)
-      return nil if env.nil?
-
-      store.data.fetch("tokens", {})[env]
     end
   end
 end

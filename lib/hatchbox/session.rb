@@ -17,8 +17,8 @@ module Hatchbox
       @target ||= Hatchbox::Target.new(session: self).resolve
     end
 
-    def env
-      target.env
+    def remote
+      target.remote
     end
 
     def app_id
@@ -34,7 +34,7 @@ module Hatchbox
     end
 
     def app
-      @app ||= Hatchbox::App.new(client: client, app_id: app_id, slug: target.slug)
+      @app ||= Hatchbox::App.new(app_id: app_id, slug: target.slug, client: client)
     end
 
     def catalog
@@ -48,8 +48,7 @@ module Hatchbox
     private
 
     def find_token
-      scope = @target ? @target.env : remote_flag
-      found = Hatchbox::TokenStore.new.read(env: scope)
+      found = Hatchbox::TokenStore.new.read
       raise Hatchbox::Error, "Not logged in.\nRun hatchbox login, or set HATCHBOX_API_TOKEN." if Hatchbox.blank?(found)
 
       found

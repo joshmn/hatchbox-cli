@@ -9,7 +9,6 @@ module Hatchbox
         describe "servers:info",
           summary: "show one server",
           args: { server: "SERVER" },
-          app: :optional,
           flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call

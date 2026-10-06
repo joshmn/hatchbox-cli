@@ -13,8 +13,7 @@ module Hatchbox
           flags: [
             ["-e", "--env ENV", "environment variables to set, like FOO=bar;BAZ=qux", :many],
             ["-s", "--server SERVER", "the server to run on, by name, id or role"],
-            [nil, "--no-tty", "force the command to not run in a tty"],
-            ["-x", "--exit-code", "passthrough the exit code of the remote command, which it always does"]
+            [nil, "--no-tty", "force the command to not run in a tty"]
           ],
           help: [
             "Runs in a login shell from the app's current release, on the first server",

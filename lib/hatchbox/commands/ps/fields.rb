@@ -33,8 +33,7 @@ module Hatchbox
         private
 
         def process_body
-          body = {}
-          MAP.each { |flag, field| body[field] = options[flag] if options.key?(flag) }
+          body = options.fields_for(MAP)
           body["roles"] = options.roles.split(",").map { |role| role.strip }.reject { |role| role.empty? } if options.key?(:roles)
           body["server_id"] = server_id_for(options.server) if options.key?(:server)
           raise Hatchbox::Error, "A process runs on --roles or on one --server, not both." if body.key?("roles") && body.key?("server_id") && body["roles"].any?
@@ -44,9 +43,7 @@ module Hatchbox
         end
 
         def server_id_for(wanted)
-          return wanted if wanted.to_s =~ /\A[0-9]+\z/
-
-          found = app.servers.find { |server| server["name"].to_s.casecmp?(wanted.to_s) }
+          found = app.fleet.match(wanted)
           raise Hatchbox::Error, "No server called #{wanted} on #{label}'s cluster.\n#{app.fleet.listing}" unless found
 
           found["id"]

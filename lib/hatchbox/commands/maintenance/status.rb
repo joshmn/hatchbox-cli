@@ -8,7 +8,7 @@ module Hatchbox
           summary: "display the current maintenance status of an app"
 
         def call
-          puts(formatter.yes_no(app.details["maintenance"]))
+          puts(formatter.on_off(app.details["maintenance"]))
           0
         end
       end

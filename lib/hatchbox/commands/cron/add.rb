@@ -23,8 +23,7 @@ module Hatchbox
           body = cron_body.merge("command" => command)
           usage_error("Must specify --at, when it runs.") if Hatchbox.blank?(body["run_at"])
           body["name"] = command if Hatchbox.blank?(body["name"])
-          row = nil
-          ui.action("Adding #{body["name"]} to #{label}") { row = client.post("/apps/#{app_id}/cron_jobs", body: { "cron_job" => body }).json || {} }
+          row = ui.action("Adding #{body["name"]} to #{label}") { client.post("/apps/#{app_id}/cron_jobs", body: { "cron_job" => body }).json || {} }
           show(row)
           0
         end

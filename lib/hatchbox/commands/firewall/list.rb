@@ -10,7 +10,6 @@ module Hatchbox
           summary: "list a server's firewall rules",
           args: { server: "SERVER" },
           aliases: ["firewall:list"],
-          app: :optional,
           flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call

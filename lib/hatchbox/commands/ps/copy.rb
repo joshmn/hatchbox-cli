@@ -23,7 +23,7 @@ module Hatchbox
           code = nil
           ui.action("Copying #{file} to #{output}") do |step|
             code = Hatchbox.run(argv)
-            step.status = code.zero? ? "done" : ui.paint("failed", code: 31)
+            step.status = code.zero? ? "done" : color.red("failed", io: $stderr)
           end
           code
         end

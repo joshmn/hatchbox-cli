@@ -54,7 +54,7 @@ module Hatchbox
         "#{count} #{word}#{count == 1 ? "" : "s"}"
       end
 
-      def yes_no(value)
+      def on_off(value)
         value ? "on" : "off"
       end
     end

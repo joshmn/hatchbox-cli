@@ -2,11 +2,18 @@
 
 module Hatchbox
   class SshTarget
-    class << self
-      def pinned?(session)
-        return false if session.env.nil?
+    DEFAULT_USER = "deploy"
+    DEFAULT_PORT = "22"
 
-        !session.config.ssh(env: session.env, key: "host").nil?
+    class << self
+      def for(session)
+        new(session: session, server: pinned?(session) ? nil : yield)
+      end
+
+      def pinned?(session)
+        return false if session.remote.nil?
+
+        !session.config.ssh(remote: session.remote, key: "host").nil?
       end
     end
 
@@ -16,11 +23,11 @@ module Hatchbox
       @session = session
       @server = server
       @host = setting("host") || (server ? server["public_ip"].to_s : "")
-      @user = setting("user") || Hatchbox::DEFAULT_SSH_USER
+      @user = setting("user") || DEFAULT_USER
       @port = setting("port") || server_port
       return unless Hatchbox.blank?(host)
 
-      raise Hatchbox::Error, "#{label} has no public IP.\n#{session.config.ssh_hint(env: session.env, key: "host")}"
+      raise Hatchbox::Error, "#{label} has no public IP.\n#{session.config.ssh_hint(remote: session.remote, key: "host")}"
     end
 
     def address
@@ -54,9 +61,9 @@ module Hatchbox
 
     def enter_or_stop
       dir = app_dir
-      raise Hatchbox::Error, "No release directory to run in. #{session.config.ssh_hint(env: session.env, key: "app_dir")}" if Hatchbox.blank?(dir)
+      raise Hatchbox::Error, "No release directory to run in. #{session.config.ssh_hint(remote: session.remote, key: "app_dir")}" if Hatchbox.blank?(dir)
 
-      complaint = "#{dir} is not there, so either nothing is deployed yet or the app lives somewhere else. #{session.config.ssh_hint(env: session.env, key: "app_dir")}"
+      complaint = "#{dir} is not there, so either nothing is deployed yet or the app lives somewhere else. #{session.config.ssh_hint(remote: session.remote, key: "app_dir")}"
       "cd #{Shellwords.escape(dir)} 2>/dev/null || { echo #{Shellwords.escape(complaint)} >&2; exit 1; }"
     end
 
@@ -79,11 +86,11 @@ module Hatchbox
     attr_reader :session
 
     def setting(key)
-      session.config.ssh(env: session.env, key: key)
+      session.config.ssh(remote: session.remote, key: key)
     end
 
     def server_port
-      return Hatchbox::DEFAULT_SSH_PORT if server.nil? || Hatchbox.blank?(server["ssh_port"])
+      return DEFAULT_PORT if server.nil? || Hatchbox.blank?(server["ssh_port"])
 
       server["ssh_port"].to_s
     end

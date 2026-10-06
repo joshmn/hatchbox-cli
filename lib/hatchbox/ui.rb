@@ -4,6 +4,8 @@ module Hatchbox
   module Ui
     PREFIX = " !    "
 
+    Step = Struct.new(:status)
+
     class << self
       def header(text)
         puts(Hatchbox::Color.bold("=== #{text}"))
@@ -12,7 +14,7 @@ module Hatchbox
       def action(message)
         $stderr.print("#{message}... ")
         $stderr.flush
-        step = Hatchbox::Ui::Step.new
+        step = Step.new
         result = yield(step)
         $stderr.puts(step.status || "done")
         result
@@ -22,15 +24,15 @@ module Hatchbox
       end
 
       def error(message)
-        emit(message, code: 31)
+        emit(message, color: :red)
       end
 
       def warning(message)
-        emit(message, code: 33)
+        emit(message, color: :yellow)
       end
 
       def note(message)
-        $stderr.puts(paint(message, code: 90))
+        $stderr.puts(Hatchbox::Color.dim(message, io: $stderr))
       end
 
       def confirm(expected:, supplied:, lines:, prompt:)
@@ -44,16 +46,12 @@ module Hatchbox
         raise Hatchbox::Error, "Confirmation did not match #{expected}. Aborted." unless answer == expected
       end
 
-      def paint(text, code:, io: $stderr)
-        Hatchbox::Color.paint(text, code: code, io: io)
-      end
-
       private
 
-      def emit(message, code:)
+      def emit(message, color:)
         rows = message.to_s.split("\n")
         rows = [""] if rows.empty?
-        rows.each { |row| $stderr.puts(paint("#{PREFIX}#{row}".rstrip, code: code)) }
+        rows.each { |row| $stderr.puts(Hatchbox::Color.public_send(color, "#{PREFIX}#{row}".rstrip, io: $stderr)) }
       end
     end
   end

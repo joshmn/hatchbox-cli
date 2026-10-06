@@ -2,15 +2,7 @@
 
 module Hatchbox
   module Logs
-    class Plan
-      attr_reader :target, :units, :identifiers
-
-      def initialize(target:, units:, identifiers:)
-        @target = target
-        @units = units
-        @identifiers = identifiers
-      end
-
+    Plan = Struct.new(:target, :units, :identifiers, keyword_init: true) do
       def journal(lines:, follow:, since:, units_only:)
         Hatchbox::Logs::Journal.new(
           units: units.keys,

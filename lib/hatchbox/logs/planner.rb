@@ -9,6 +9,10 @@ module Hatchbox
         def run_ident(app:, run_id:)
           "#{app.name}-run-#{run_id}"
         end
+
+        def unit_name(app:, process:)
+          "#{app.name}-#{process["name"]}.service"
+        end
       end
 
       def initialize(session:, run_id:, server:)
@@ -85,7 +89,7 @@ module Hatchbox
       end
 
       def unit(process)
-        "#{app.name}-#{process["name"]}.service"
+        self.class.unit_name(app: app, process: process)
       end
 
       def color(process)

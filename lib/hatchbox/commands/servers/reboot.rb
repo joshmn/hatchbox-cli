@@ -9,7 +9,6 @@ module Hatchbox
         describe "servers:reboot",
           summary: "reboot a server",
           args: { server: "SERVER" },
-          app: :optional,
           flags: [CLUSTER_FLAG, CONFIRM_FLAG, WAIT_FLAG]
 
         def call

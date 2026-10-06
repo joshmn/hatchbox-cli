@@ -5,7 +5,7 @@ module Hatchbox
     module Context
       private
 
-      [:client, :app, :app_id, :config, :env, :prompt].each { |name| define_method(name) { session.public_send(name) } }
+      [:client, :app, :app_id, :config, :prompt].each { |name| define_method(name) { session.public_send(name) } }
 
       { ui: Hatchbox::Ui, printer: Hatchbox::Printer, formatter: Hatchbox::Formatter, color: Hatchbox::Color }.each do |name, helper|
         define_method(name) { helper }
@@ -32,8 +32,7 @@ module Hatchbox
       end
 
       def ssh_target(server: nil)
-        picked = Hatchbox::SshTarget.pinned?(session) ? nil : app.fleet.find_server(server)
-        Hatchbox::SshTarget.new(session: session, server: picked)
+        Hatchbox::SshTarget.for(session) { app.fleet.find_server(server) }
       end
     end
   end

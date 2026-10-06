@@ -11,9 +11,9 @@ module Hatchbox
         end
 
         def targets
-          servers = app.servers.select { |server| server["state"].to_s == "active" }
-          fronts = servers.select { |server| Array(server["roles"]).include?("load_balancer") }
-          fronts = servers.select { |server| Array(server["roles"]).include?("web") } if fronts.empty?
+          fleet = app.fleet
+          fronts = fleet.with_roles(["load_balancer"])
+          fronts = fleet.with_roles(["web"]) if fronts.empty?
           fronts.map { |server| server["public_ip"].to_s }.reject { |ip| ip.empty? }
         rescue Hatchbox::Error
           []

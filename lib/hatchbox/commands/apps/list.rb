@@ -14,33 +14,28 @@ module Hatchbox
         def call
           catalog = session.catalog
           accounts = Hatchbox.blank?(options.team) ? catalog.accounts : [catalog.find_account(options.team)]
-          rows = catalog.entries.select { |row| accounts.any? { |account| same?(account: account, record: row[:account_record]) } }
-          return print_json(rows.map { |row| row[:record].merge("account" => row[:account]) }) if json?
+          grouped = catalog.entries.group_by { |row| row[:account_record]["id"].to_s }
+          groups = accounts.map { |account| [account, grouped.fetch(account["id"].to_s, [])] }.reject { |_account, rows| rows.empty? }
+          return print_json(groups.flat_map { |_account, rows| rows.map { |row| row[:record].merge("account" => row[:account]) } }) if json?
 
           clusters = cluster_names(accounts: accounts, catalog: catalog)
-          shown = 0
-          accounts.each do |account|
-            mine = rows.select { |row| same?(account: account, record: row[:account_record]) }
-            next if mine.empty?
-
-            puts if shown.positive?
+          groups.each_with_index do |(account, rows), index|
+            puts if index.positive?
             ui.header("#{account["name"]} Apps")
-            mine.each { |row| puts("#{row[:name]} (#{clusters[row[:cluster_id]] || "cluster #{row[:cluster_id]}"})") }
-            shown += 1
+            rows.each { |row| puts("#{row[:name]} (#{clusters[row[:cluster_id]] || "cluster #{row[:cluster_id]}"})") }
           end
-          puts("You have no apps.") if shown.zero?
-          catalog.skipped.each { |name, message| ui.warning("Skipped #{name}: #{message}") if accounts.any? { |account| account["name"].to_s == name } }
+          puts("You have no apps.") if groups.empty?
+          accounts.each do |account|
+            message = catalog.skipped[account["id"].to_s]
+            ui.warning("Skipped #{account["name"]}: #{message}") if message
+          end
           0
         end
 
         private
 
-        def same?(account:, record:)
-          account["id"].to_s == record["id"].to_s
-        end
-
         def cluster_names(accounts:, catalog:)
-          usable = accounts.reject { |account| catalog.skipped.key?(account["name"].to_s) }
+          usable = accounts.reject { |account| catalog.skipped.key?(account["id"].to_s) }
           found = Hatchbox.parallel(usable.to_h { |account| [account["id"].to_s, -> { catalog.clusters_for(account) }] })
           found.values.flatten.to_h { |cluster| [cluster["id"].to_s, cluster["name"].to_s] }
         end

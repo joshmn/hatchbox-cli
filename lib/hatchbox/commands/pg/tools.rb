@@ -24,10 +24,10 @@ module Hatchbox
           run_sql(record: postgres(args.database), sql: sql)
         end
 
-        def run_sql(record:, sql:, dangerous: false)
+        def run_sql(record:, sql:)
           with_connection(record) do |database, host, port|
             argv = ["psql", "-X", "-h", host, "-p", port, "-U", database.user, "-d", database.name, "-c", sql]
-            Hatchbox.run(argv, env: pg_environment(database: database, dangerous: dangerous))
+            Hatchbox.run(argv, env: pg_environment(database: database, dangerous: false))
           end
         end
       end

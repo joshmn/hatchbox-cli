@@ -12,8 +12,8 @@ module Hatchbox
         raise Hatchbox::Error, "No remotes for #{config.location}. Add one with hatchbox git:remote." unless config.exists?
 
         ui.header(config.location)
-        current = current_env
-        width = config.envs.map { |name| name.length }.max.to_i
+        current = current_remote
+        width = config.remotes.map { |name| name.length }.max.to_i
         config.apps.each do |name, slug|
           puts("#{name.ljust(width)}  #{slug}#{name == current ? color.green("  (default)") : ""}")
         end
@@ -22,8 +22,8 @@ module Hatchbox
 
       private
 
-      def current_env
-        session.target.env
+      def current_remote
+        session.target.remote
       rescue Hatchbox::Error
         nil
       end

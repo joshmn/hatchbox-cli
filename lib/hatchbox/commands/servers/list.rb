@@ -9,7 +9,6 @@ module Hatchbox
         describe "servers",
           summary: "list the servers in the app's cluster",
           aliases: ["servers:list"],
-          app: :optional,
           flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call

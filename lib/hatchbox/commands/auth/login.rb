@@ -19,8 +19,7 @@ module Hatchbox
         def call
           store = Hatchbox::TokenStore.new(prompt: prompt)
           token = Hatchbox.blank?(options.token) ? store.ask : options.token
-          accounts = []
-          ui.action("Logging in") { accounts = store.verify(token) }
+          accounts = ui.action("Logging in") { store.verify(token) }
           store.save(token)
           puts("Logged in with access to #{formatter.list(accounts.map { |account| account["name"] })}")
           ui.warning("HATCHBOX_API_TOKEN is set in your environment, and it wins over #{store.path} until you unset it.") unless Hatchbox.blank?(ENV["HATCHBOX_API_TOKEN"])

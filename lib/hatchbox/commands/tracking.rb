@@ -3,6 +3,13 @@
 module Hatchbox
   module Commands
     module Tracking
+      RELEASE_KINDS = {
+        "deploy" => Hatchbox::Activity::DEPLOY,
+        "deploys" => Hatchbox::Activity::DEPLOY,
+        "restart" => "Apps::Restart",
+        "restarts" => "Apps::Restart"
+      }.freeze
+
       private
 
       def operation
@@ -53,12 +60,35 @@ module Hatchbox
         1
       end
 
+      def show_log(log, deploy: false)
+        running = !Hatchbox::Operation::FINISHED.include?(log["state"].to_s)
+        return follow_deploy(log["id"]) if running && deploy
+        return operation.stream(log["id"]).ok? ? 0 : 1 if running
+
+        operation.print_log(log)
+        log["state"] == "completed" ? 0 : 1
+      end
+
       def status_for(result)
-        result.ok? ? "done" : ui.paint(result.state.to_s, code: 31)
+        result.ok? ? "done" : color.red(result.state.to_s, io: $stderr)
       end
 
       def resolve_log(wanted, kind: nil)
-        Hatchbox::LogResolver.new(client: client, app_id: app_id, label: label).resolve(wanted, kind: kind)
+        text = wanted.to_s
+        return text if text =~ /\A[0-9]+\z/
+
+        name = Hatchbox.blank?(text) ? kind : RELEASE_KINDS[text]
+        raise Hatchbox::Error, "#{text} is not a release id, deploy or restart. hatchbox releases lists the ids." if !Hatchbox.blank?(text) && name.nil?
+
+        rows = client.get("/apps/#{app_id}/logs?limit=100").json || []
+        found = name ? rows.find { |row| row["name"] == name } : rows.first
+        raise Hatchbox::Error, "#{label} has no #{release_noun(name)} on record." unless found
+
+        found["id"].to_s
+      end
+
+      def release_noun(name)
+        name ? Hatchbox::Activity.humanize(name).downcase : "releases"
       end
     end
   end

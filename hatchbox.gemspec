@@ -6,19 +6,19 @@ require "hatchbox/version"
 Gem::Specification.new do |spec|
   spec.name = "hatchbox"
   spec.version = Hatchbox::VERSION
-  spec.authors = ["Josh"]
+  spec.authors = ["Josh Brody"]
   spec.email = ["git@josh.mn"]
 
   spec.summary = "A Heroku-style command line for Hatchbox."
-  spec.description = "Manage Hatchbox apps, processes, config vars, domains, cron, databases, backups, servers and firewall rules from the terminal, with logs, run and psql over SSH."
-  spec.homepage = "https://github.com/joshdotmn/hatchbox"
+  spec.description = "Manage Hatchbox apps, processes, config vars, domains, cron, databases, backups, servers and firewall rules from the terminal."
+  spec.homepage = "https://github.com/joshmn/hatchbox-cli"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 3.0.0"
 
   spec.metadata["allowed_push_host"] = "https://rubygems.org"
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "https://github.com/joshdotmn/hatchbox"
-  spec.metadata["changelog_uri"] = "https://github.com/joshdotmn/hatchbox/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = "https://github.com/joshmn/hatchbox"
+  spec.metadata["changelog_uri"] = "https://github.com/joshmn/hatchbox/blob/main/CHANGELOG.md"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   gemspec = File.basename(__FILE__)

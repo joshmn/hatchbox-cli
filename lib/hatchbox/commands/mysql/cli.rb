@@ -28,7 +28,7 @@ module Hatchbox
           examples: ["$ hatchbox mysql:cli", "$ hatchbox mysql:cli -c 'select count(*) from users'"]
 
         def call
-          wanted, sql = statement_target(engine: "mysql", sql: options.command.to_s)
+          wanted, sql = statement_target(engine: "mysql", sql: options.command.to_s.sub(/\A=/, ""))
           record = attached(wanted, engines: ["mysql"])
           return print_url(record) if options.url
 

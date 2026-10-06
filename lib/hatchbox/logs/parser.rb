@@ -6,7 +6,6 @@ module Hatchbox
       def initialize(plans:, report:)
         @plans = plans
         @report = report
-        @seen = Hash.new { |hash, key| hash[key] = {} }
         @order = 0
       end
 
@@ -16,10 +15,6 @@ module Hatchbox
         data = JSON.parse(text)
         return marker(index: index, data: data) if data.key?("__hbx")
 
-        cursor = data["__CURSOR"].to_s
-        return nil if !cursor.empty? && seen[index].key?(cursor)
-
-        seen[index][cursor] = true unless cursor.empty?
         build(plan: plans[index], data: data)
       rescue JSON::ParserError
         $stderr.print(text)
@@ -28,7 +23,7 @@ module Hatchbox
 
       private
 
-      attr_reader :plans, :report, :seen
+      attr_reader :plans, :report
 
       def marker(index:, data:)
         report.record(index: index, data: data)

@@ -30,7 +30,7 @@ module Hatchbox
           with_connection(record) do |database, host, port|
             ui.action("Pulling #{record["name"]} into #{target}") do |step|
               code = pipe(database: database, host: host, port: port, target: target)
-              step.status = code.zero? ? "done" : ui.paint("finished with errors", code: 33)
+              step.status = code.zero? ? "done" : color.yellow("finished with errors", io: $stderr)
             end
           end
           code

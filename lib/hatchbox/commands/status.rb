@@ -11,10 +11,7 @@ module Hatchbox
         ui.header("#{label} deploy #{log["id"]}")
         Hatchbox::ReleaseSummary.show(log)
         puts
-        return follow_deploy(log["id"]) unless Hatchbox::FINISHED.include?(log["state"].to_s)
-
-        operation.print_log(log)
-        log["state"] == "completed" ? 0 : 1
+        show_log(log, deploy: true)
       end
     end
   end

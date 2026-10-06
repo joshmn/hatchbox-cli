@@ -15,8 +15,7 @@ module Hatchbox
 
         def named_cluster(wanted)
           catalog = session.catalog
-          pool = catalog.usable_accounts.flat_map { |account| catalog.clusters_for(account) }
-          found = pool.find { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) }
+          found = catalog.find_cluster(wanted, accounts: catalog.usable_accounts)
           raise Hatchbox::Error, "Couldn't find that cluster." unless found
 
           client.get("/clusters/#{found["id"]}").json || {}
@@ -24,12 +23,8 @@ module Hatchbox
 
         def find_server(wanted)
           servers = cluster_record["servers"] || []
-          text = wanted.to_s.downcase
-          exact = servers.find { |server| server["name"].to_s.downcase == text || server["id"].to_s == text }
-          return exact if exact
-
-          near = servers.select { |server| server["name"].to_s.downcase.include?(text) }
-          return near.first if near.length == 1
+          found = Hatchbox::Fleet.new(servers: servers).match(wanted)
+          return found if found
 
           raise Hatchbox::Error, "No server called #{wanted} on #{cluster_record["name"]}.\nServers: #{servers.map { |server| server["name"] }.join(", ")}"
         end

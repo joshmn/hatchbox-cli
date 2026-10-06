@@ -23,7 +23,7 @@ module Hatchbox
         cluster = data["cluster"] || {}
         rows = [
           ["Databases", data["databases"].map { |record| database_line(record) }],
-          ["Auto Deploy", Hatchbox::Formatter.yes_no(data["auto_deploy"])],
+          ["Auto Deploy", Hatchbox::Formatter.on_off(data["auto_deploy"])],
           ["Branch", data["branch"]],
           ["Cluster", "#{cluster["name"]} (#{[cluster["provider"], cluster["region"]].compact.join(" ")})"],
           ["Domains", data["domains"]],
@@ -31,7 +31,7 @@ module Hatchbox
           ["Health Check", data["health_check_uri"]],
           ["Id", data["id"].to_s],
           ["Last Deploy", last_deploy],
-          ["Maintenance", Hatchbox::Formatter.yes_no(data["maintenance"])],
+          ["Maintenance", Hatchbox::Formatter.on_off(data["maintenance"])],
           ["Processes", data["processes"].map { |row| process_line(row) }],
           ["Repo", data["repo_path"]],
           ["Servers", data["servers"].map { |server| "#{server["name"]} (#{Array(server["roles"]).join(", ")})" }],

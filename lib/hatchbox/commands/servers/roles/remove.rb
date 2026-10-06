@@ -11,7 +11,6 @@ module Hatchbox
             summary: "take roles off a server",
             usage: "servers:roles:remove SERVER ROLE [ROLE ...]",
             args: { server: "SERVER", roles: "ROLE..." },
-            app: :optional,
             flags: [CLUSTER_FLAG, DESTRUCTIVE_FLAG, WAIT_FLAG],
             help: ["hatchbox help servers:roles:set lists the roles."]
 

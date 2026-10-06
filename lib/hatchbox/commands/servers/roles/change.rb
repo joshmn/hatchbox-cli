@@ -7,6 +7,7 @@ module Hatchbox
         module Change
           include Hatchbox::Commands::Servers::Lookup
 
+          ROLES = ["app", "web", "worker", "cron", "load_balancer", "postgresql", "mysql", "redis", "memcached", "elasticsearch"].freeze
           DESTRUCTIVE_FLAG = [nil, "--confirm SERVER", "the server's name, to go ahead when it destroys data"].freeze
 
           def call
@@ -18,8 +19,8 @@ module Hatchbox
           private
 
           def apply(server:, roles:)
-            unknown = roles - Hatchbox::ROLES
-            raise Hatchbox::Error, "Unknown roles: #{unknown.join(", ")}. Roles are #{Hatchbox::ROLES.join(", ")}." if unknown.any?
+            unknown = roles - ROLES
+            raise Hatchbox::Error, "Unknown roles: #{unknown.join(", ")}. Roles are #{ROLES.join(", ")}." if unknown.any?
 
             data = submit(server: server, body: { "server" => { "roles" => roles.uniq } })
             added = Array(data["added_roles"])

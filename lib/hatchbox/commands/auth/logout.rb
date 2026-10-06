@@ -8,7 +8,7 @@ module Hatchbox
           summary: "clear the saved API token",
           aliases: ["logout"],
           app: false,
-          help: ["Removes the saved token and any per-remote tokens from ~/.hatchbox."]
+          help: ["Removes the saved token from ~/.hatchbox."]
 
         def call
           store = Hatchbox::TokenStore.new(prompt: prompt)

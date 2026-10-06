@@ -18,7 +18,7 @@ module Hatchbox
     class << self
       attr_reader :meta
 
-      def describe(name, summary:, usage: nil, help: nil, args: {}, flags: [], examples: [], aliases: [], app: true, ssh: nil, hidden: false, lenient: false)
+      def describe(name, summary:, usage: nil, help: nil, args: {}, flags: [], examples: [], aliases: [], app: true, ssh: nil, lenient: false)
         @meta = {
           name: name,
           summary: summary,
@@ -30,7 +30,6 @@ module Hatchbox
           aliases: aliases,
           app: app,
           ssh: ssh,
-          hidden: hidden,
           lenient: lenient
         }
         Hatchbox::Registry.add(self)
@@ -52,11 +51,8 @@ module Hatchbox
 
     def prepare
       usage_error(args.problem) if args.problem
-      return unless meta[:app] == true
-
       wanted = positional_app
       @session = Hatchbox::Session.new(app_flag: wanted, remote_flag: session.remote_flag) if wanted && Hatchbox.blank?(session.app_flag)
-      session.target
     end
 
     private

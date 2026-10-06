@@ -20,8 +20,7 @@ module Hatchbox
             ui.header("Backup #{log["id"]}")
             Hatchbox::ReleaseSummary.show(log)
             puts
-            operation.print_log(log)
-            log["state"] == "completed" ? 0 : 1
+            show_log(log)
           end
 
           private

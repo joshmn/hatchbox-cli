@@ -59,6 +59,7 @@ The `ssh` block is only for when Hatchbox's defaults don't work for you. Command
 
 ## Using it
 
+The 
 ```bash
 hatchbox apps
 hatchbox deploy
@@ -75,7 +76,8 @@ hatchbox releases:rollback
 These behave differently from Heroku:
 
 * Config var values are write-only (the API never returns them), so `config` lists names.
-* `ps:stop` keeps a process off through deploys and restarts until `ps:start` turns it back on.
+  * chris, please.
+* `ps:stop` keeps a process off through deploys and restarts until `ps:start` turns it back on; this is Hatchbox behavior.
 * `rollback` redeploys an older commit, since Hatchbox has no releases to restore.
 * `pg:psql` and `mysql:cli` sessions are read only unless you pass `--dangerous`.
 
@@ -85,9 +87,10 @@ These behave differently from Heroku:
 | --- | --- |
 | `HATCHBOX_API_TOKEN` | overrides the token in `~/.hatchbox` |
 | `HATCHBOX_APP` | app to use when `-a` and `-r` are left off |
+| `HATCHBOX_REMOTE` | remote to use when `-a`, `-r` and `HATCHBOX_APP` are left off |
 | `HATCHBOX_SSH_OPTIONS` | extra ssh flags, like `-i ~/.ssh/hatchbox` |
 | `NO_COLOR` | turns colors off |
-
+d
 ## Contributing
 
 Include your favorite recipe in your hand-rolled PR; I'll ignore it otherwise, sorry.

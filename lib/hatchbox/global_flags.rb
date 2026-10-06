@@ -37,7 +37,7 @@ module Hatchbox
     attr_reader :argv
 
     def take(token:, tokens:)
-      return rest << token if remote_flag?(token)
+      return rest << token if passthrough?(token)
 
       case token
       when "-a", "--app" then @app = value(flag: token, tokens: tokens)
@@ -53,7 +53,7 @@ module Hatchbox
       end
     end
 
-    def remote_flag?(token)
+    def passthrough?(token)
       return false unless token.match?(/\A-[ar]./) && rest.length > 1
 
       command = Hatchbox::Registry.find(rest.first)

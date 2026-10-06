@@ -58,10 +58,10 @@ module Hatchbox
     end
 
     def server_name(server_id)
-      match = servers.find { |server| server["id"].to_s == server_id.to_s }
-      return "server #{server_id}" if match.nil? || Hatchbox.blank?(match["name"])
+      found = fleet.server(server_id)
+      return "server #{server_id}" if found.nil? || Hatchbox.blank?(found["name"])
 
-      match["name"]
+      found["name"]
     rescue Hatchbox::Error
       "server #{server_id}"
     end

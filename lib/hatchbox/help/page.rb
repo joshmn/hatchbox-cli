@@ -22,6 +22,7 @@ module Hatchbox
         "Environment:",
         "  HATCHBOX_API_TOKEN     overrides the token in ~/.hatchbox",
         "  HATCHBOX_APP           app to use when -a and -r are left off",
+        "  HATCHBOX_REMOTE        remote to use when -a, -r and HATCHBOX_APP are left off",
         "  HATCHBOX_SSH_OPTIONS   extra ssh flags, like '-i ~/.ssh/hatchbox'",
         "  NO_COLOR               turns colors off"
       ].freeze

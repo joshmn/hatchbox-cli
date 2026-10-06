@@ -9,7 +9,6 @@ module Hatchbox
         describe "firewall:info",
           summary: "show one firewall rule",
           args: { server: "SERVER", rule: "RULE" },
-          app: :optional,
           flags: [CLUSTER_FLAG, JSON_FLAG]
 
         def call

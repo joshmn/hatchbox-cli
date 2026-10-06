@@ -37,10 +37,9 @@ module Hatchbox
           ]
 
         def call
-          body = {}
-          FIELDS.each { |flag, field| body[field] = expand(options[flag]) if options.key?(flag) }
+          body = options.fields_for(FIELDS).transform_values { |value| expand(value) }
           body["caddyfile"] = caddyfile(options.caddyfile) if options.key?(:caddyfile)
-          body["connected_account_id"] = provider_id(options.git_provider) if options.key?(:git_provider)
+          body["connected_account_id"] = session.catalog.find_git_provider(options.git_provider, account: account)["id"] if options.key?(:git_provider)
           usage_error("Nothing to change. See hatchbox help apps:update.") if body.empty?
           raise Hatchbox::Error, "--health-check must be a relative path like /up." if body.key?("health_check_uri") && !body["health_check_uri"].to_s.start_with?("/")
 
@@ -69,14 +68,6 @@ module Hatchbox
           File.read(path)
         rescue Errno::ENOENT
           raise Hatchbox::Error, "No file at #{path}."
-        end
-
-        def provider_id(wanted)
-          providers = session.catalog.git_providers_for(account)
-          found = providers.select { |row| row["id"].to_s == wanted.to_s || row["name"].to_s.casecmp?(wanted.to_s) || "#{row["provider"]}:#{row["name"]}".casecmp?(wanted.to_s) }
-          return found.first["id"] if found.length == 1
-
-          raise Hatchbox::Error, (["#{wanted} doesn't match exactly one git provider. Use provider:name or the id:"] + providers.map { |row| "#{row["provider"]}:#{row["name"]} (#{row["id"]})" }).join("\n")
         end
 
         def summary(key:, value:)

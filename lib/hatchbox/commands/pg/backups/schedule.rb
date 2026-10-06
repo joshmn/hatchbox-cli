@@ -49,8 +49,7 @@ module Hatchbox
 
           def call
             record = one_database
-            body = {}
-            FIELDS.each { |flag, field| body[field] = options[flag] if options.key?(flag) }
+            body = options.fields_for(FIELDS)
             usage_error("Nothing to change. Pass at least one setting, like --at or --provider.") if body.empty?
             raise Hatchbox::Error, "#{body["backup_provider"]} is not a provider Hatchbox takes: #{PROVIDERS.join(", ")}." if body.key?("backup_provider") && !PROVIDERS.include?(body["backup_provider"])
 
