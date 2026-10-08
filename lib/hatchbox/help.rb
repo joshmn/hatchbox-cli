@@ -19,6 +19,7 @@ module Hatchbox
       "firewall" => "manage a server's firewall rules",
       "git" => "save apps as remotes for this repo, list git providers",
       "mysql" => "open a mysql shell to the app's MySQL database",
+      "plugins" => "install and uninstall plugins that add commands",
       "redis" => "open a redis-cli session to the app's Redis",
       "remotes" => "list the remotes saved for this repo",
       "scripts" => "list the runs of custom scripts",
@@ -27,6 +28,14 @@ module Hatchbox
     }.freeze
 
     class << self
+      def add_topic(name, summary:)
+        topics[name] ||= summary
+      end
+
+      def topics
+        @topics ||= TOPICS.dup
+      end
+
       def root
         puts("Usage: hatchbox COMMAND [--app APP] [command-specific-options]")
         puts

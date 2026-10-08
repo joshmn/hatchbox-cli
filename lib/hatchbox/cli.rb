@@ -25,6 +25,7 @@ module Hatchbox
     end
 
     def call
+      Hatchbox::Plugins.load
       flags = Hatchbox::GlobalFlags.new(argv).parse
       rest = flags.rest
       name = rest.shift
@@ -36,12 +37,26 @@ module Hatchbox
 
       command = Hatchbox::Registry.find(name)
       unknown(name) unless command
-      command.call(session: Hatchbox::Session.new(app_flag: flags.app, remote_flag: flags.remote), argv: rest)
+      dispatch(command: command, session: Hatchbox::Session.new(app_flag: flags.app, remote_flag: flags.remote), argv: rest)
     end
 
     private
 
     attr_reader :argv
+
+    def dispatch(command:, session:, argv:)
+      code = command.call(session: session, argv: argv)
+      return code if code.is_a?(Integer)
+
+      code == false ? 1 : 0
+    rescue Hatchbox::Error, Errno::EPIPE
+      raise
+    rescue StandardError => e
+      source = Hatchbox::Registry.source_of(command)
+      raise unless source
+
+      raise Hatchbox::Error, "#{command.meta[:name]} crashed in the #{source} plugin: #{e.class}: #{e.message}\n#{Array(e.backtrace).first}"
+    end
 
     def help(name)
       Hatchbox.blank?(name) ? Hatchbox::Help.root : Hatchbox::Help.show(name)

@@ -2,6 +2,8 @@
 
 module Hatchbox
   class GlobalFlags
+    SWITCHES = ["-a", "--app", "-r", "--remote", "-h", "--help", "--version"].freeze
+
     attr_reader :app, :remote, :rest
 
     def initialize(argv)

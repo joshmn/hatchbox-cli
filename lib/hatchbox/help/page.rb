@@ -24,6 +24,8 @@ module Hatchbox
         "  HATCHBOX_APP           app to use when -a and -r are left off",
         "  HATCHBOX_REMOTE        remote to use when -a, -r and HATCHBOX_APP are left off",
         "  HATCHBOX_SSH_OPTIONS   extra ssh flags, like '-i ~/.ssh/hatchbox'",
+        "  HATCHBOX_PLUGINS       more plugins to load, comma-separated",
+        "  HATCHBOX_NO_PLUGINS    skips every plugin",
         "  NO_COLOR               turns colors off"
       ].freeze
 
@@ -33,8 +35,8 @@ module Hatchbox
             command(command)
           else
             puts("Usage: hatchbox #{topic}:COMMAND")
-            puts
-            puts(" #{Hatchbox::Help::TOPICS[topic]}") if Hatchbox::Help::TOPICS[topic]
+            summary = Hatchbox::Help.topics[topic]
+            lines([summary]) if summary
           end
           others = Hatchbox::Help.members(topic).reject { |klass| klass == command }
           return if others.empty?
@@ -69,6 +71,8 @@ module Hatchbox
           puts("Usage: hatchbox #{meta[:usage]}")
           puts
           puts(" #{meta[:summary]}")
+          source = Hatchbox::Registry.source_of(command)
+          puts(" from the #{Hatchbox.tilde(source)} plugin") if source
           flags = (meta[:app] ? Hatchbox::Command::APP_FLAGS.map { |spec| Hatchbox::Flag.new(spec) } : []) + meta[:flags]
           return if flags.empty?
 

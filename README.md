@@ -1,8 +1,6 @@
 # hatchbox
 
-A Heroku-style command line for [Hatchbox](https://hatchbox.io). If your fingers remember how to use the `heroku` CLI, you'll feel at home.
-
-It talks to the Hatchbox API for everything the API covers (apps, processes, config vars, domains, cron, databases, backups, servers, firewall rules) and goes over SSH for the things it doesn't, like `logs`, `run` and `psql`.
+A Heroku-style command line for [Hatchbox](https://hatchbox.io). If your body remember how to use the `heroku` CLI, you'll feel at home.
 
 ## Installation
 
@@ -14,7 +12,7 @@ Cool.
 
 ## Logging in
 
-Hatchbox has no password login for its API, so you need a token. Make one at https://hatchbox.io/api_tokens and then:
+Hatchbox has no password login for its API. Make one at https://hatchbox.io/api_tokens and then:
 
 ```bash
 hatchbox login
@@ -22,19 +20,13 @@ hatchbox login
 
 ## Pointing a repo at an app
 
-From inside the repo:
+From inside a repo:
 
 ```bash
 hatchbox setup
 ```
 
-will pull all your apps and guess which one matches your git remotes. The guess goes at the top of the list, so hit enter to take it, or type a number, id or name to pick something else.
-
-`setup` is an alias for `git:remote`, so this works too:
-
-```bash
-hatchbox git:remote
-```
+will pull all your apps and guess which one matches your git remotes.
 
 ## Everything goes in `~/.hatchbox`
 
@@ -55,11 +47,14 @@ Everything is keyed with one entry per repo (per the repo's path) with its remot
 }
 ```
 
-The `ssh` block is only for when Hatchbox's defaults don't work for you. Commands marked `(ssh)` in `hatchbox help` are the ones that use it.
+You shouldn't need to touch this unless you use a jumpbox.
 
 ## Using it
 
-The 
+Auto-generated docs from the CLI are in [docs](/docs).
+
+The ones you'll use most often:
+
 ```bash
 hatchbox apps
 hatchbox deploy
@@ -71,6 +66,8 @@ hatchbox pg:psql
 hatchbox releases:rollback
 ```
 
+(Chris: I need `config:unset` and `config`)
+
 ## Kind of important differences
 
 These behave differently from Heroku:
@@ -81,16 +78,56 @@ These behave differently from Heroku:
 * `rollback` redeploys an older commit, since Hatchbox has no releases to restore.
 * `pg:psql` and `mysql:cli` sessions are read only unless you pass `--dangerous`.
 
-## Environment
+## Plugins
 
-| Variable | What it does |
-| --- | --- |
-| `HATCHBOX_API_TOKEN` | overrides the token in `~/.hatchbox` |
-| `HATCHBOX_APP` | app to use when `-a` and `-r` are left off |
-| `HATCHBOX_REMOTE` | remote to use when `-a`, `-r` and `HATCHBOX_APP` are left off |
-| `HATCHBOX_SSH_OPTIONS` | extra ssh flags, like `-i ~/.ssh/hatchbox` |
-| `NO_COLOR` | turns colors off |
-d
+A plugin adds commands, and is a poorly documented feature because I don't know if anyone will use it; perhaps someone will make a sql suite:
+
+```bash
+hatchbox plugins:install hatchbox-acme
+hatchbox plugins:install ./script/hatchbox_commands.rb
+```
+
+```json
+{
+  "plugins": ["hatchbox-acme", "/Users/joshmn/code/rails/hehestreams/script/hatchbox_commands.rb"]
+}
+```
+
+To get rid of one:
+
+```bash
+hatchbox plugins:uninstall hatchbox-acme
+```
+
+A plugin that won't load (syntax error, the dog is outside, whatever) gets a warning and everything else keeps working. It's also boring-ass Ruby class running with your API token.
+
+### Writing one
+
+A command is a class that inherits from `Hatchbox::Command` and calls `describe`. This one adds `hatchbox console`:
+
+```ruby
+require "hatchbox"
+
+module AcmeHatchbox
+  class Console < Hatchbox::Command
+    describe "console",
+      summary: "open a rails console on one of the app's servers",
+      ssh: :shell,
+      flags: [SERVER_FLAG, [nil, "--sandbox", "roll back any changes when the console exits"]],
+      examples: ["$ hatchbox console --sandbox", "Opening a console on hehestreams ..."]
+
+    def call
+      target = ssh_target(server: options.server)
+      rails = options.sandbox ? "exec bin/rails console --sandbox" : "exec bin/rails console"
+      ui.action("Opening a console on #{label}") { |step| step.status = "up, #{target.label}" }
+      Hatchbox.run(target.ssh(command: target.login_shell("#{target.enter_or_stop}\n#{rails}"), tty: true))
+    end
+  end
+end
+```
+
+Please see the other commands for inspiration: [lib/hatchbox/commands](lib/hatchbox/commands)
+
 ## Contributing
 
 Include your favorite recipe in your hand-rolled PR; I'll ignore it otherwise, sorry.

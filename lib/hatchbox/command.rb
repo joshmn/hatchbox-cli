@@ -19,13 +19,17 @@ module Hatchbox
       attr_reader :meta
 
       def describe(name, summary:, usage: nil, help: nil, args: {}, flags: [], examples: [], aliases: [], app: true, ssh: nil, lenient: false)
+        switches = flags.map { |spec| Hatchbox::Flag.new(spec) }
+        clashing = switches.select { |flag| flag.global? }
+        raise Hatchbox::Error, "#{name} can't define #{clashing.map { |flag| flag.label.strip }.join(" or ")}, since hatchbox reads those itself." if clashing.any?
+
         @meta = {
           name: name,
           summary: summary,
           usage: usage || ([name] + args.values).join(" "),
           help: help,
           args: args.map { |key, text| Hatchbox::Arguments::Spec.new(name: key, text: text) },
-          flags: flags.map { |spec| Hatchbox::Flag.new(spec) },
+          flags: switches,
           examples: examples,
           aliases: aliases,
           app: app,
@@ -36,6 +40,8 @@ module Hatchbox
       end
 
       def call(session:, argv:)
+        raise Hatchbox::Error, "#{name} never called describe, so it can't run." unless meta
+
         command = new(session: session, argv: argv)
         command.prepare
         command.call
