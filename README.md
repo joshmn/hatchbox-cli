@@ -1,6 +1,6 @@
 # hatchbox
 
-A Heroku-style command line for [Hatchbox](https://hatchbox.io). If your body remember how to use the `heroku` CLI, you'll feel at home.
+A Heroku-style command line for [Hatchbox](https://hatchbox.io/?utm_source=hatchbox-cli). If your body remember how to use the `heroku` CLI, you'll feel at home.
 
 ## Installation
 
