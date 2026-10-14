@@ -66,14 +66,10 @@ hatchbox pg:psql
 hatchbox releases:rollback
 ```
 
-(Chris: I need `config:unset` and `config`)
-
 ## Kind of important differences
 
 These behave differently from Heroku:
 
-* Config var values are write-only (the API never returns them), so `config` lists names.
-  * chris, please.
 * `ps:stop` keeps a process off through deploys and restarts until `ps:start` turns it back on; this is Hatchbox behavior.
 * `rollback` redeploys an older commit, since Hatchbox has no releases to restore.
 * `pg:psql` and `mysql:cli` sessions are read only unless you pass `--dangerous`.
